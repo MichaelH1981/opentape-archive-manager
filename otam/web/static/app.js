@@ -3,6 +3,7 @@ import {
   $$,
   esc,
   short,
+  newId,
   bytes,
   num,
   date,
@@ -178,7 +179,7 @@ function downloadSelection() {
 async function targetDialog(ident = "") {
   const r = await api("/replication");
   const t = r.targets.find((v) => v.id === ident) || {
-    id: crypto.randomUUID(),
+    id: newId(),
     label: "",
     kind: "catalog",
     address: "",

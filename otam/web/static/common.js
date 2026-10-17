@@ -8,6 +8,17 @@ const esc = (v) =>
         c
       ],
   );
+// getRandomValues remains available on explicitly configured internal HTTP origins.
+const newId = () => {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const value = crypto.getRandomValues(new Uint8Array(16));
+  value[6] = (value[6] & 15) | 64;
+  value[8] = (value[8] & 63) | 128;
+  const hex = Array.from(value, (v) => v.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
 const short = (v) => String(v || "").slice(0, 8);
 const bytes = (n, prec = 1) => {
   n = Number(n || 0);
@@ -111,6 +122,7 @@ export {
   $$,
   esc,
   short,
+  newId,
   bytes,
   num,
   date,

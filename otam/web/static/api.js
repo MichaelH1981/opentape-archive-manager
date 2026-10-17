@@ -3,6 +3,7 @@ import {
   $$,
   esc,
   short,
+  newId,
   bytes,
   num,
   date,
@@ -55,7 +56,7 @@ async function api(path, options = {}) {
 async function enqueue(kind, payload) {
   const result = await api("/commands", {
     method: "POST",
-    headers: { "Idempotency-Key": crypto.randomUUID() },
+    headers: { "Idempotency-Key": newId() },
     body: JSON.stringify({ kind, payload }),
   });
   toast(`${kindLabel(kind)} wurde in die Warteschlange aufgenommen.`);
