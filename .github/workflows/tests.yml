@@ -4,16 +4,29 @@ permissions:
   contents: read
 jobs:
   simulator:
-    runs-on: ubuntu-latest
+    # Full workflows require a locally verifiable persistent staging filesystem.
+    # Hosted Linux virtual disks are deliberately rejected by that safety policy.
+    runs-on: macos-15
     strategy:
+      fail-fast: false
       matrix:
         python: ['3.11', '3.13']
-    env:
-      TMPDIR: /var/tmp
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
       - name: Run simulator tests (no tape hardware)
         run: python -m unittest discover -v
+  linux-storage-policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Check Linux storage policy with synthetic device trees
+        run: >-
+          python -m unittest -v
+          tests.test_staging.Staging.test_linux_local_block_chain_rejects_network_and_opaque_devices
+          tests.test_staging.Staging.test_network_unknown_and_ram_filesystems_rejected
