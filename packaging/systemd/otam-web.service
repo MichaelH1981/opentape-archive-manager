@@ -1,0 +1,28 @@
+[Unit]
+Description=OTAM authenticated archive or catalog web service
+After=network.target
+
+[Service]
+Type=simple
+User=otam
+Group=otam
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TMPDIR=/var/lib/otam/tmp
+ExecStart=/opt/otam/venv/bin/otam serve --config /etc/otam/node.json
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/otam
+PrivateDevices=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

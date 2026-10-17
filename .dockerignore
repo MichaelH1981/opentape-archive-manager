@@ -1,0 +1,10 @@
+.git
+.venv
+.otam
+__pycache__
+**/__pycache__
+*.pyc
+docs/hardware
+.env*
+**/node.json
+**/peer.key

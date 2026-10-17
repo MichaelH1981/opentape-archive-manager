@@ -1,6 +1,6 @@
 # Was OTAM derzeit kann
 
-Stand: Version 0.2.0, Phase-1-Preview. OTAM ist ein ausführbarer Python-Archivierungskern mit CLI und persistentem Bandsimulator. Er ist noch kein produktiv freigegebenes LTO-Archivsystem. Eine Weboberfläche existiert noch nicht.
+Stand: Version 0.3.0. OTAM umfasst einen Python-Archivierungskern mit CLI und persistentem Bandsimulator, eine responsive Weboberfläche, eine REST-API, einen separaten Worker und einen eigenständigen Katalogdienst. Eine produktive physische LTO-Abnahme steht aus.
 
 ## Implementiert und automatisiert geprüft
 
@@ -38,7 +38,7 @@ SQLite protokolliert den Ablauf dauerhaft. Quelldateien bleiben erhalten. Ein Fe
 
 - Realer LTO-Schreib-/Leseadapter mit mt-st und mbuffer; sichere Positionierung, Filemarks, EOD/EOM und physischer Testband-Zyklus.
 - Geführte Mehrbandplanung und Medienwechsel, umfassende Suchfilter und Medienverwaltung.
-- Webdashboard, REST-API, Hintergrund-Worker und systemd-Service.
+- Tatsächliche Installation und Betriebsabnahme auf Bandserver und Proxmox-/NAS-Zielumgebung. Webdashboard, REST-API, Worker und Servicevorlagen sind implementiert.
 - TapeAlert/Gesundheitsansichten, Rotation mit Aufbewahrungsregeln, vollständige System-Snapshots und Verschlüsselung.
 - ACLs, xattrs, Links, leere Verzeichnisse und vollständige Linux-Systemmetadaten gehören noch nicht zum Dateiarchivierungsumfang.
 
@@ -53,3 +53,7 @@ python3 -m unittest discover -v
 ```
 
 Der [vollständige Simulatorzyklus](usage.md) zeigt Planung, Staging, Archivierung, Suche und Restore. Weitere Details: [Architektur](architecture/overview.md), [Entwicklungsplan](architecture/plan.md), [Disaster Recovery](disaster-recovery.md).
+
+## Modulare Weboberfläche
+
+[Bedienung und Installation](web.md), [Konfiguration und API](web-configuration.md), [Datenhoheit und Replikation](architecture/modular-web.md). Planung, Staging, bestätigte Archivierung, Dateikatalog, Restore, Integrität und Synchronisation sind integriert. Der eigenständige Katalog besitzt keine Hardware-Schreibfähigkeiten und veröffentlicht nur validierte Snapshots seines festgelegten Herausgebers.

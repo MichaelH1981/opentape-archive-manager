@@ -30,3 +30,5 @@ Feste Sicherheitsgrenzen v1: 5 % Kapazitätsreserve; 32 MiB Manifest; 1 MiB I/O-
 Alle temporären Daten können vertrauliche Inhalte enthalten. Quelle nur lesbar einbinden; Arbeitsverzeichnis und Spool dem dedizierten Benutzer zuweisen, z.B. mit umask 077 starten. Datei-Hashes und Inventar liegen als Klartext in Datenbank und Manifest. Keine Schlüssel in Konfigurationsdateien.
 
 Details zu Wiederaufnahme, Cleanup, Lokalitätsprüfung und Leistungsabnahme: [Staging](staging.md). Der reale mbuffer-/nst-Adapter bleibt gesperrt; dessen geplante Konfiguration ist noch nicht aktiv.
+
+Die optionale Web-/Worker-Konfiguration und die eigenständige Katalogrolle sind in [Web-Konfiguration](web-configuration.md) und [Installation/Betrieb](web.md) beschrieben. Die lokalen SQLite-Dateien des Bandservers und Katalogcontainers werden nicht als Netzwerkdatei gemeinsam geöffnet.

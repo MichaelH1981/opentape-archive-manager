@@ -16,7 +16,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Run simulator tests (no tape hardware)
+      - name: Install optional web runtime from lockfile
+        run: python -m pip install -r packaging/requirements-web.lock
+      - name: Run core, web and replication tests (no tape hardware)
         run: python -m unittest discover -v
   linux-storage-policy:
     runs-on: ubuntu-24.04
@@ -25,8 +27,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Check Linux storage policy with synthetic device trees
+      - name: Install optional web runtime from lockfile
+        run: python -m pip install -r packaging/requirements-web.lock
+      - name: Check Linux storage policy and standalone replication
         run: >-
           python -m unittest -v
           tests.test_staging.Staging.test_linux_local_block_chain_rejects_network_and_opaque_devices
           tests.test_staging.Staging.test_network_unknown_and_ram_filesystems_rejected
+          tests.test_web.WebAcceptance.test_authentication_csrf_origin_and_host
+          tests.test_web.WebAcceptance.test_snapshot_authentication_replay_identity_and_idempotence
+          tests.test_web.WebAcceptance.test_snapshot_validates_schema_and_recovers_orphan_publication
+          tests.test_web.WebAcceptance.test_queue_is_durable_idempotent_and_interrupts_without_retry

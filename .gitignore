@@ -12,3 +12,9 @@ docs/hardware/*
 demo/
 .env
 .env.*
+# Node credentials and local runtime databases
+**/node.json
+**/peer.key
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

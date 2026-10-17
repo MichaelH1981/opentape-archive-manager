@@ -46,3 +46,9 @@ Die Suite enthält jetzt 50 Tests. Zusätzlich geprüft: persistente Phasen, sch
 - Reale mbuffer-/nst-Integration und Puffer-/Positionierungs-Telemetrie bleiben Teil der gesonderten physischen Abnahme. Keine Bandzugriffe oder produktiven Quelldatenänderungen.
 
 Für Tests auf Linux kann OTAM_TEST_TMPDIR ein neues Testverzeichnis auf lokalem persistentem Dateisystem vorgeben. Standard ist /var/tmp; /tmp kann tmpfs sein und ist kein Staging-Ersatz.
+
+## Web- und Standalone-Katalog-Abnahme (Version 0.3)
+
+Mit installierter Web-Laufzeit umfasst die Suite 70 Tests. Auf dem Debian-Archivserver bestanden alle 70 in einer eigens angelegten und anschließend entfernten Umgebung unter /var/tmp; keine Systeminstallation und keine Bandzugriffe. Auf macOS wird der Linux-O_DIRECT-Test übersprungen. Neue Tests prüfen HTTP-Archivzyklus, authentifizierte Rollen/CSRF/Origin/Host, durable/idempotente Queue, Workerexklusivität, Filter/Pagination/Kopien, sichere Exporte, Restore ohne Überschreiben, vollständige Snapshotvalidierung/Replay/Orphan-Recovery, NAS-Zielmarker und ausdrücklich bestätigte Staging-Nachprüfung.
+
+Zusätzliche manuelle Browserabnahme: Planung und lokales Staging per Formular, bestätigter Simulator-Archivjob, Dateisuche/Auswahl und erfolgreicher Einzeldatei-Restore; unabhängige Catalog-Node-Weboberfläche nach tatsächlichem Stoppen von Archive-Webdienst und Worker weiterhin durchsuchbar. Zwei Archivkopien derselben Datei wurden am eigenständigen Node angezeigt. Responsive Prüfung im In-App-Browser auf Desktop- und Mobilbreiten; dies ersetzt keine tatsächliche iPhone-Geräteabnahme. Der Container-Imagebau und die reale Proxmox-/NAS-Installation sind mangels vorhandener Zielumgebung nicht abgenommen.

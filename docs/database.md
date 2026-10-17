@@ -24,3 +24,9 @@ Medienzustände im Entwurf: UNKNOWN, TESTING, READY, IN_USE, FULL, ARCHIVED, SUS
 Archivzustände: WRITING, VERIFIED, INCOMPLETE, SUSPECT. Jobzustände: PLANNING, PLANNED, STAGED, RUNNING, VERIFIED, FAILED, INTERRUPTED. STAGED ist kein Backup-Erfolg. jobs.phase und staged_archives.phase speichern INVENTORY, STAGING, VALIDATION, READY, TAPE_WRITE, TAPE_READBACK, VERIFIED, STAGING_CLEANUP; phase.state unterscheidet RUNNING/COMPLETE/FAILED/INTERRUPTED. Kein Write gilt als Erfolg ohne Rücklesung. Ein fehlgeschlagener Gesamtjob kann bereits verifizierte Teilarchive besitzen; sein report_json führt diese ausdrücklich auf. Bei Vollprüffehler werden bisherige Katalogarchive des Mediums konservativ SUSPECT, kein alter Erfolg wird als aktuelle Gesundheit ausgegeben.
 
 Migration 1→2 erhält vorhandene Medien/Archive/Jobs. Noch nicht ausgeführte alte Pläne erhalten ihre INVENTORY-Datensätze beim Laden. schema_version im JSON-Export ist 2; Bandformat bleibt unverändert otam-pax-v1.
+
+## Web-Steuerdaten und Replikate
+
+Version 0.3 hält die Websteuerung bewusst außerhalb des Primärkatalogs in `state/control.sqlite` (eigenes Schema Version 1): commands (persistente Queue/Idempotency), sessions (nur Token-Hashes/CSRF/Ablauf), attempts (Anmeldebegrenzung), resources (lokale Medienzuordnung), settings (Worker-Heartbeat, Sequenz und aktive Snapshot-Referenz) und sync_log (Übertragungsnachweise). Diese Datei ist keine gemeinsam über Netzwerk geöffnete Datenbank.
+
+Die Kataloginstanz öffnet ausschließlich vollständig validierte unveränderliche Snapshot-Dateien im Lesemodus. Die aktive Referenz wird atomar in ihrer eigenen Steuerdatenbank gewechselt. Primärkatalog, Steuerdatenbank und geschützte Konfiguration separat sichern; ein alter Ausgangssequenzstand darf einen neueren Empfängerkatalog nicht überschreiben. Details in der [modularen Architektur](architecture/modular-web.md).

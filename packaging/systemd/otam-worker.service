@@ -1,0 +1,33 @@
+[Unit]
+Description=OTAM durable archive and catalog synchronization worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=otam
+Group=otam
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TMPDIR=/var/lib/otam/tmp
+ExecStart=/opt/otam/venv/bin/otam worker --config /etc/otam/node.json
+Restart=on-failure
+RestartSec=5
+# Graceful stop finishes an active operation; no timed SIGKILL during tape I/O.
+TimeoutStopSec=infinity
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/otam
+# Add explicitly configured staging, restore and NAS paths using a drop-in.
+# Sources remain read-only under ProtectSystem; grant the service user read access.
+PrivateDevices=true
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

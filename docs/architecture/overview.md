@@ -1,6 +1,6 @@
 # OTAM – Architekturentscheidung (2026-10-17)
 
-Status: Phase 0 einschließlich lesender Server- und Skriptaufnahme dokumentiert; physische Bandabnahme ausstehend. Phase 1 wird zunächst ausschließlich gegen einen persistenten Simulator implementiert. Keine Freigabe für produktive Medien.
+Status: Phase 0 einschließlich lesender Server- und Skriptaufnahme dokumentiert. Archivierungskern und modulare Web-/Katalogdienste sind gegen den persistenten Simulator implementiert. Physische Bandabnahme und produktiver LTO-Betrieb stehen aus.
 
 ## Bestand und Grenzen
 Die Entwicklung und die Simulatorprüfung erfolgen auf macOS und Linux. Eine lesende Serveraufnahme bestätigte Debian 13.7, Kernel 6.12.111, Python 3.13.5, GNU tar 1.35, mt-st 1.8 und mbuffer R20241007. Das IBM ULT3580-HH4 wurde zwischenzeitlich am SAS-HBA erkannt. Die Geräteanwesenheit ist veränderlich und wird vor späteren Hardwareaktionen erneut geprüft. Eine physische Bandabnahme und die Validierung von Filemarks, Positionierung und EOM stehen aus. Die bestehende SSD zeigte schwankenden Lesedurchsatz; ein zusätzlicher USB-HDD-Test ergab zonenabhängige Raten und Transport-Timeouts. Diese Befunde sind keine abgeschlossene SATA-Fehlerdiagnose. Private Netzwerk-/Gerätedetails und Rohprotokolle bleiben lokal. Siehe [Hardware-Abnahme](../hardware/README.md).
@@ -25,9 +25,11 @@ Phase 1 archiviert reguläre Dateiinhalte, Pfade, Größen und mtime. Links, Ger
 ## Erweiterungspunkte
 Phase 2: mehrere Medien, geführte Wechsel, größere Kataloge, Filter, Katalogimport und selektiver Restore. Basisfunktionen können in Phase 1 vorgezogen werden. Medienklassen und Metadaten sind bereits im Schema vorgesehen.
 
-Phase 3: lokaler HTTP-Dienst mit REST /api/v1, serverseitigem Job-Worker und responsiven Ansichten (Dashboard, Medien, Archive, Suche, Jobs, Restore, Prüfungen, Hardware, Einstellungen, Logs). Bind 127.0.0.1; andere interne IP nur explizit. Vor Mutationsendpunkten Authentifizierung, CSRF-/Origin-Schutz und Planbestätigung; kein beliebiger Shellzugriff. Fortschritt wird in SQLite gespeichert; polling/SSE, Safari ohne Spezial-APIs. systemd ohne root; nur erforderliche Tape-Geräte, keine Telemetrie.
+Phase 3 (Webmodule in Version 0.3 implementiert; Betriebsabnahme ausstehend): lokaler HTTP-Dienst mit REST /api/v1, serverseitigem Job-Worker und responsiven Ansichten (Dashboard, Medien, Archive, Suche, Jobs, Restore, Prüfungen, Hardware, Einstellungen, Logs). Bind 127.0.0.1; andere interne IP nur explizit. Vor Mutationsendpunkten Authentifizierung, CSRF-/Origin-Schutz und Planbestätigung; kein beliebiger Shellzugriff. Fortschritt wird in SQLite gespeichert; polling/SSE, Safari ohne Spezial-APIs. systemd ohne root; nur erforderliche Tape-Geräte, keine Telemetrie.
 
 Phase 4: TapeAlert/LOG SENSE via etablierte Tools (z.B. sg_logs/smartctl; verfügbarkeitsabhängig), Retention-Vorschläge mit separater destruktiver Freigabe, System-Snapshots, Berichte, Verschlüsselung. Hashes beziehen sich auf Klartextdateien und archivierten Bytestrom; encryption descriptor speichert Verfahren/Version/Key-ID, niemals Schlüssel. Schlüssel und Wiederherstellungswerkzeuge separat sichern. Öffentliches Medieninventar und optional verschlüsseltes Detailmanifest getrennt spezifizieren. LTO-Hardwareverschlüsselung erst nach capability-Abfrage und Restore-Test.
 
 ## Lizenz
 Neue OTAM-Dateien unter MIT (LICENSE). Keine fremden Projektquellen übernommen. Aufrufe separater GNU-Werkzeuge und deren eigene Lizenzen dokumentieren; bei späterer Übernahme von AGPL-Code Lizenzentscheidung neu treffen.
+
+Die modulare Web-/Worker-/Katalogarchitektur und die gerichtete Snapshot-Replikation werden durch [ADR Modulare Webanwendung](modular-web.md) konkretisiert. Der ursprüngliche Entwurf ist damit für diese Module implementiert; reale Bandabnahme und Proxmox-/NAS-Betrieb bleiben getrennte Abnahmeschritte.
