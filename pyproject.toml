@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opentape-archive-manager"
+version = "0.2.0"
+description = "Safety-first open tape archive orchestration (simulator preview)"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = []
+
+[project.scripts]
+otam = "otam.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["otam*"]

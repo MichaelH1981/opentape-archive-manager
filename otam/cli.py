@@ -1,0 +1,148 @@
+"""CLI adapter. No physical tape mutation commands are exposed."""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sqlite3
+import tarfile
+import sys
+from pathlib import Path
+from typing import Any
+
+from .catalog import Catalog
+from .common import SafetyError
+from .hardware import discover
+from .service import ArchiveService
+from .tape import SimulatedTape
+from .storage import require_local
+from .benchmark import run_benchmark
+
+
+def parser() -> argparse.ArgumentParser:
+    cli = argparse.ArgumentParser(description="OTAM simulator preview; real tape writes disabled")
+    cli.add_argument("--db", type=Path, default=Path(".otam/catalog.sqlite"))
+    sub = cli.add_subparsers(dest="command", required=True)
+    sub.add_parser("doctor", help="Read-only environment inventory; does not open tape devices")
+    create = sub.add_parser("init-sim", help="Create a NEW simulator directory, never a physical tape")
+    create.add_argument("medium", type=Path)
+    create.add_argument("--label", default="Test medium")
+    create.add_argument("--capacity", type=int, default=800_000_000_000, help="Native bytes")
+    create.add_argument("--class", dest="media_class", choices=("permanent", "rotation"), default="permanent")
+    register = sub.add_parser("register-sim", help="Read and register an existing simulator header")
+    register.add_argument("medium", type=Path)
+    plan = sub.add_parser("plan")
+    plan.add_argument("medium", type=Path)
+    plan.add_argument("source", type=Path)
+    plan.add_argument("--media-id", required=True)
+    plan.add_argument("--target", type=int, default=75_000_000_000, help="Target archive size in bytes")
+    backup = sub.add_parser("backup")
+    backup.add_argument("medium", type=Path)
+    backup.add_argument("job_id")
+    backup.add_argument("--confirm", required=True, help="Reviewed job ID; simulator only")
+    backup.add_argument("--staging", "--spool", dest="spool", type=Path, default=Path(".otam/staging"))
+    backup.add_argument("--resume", action="store_true", help="Explicit recovery after full media/position recheck")
+    backup.add_argument("--prepare-all", action="store_true", help="Prepare all archives before the first write")
+    stage = sub.add_parser("stage", help="Prepare all TARs locally without accessing the tape")
+    stage.add_argument("job_id")
+    stage.add_argument("--staging", "--spool", dest="spool", type=Path, default=Path(".otam/staging"))
+    status = sub.add_parser("staging-status")
+    status.add_argument("--staging", required=True, type=Path)
+    status.add_argument("--job-id")
+    bench = sub.add_parser("staging-benchmark", help="Read-only long Linux direct-I/O test of an existing staging file")
+    bench.add_argument("--staging", required=True, type=Path)
+    bench.add_argument("--file", required=True, type=Path)
+    bench.add_argument("--seconds", type=float, default=1800)
+    bench.add_argument("--min-rate", type=int, default=120_000_000)
+    for name in ("verify", "rebuild", "recover-jobs", "restore-plan", "restore"):
+        command = sub.add_parser(name)
+        command.add_argument("medium", type=Path)
+        command.add_argument("--media-id", required=True)
+        if name.startswith("restore"):
+            command.add_argument("--path", action="append", dest="paths")
+            command.add_argument("--archive-id")
+        if name in ("restore", "restore-plan"):
+            command.add_argument("--target", required=True, type=Path)
+    search = sub.add_parser("search")
+    search.add_argument("query", nargs="?", default="")
+    search.add_argument("--sha256")
+    export = sub.add_parser("export")
+    export.add_argument("--format", choices=("json", "csv"), default="json")
+    export.add_argument("--table", choices=("files", "media", "archives"), default="files")
+    sub.add_parser("jobs")
+    return cli
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    catalog = None
+    try:
+        result: Any
+        if args.command == "doctor":
+            result = discover()
+        else:
+            catalog = Catalog(args.db)
+            if args.command == "staging-benchmark":
+                result = run_benchmark(catalog, args.staging, args.file, seconds=args.seconds, min_rate=args.min_rate)
+                print(json.dumps(result, indent=2))
+                return 0 if result["qualified"] else 1
+            elif args.command == "staging-status":
+                storage = require_local(args.staging)
+                sql = "SELECT * FROM staged_archives WHERE root=?"
+                params: list[Any] = [str(args.staging.resolve())]
+                if args.job_id:
+                    sql += " AND job_id=?"
+                    params.append(args.job_id)
+                result = {"storage": storage, "archives": [dict(r) for r in catalog.db.execute(sql, params)],
+                          "latest_metrics": [dict(r) for r in catalog.db.execute(
+                              "SELECT * FROM events WHERE event IN ('io_progress','staging_progress','staging_read_sample') ORDER BY seq DESC LIMIT 20")]}
+            elif args.command == "stage":
+                # Staging is deliberately independent of a currently attached drive/medium.
+                class NoTape:
+                    pass
+                result = ArchiveService(catalog, NoTape()).stage(args.job_id, args.spool)
+            elif args.command == "search":
+                result = catalog.search(args.query, args.sha256)
+            elif args.command == "jobs":
+                result = [dict(row) for row in catalog.db.execute("SELECT * FROM jobs ORDER BY created DESC")]
+            elif args.command == "export":
+                result = catalog.export()
+                if args.format == "csv":
+                    rows = result[args.table]
+                    if rows:
+                        writer = csv.DictWriter(sys.stdout, fieldnames=list(rows[0]))
+                        writer.writeheader()
+                        writer.writerows(rows)
+                    return 0
+            else:
+                tape = (SimulatedTape.create(args.medium, args.label, args.capacity, args.media_class)
+                        if args.command == "init-sim" else SimulatedTape(args.medium))
+                service = ArchiveService(catalog, tape)
+                if args.command in ("init-sim", "register-sim"):
+                    result = service.register()
+                elif args.command == "plan":
+                    result = service.plan(args.source, args.media_id, args.target)
+                elif args.command == "backup":
+                    result = service.backup(args.job_id, args.confirm, args.spool, resume=args.resume, prepare_all=args.prepare_all)
+                elif args.command == "verify":
+                    result = service.verify(args.media_id)
+                elif args.command == "rebuild":
+                    result = service.rebuild(args.media_id)
+                elif args.command == "recover-jobs":
+                    result = {"interrupted_jobs": service.recover_jobs(args.media_id)}
+                elif args.command == "restore-plan":
+                    result = {**service.restore_plan(args.media_id, args.paths, args.archive_id), "target": str(args.target.absolute())}
+                else:
+                    result = service.restore(args.media_id, args.target, args.paths, args.archive_id)
+        print(json.dumps(result, ensure_ascii=True, indent=2))
+        return 0
+    except KeyboardInterrupt:
+        print(json.dumps({"error": "Interrupted; inspect job log and medium before further actions"}), file=sys.stderr)
+        return 130
+    except (SafetyError, OSError, ValueError, KeyError, TypeError, tarfile.TarError,
+            sqlite3.Error) as error:
+        print(json.dumps({"error": str(error), "type": type(error).__name__}), file=sys.stderr)
+        return 1
+    finally:
+        if catalog is not None:
+            catalog.close()

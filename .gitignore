@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.otam/
+
+# Local hardware reports contain private network/device information.
+docs/hardware/*
+!docs/hardware/README.md
+demo/
+.env
+.env.*
