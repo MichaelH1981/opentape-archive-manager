@@ -1,6 +1,6 @@
 {
   "node_id": "REPLACE_WITH_CATALOG_NODE_UUID",
-  "name": "OTAM Katalog · Proxmox",
+  "name": "OTAM Katalog",
   "role": "catalog",
   "state": "/data/state",
   "catalog": "/data/unused-primary.sqlite",

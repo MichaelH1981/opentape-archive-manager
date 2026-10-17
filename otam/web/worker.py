@@ -22,6 +22,7 @@ from ..storage import io_lock
 from .config import WebConfig
 from .control import Control
 from .replication import push
+from .targets import enabled_targets
 
 COMMANDS = {
     "create-medium",
@@ -66,7 +67,7 @@ def validate_command(
             raise SafetyError(
                 "Synchronisation akzeptiert keine frei wählbaren Parameter"
             )
-        if not config.peer_url and config.nas_backup is None:
+        if not enabled_targets(config, control):
             raise SafetyError("Kein Synchronisationsziel konfiguriert")
         return
     if kind == "create-medium":
@@ -174,12 +175,17 @@ def validate_command(
 
 
 def execute(
-    config: WebConfig, control: Control, kind: str, payload: dict[str, Any]
+    config: WebConfig,
+    control: Control,
+    kind: str,
+    payload: dict[str, Any],
+    *,
+    scheduled: bool = False,
 ) -> Any:
     validate_command(config, control, kind, payload)
     if kind == "sync":
         with io_lock():
-            return push(config, control)
+            return push(config, control, due_only=scheduled)
     catalog = Catalog(config.catalog)
     try:
         if kind == "create-medium":
@@ -279,8 +285,22 @@ def run_once(config: WebConfig, control: Control) -> bool:
     if command is None:
         return False
     try:
-        result = execute(config, control, command["kind"], command["payload"])
-        control.complete(command["id"], result)
+        result = execute(
+            config,
+            control,
+            command["kind"],
+            command["payload"],
+            scheduled=command["idempotency"].startswith("scheduled-"),
+        )
+        control.complete(
+            command["id"],
+            result,
+            error=(
+                "Mindestens ein optionales Ziel ist fehlgeschlagen; Einzelstatus prüfen"
+                if command["kind"] == "sync" and result.get("state") == "PARTIAL"
+                else None
+            ),
+        )
     except Exception as error:
         control.complete(command["id"], error=str(error))
     return True
@@ -318,16 +338,23 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
                 worked = run_once(config, control)
                 if once:
                     break
-                if (
-                    config.peer_url or config.nas_backup
-                ) and time.monotonic() >= next_sync:
+                if time.monotonic() >= next_sync:
                     with control.connect() as db:
                         queued = db.execute(
                             "SELECT 1 FROM commands WHERE kind='sync' AND state IN ('QUEUED','RUNNING')"
                         ).fetchone()
-                    if not queued:
+                    due = False
+                    for target in enabled_targets(config, control):
+                        last = control.get("target_status:" + target["id"], {})
+                        if (
+                            last.get("revision") != target["revision"]
+                            or time.time() - last.get("time", 0) >= target["interval"]
+                        ):
+                            due = True
+                            break
+                    if due and not queued:
                         control.enqueue("sync", {}, "scheduled-" + str(uuid.uuid4()))
-                    next_sync = time.monotonic() + config.sync_interval
+                    next_sync = time.monotonic() + 5
                 if not worked:
                     time.sleep(1)
         finally:

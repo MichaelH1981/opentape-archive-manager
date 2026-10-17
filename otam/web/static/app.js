@@ -175,6 +175,79 @@ function downloadSelection() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+async function targetDialog(ident = "") {
+  const r = await api("/replication");
+  const t = r.targets.find((v) => v.id === ident) || {
+    id: crypto.randomUUID(),
+    label: "",
+    kind: "catalog",
+    address: "",
+    enabled: true,
+    interval: 300,
+  };
+  modal(
+    ident ? "Ziel bearbeiten" : "Optionales Ziel hinzufügen",
+    `<p>Ein Katalogdienst stellt eine eigene Suchoberfläche bereit. Ein Snapshot-Verzeichnis bewahrt konsistente Datenbankkopien auf einem frei gewählten Datenträger oder einer eingehängten Freigabe auf.</p><form id="target-form"><div class="form-grid"><label>Bezeichnung<input name="label" maxlength="100" value="${esc(t.label)}" required></label><label>Typ<select name="kind"><option value="catalog" ${t.kind === "catalog" ? "selected" : ""}>Katalogdienst</option><option value="directory" ${t.kind === "directory" ? "selected" : ""}>Snapshot-Verzeichnis</option></select></label><label class="full">Basis-URL oder absoluter Verzeichnispfad<input name="address" value="${esc(t.address)}" placeholder="https://katalog.example oder /mnt/katalog-backup" required></label><label>Intervall in Sekunden<input name="interval" type="number" min="30" max="86400" value="${t.interval}" required></label><label>Geheimer Zielschlüssel<input name="key" type="password" autocomplete="new-password" maxlength="1024" ${t.key_configured ? 'placeholder="Leer lassen zum Beibehalten"' : 'minlength="32" required'}></label><label class="check-label"><input type="checkbox" name="enabled" ${t.enabled ? "checked" : ""}>Ziel aktivieren</label><label class="check-label"><input type="checkbox" name="allow_http" ${t.allow_http ? "checked" : ""}>Internes HTTP ausdrücklich erlauben</label></div><p class="hint">Katalogdienst: derselbe Schlüssel muss am Empfänger hinterlegt sein, dessen Herausgeber-ID muss ${esc(state.node.id)} lauten. Verzeichnis: bestehenden Mount prüfen und danach einmalig den Zielmarker bestätigen. Es werden keine Verzeichnisse angelegt und keine vorhandenen Snapshots überschrieben.</p><div class="form-actions"><button class="button primary" type="submit">Ziel speichern</button></div></form>`,
+  );
+  $("#target-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(e.target);
+    const button = $("button[type=submit]", e.target);
+    button.disabled = true;
+    try {
+      await api("/replication/targets/" + t.id, {
+        method: "PUT",
+        body: JSON.stringify({
+          label: d.get("label"),
+          kind: d.get("kind"),
+          address: d.get("address"),
+          interval: Number(d.get("interval")),
+          key: d.get("key"),
+          enabled: d.has("enabled"),
+          allow_http: d.has("allow_http"),
+        }),
+      });
+      closeModal();
+      await refreshBase();
+      await render();
+      toast("Ziel gespeichert.");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+async function targetAction(ident, initialize = false) {
+  modal(
+    initialize ? "Snapshot-Verzeichnis freigeben" : "Ziel entfernen",
+    `<p>${initialize ? "Prüfe, dass das konfigurierte Verzeichnis auf dem gewünschten Datenträger liegt. Diese Freigabe legt ausschließlich einen OTAM-Zielmarker an. Ein bestehender Marker wird nicht ersetzt." : "Dieses Ziel wird aus der Synchronisation entfernt. Bereits veröffentlichte Kataloge und Sicherungsdateien bleiben erhalten."}</p><p>Zur Bestätigung die Node-ID eingeben:</p><p class="mono">${esc(state.node.id)}</p><form id="target-action"><label>Node-ID<input name="confirmation" required autocomplete="off"></label><div class="form-actions"><button class="button primary" type="submit">${initialize ? "Zielmarker anlegen" : "Ziel entfernen"}</button></div></form>`,
+  );
+  $("#target-action").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const confirmation = new FormData(e.target).get("confirmation");
+    if (confirmation !== state.node.id)
+      return toast("Node-ID stimmt nicht überein.", true);
+    const b = $("button[type=submit]", e.target);
+    b.disabled = true;
+    try {
+      await api(
+        "/replication/targets/" + ident + (initialize ? "/initialize" : ""),
+        {
+          method: initialize ? "POST" : "DELETE",
+          body: JSON.stringify(initialize ? { confirmation } : {}),
+        },
+      );
+      closeModal();
+      await refreshBase();
+      await render();
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      b.disabled = false;
+    }
+  });
+}
 function bindForms(root = $("#content")) {
   const on = (id, handler) => {
     const f = $(id, root);
@@ -277,7 +350,11 @@ document.addEventListener("click", async (e) => {
   );
   if (!b) return;
   try {
-    if (b.dataset.job) await showJob(b.dataset.job);
+    if (b.dataset.editTarget) await targetDialog(b.dataset.editTarget);
+    else if (b.dataset.deleteTarget) await targetAction(b.dataset.deleteTarget);
+    else if (b.dataset.initTarget)
+      await targetAction(b.dataset.initTarget, true);
+    else if (b.dataset.job) await showJob(b.dataset.job);
     else if (b.dataset.stage) {
       await enqueue("stage", { job_id: b.dataset.stage });
       closeModal();
@@ -336,6 +413,9 @@ document.addEventListener("click", async (e) => {
           break;
         case "modal-close":
           closeModal();
+          break;
+        case "new-target":
+          await targetDialog();
           break;
         case "sync-now":
           await enqueue("sync", {});

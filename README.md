@@ -26,7 +26,7 @@ Staging-TARs werden erst nach vollständiger Rückleseverifikation entfernt. `st
 
 ## Web und eigenständiger Katalog
 
-Planung, Staging, bestätigte Archivierung, Dateisuche, selektiver Restore, Medienübersicht, Integritätsprüfungen und Protokolle sind über eine responsive deutsche Oberfläche bedienbar. Lange Aufgaben laufen dauerhaft protokolliert in einem separaten Worker. Der eigenständige Catalog Node auf einem Proxmox-Container besitzt dieselbe Katalogoberfläche und bleibt bei ausgeschaltetem Bandserver durchsuchbar. Signierte, versionierte Snapshots synchronisieren den Katalog; das NAS kann zusätzlich abgeschlossene Katalogsicherungen erhalten. Keine SQLite-Datei gemeinsam über NFS öffnen.
+Planung, Staging, bestätigte Archivierung, Dateisuche, selektiver Restore, Medienübersicht, Integritätsprüfungen und Protokolle sind über eine responsive deutsche Oberfläche bedienbar. Lange Aufgaben laufen dauerhaft protokolliert in einem separaten Worker. Jeder Archive Node besitzt zwingend seinen lokalen Katalog. Zusätzliche Catalog Nodes mit eigener Suchoberfläche und Snapshot-Verzeichnisse sind optional und unter **Synchronisation** frei konfigurierbar, auch mehrfach. Signierte, versionierte Snapshots synchronisieren diese Ziele unabhängig voneinander. Ein Catalog Node bleibt bei ausgeschaltetem Bandserver durchsuchbar; er kann auf einem beliebigen geeigneten Linux-Rechner, einer VM oder einem Container laufen. Proxmox und NAS sind lediglich mögliche Einsatzbeispiele. Keine SQLite-Datei gemeinsam über NFS öffnen.
 
 ```bash
 python -m pip install -r packaging/requirements-web.lock
@@ -37,6 +37,6 @@ otam serve --config /srv/otam/node.json
 otam worker --config /srv/otam/node.json
 ```
 
-Standardzugriff: http://127.0.0.1:8765. Eigenes Passwort bei Initialisierung; kein Standardpasswort. [Konfigurationsreferenz](docs/web-configuration.md), [Proxmox-/NAS-Betrieb](docs/web.md) und Vorlagen für systemd/Container im Verzeichnis `packaging/`.
+Standardzugriff: http://127.0.0.1:8765. Eigenes Passwort bei Initialisierung; kein Standardpasswort. [Konfigurationsreferenz](docs/web-configuration.md), [Modularer Betrieb und Einsatzbeispiele](docs/web.md) und Vorlagen für systemd/Container im Verzeichnis `packaging/`.
 
 ![OTAM-Weboberfläche mit synthetischen Vorschaudaten](docs/images/otam-dashboard.jpg)

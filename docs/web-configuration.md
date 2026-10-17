@@ -63,4 +63,17 @@ Dateisuchgrößen sind Bytes, `after`/`before` Änderungszeitpunkte in Unix-Nano
 
 Der Herausgeber zählt Snapshots persistent, auch wenn eine Übertragung fehlschlägt; Sequenzlücken sind zulässig. Gleiche Sequenz und gleicher Inhalt: idempotent. Gleiche Sequenz mit anderem Inhalt oder eine kleinere Sequenz: verweigert. Neue Snapshots werden zunächst vollständig in eine eigene `.partial`-Datei geschrieben und vor Veröffentlichung geprüft. Frühere aktive Snapshot-Dateien bleiben erhalten. Nur die kleine aktive Referenz wird transaktional umgestellt; ein Dateipublikations-Crash hinterlässt höchstens ein noch nicht aktives Artefakt, das eine identische Wiederholung erkennen kann.
 
-NAS-Export und Peer-Veröffentlichung sind zwei getrennte Ziele ohne verteilte Transaktion. Der NAS-Export erfolgt zuerst. Ein erfolgreicher NAS-Export und danach ausgefallener Peer ist als fehlgeschlagene Synchronisation sichtbar; das NAS-Backup bleibt vorhanden. Ein weiterer Versuch verwendet eine neue Sequenz und überschreibt nichts. Geheimnisse nicht in die Übertragungsprotokolle schreiben.
+Optionale Ziele werden unabhängig veröffentlicht. Eine fehlgeschlagene Übertragung blockiert die weiteren Ziele nicht; der Sammelauftrag meldet Fehler und erhält die Einzelresultate. Wiederholungen überspringen bereits bestätigte unveränderte Kataloge pro Ziel. Geheimnisse erscheinen nicht in den Übertragungsprotokollen.
+
+## Optionale Ziele über Weboberfläche / REST
+
+Der lokale Archive-Node-Katalog ist immer vorhanden und nicht abwählbar. Zusätzliche Ziele sind standardmäßig leer und keine Betriebsvoraussetzung. Unter **Synchronisation → Ziel hinzufügen** können mehrere Katalogdienste und Snapshot-Verzeichnisse eingerichtet, bearbeitet, deaktiviert oder entfernt werden. Änderungen gelten ohne Dienstneustart. Ein reines Snapshot-Ziel bietet selbst keine Such-Weboberfläche; dafür einen Catalog Node betreiben.
+
+- `GET /api/v1/replication`: `local_catalog`, `targets` mit Einzelstatus, Metadaten und Verlauf. Kein Schlüsselinhalt oder Schlüsseldateipfad.
+- `PUT /api/v1/replication/targets/{uuid}`: `{label,kind,address,enabled,interval,allow_http,key}`. Typ `catalog` erwartet eine HTTPS-Basisadresse; internes HTTP benötigt `allow_http: true`. Typ `directory` erwartet einen absoluten getrennten Verzeichnispfad. `interval` in Sekunden (30–86400). `key`: 32–1024 druckbare ASCII-Zeichen ohne Leerzeichen; bei Bearbeitung leer lassen, um den bisherigen Schlüssel beizubehalten.
+- `POST /api/v1/replication/targets/{uuid}/initialize`: `{confirmation: "ARCHIVE_NODE_UUID"}`. Explizites erstmaliges Anlegen des Zielmarkers in einem bestehenden Verzeichnis, kein automatisches Mounten oder Ersetzen eines vorhandenen Markers.
+- `DELETE /api/v1/replication/targets/{uuid}`: Entfernt nur die Veröffentlichungskonfiguration, keine übertragenen Kataloge oder Sicherungsdateien. Web-Middleware verlangt auch hier einen JSON-Body (z. B. `{}`) sowie CSRF-Token und gültige Sitzung.
+
+Alle Änderungen nur am Archive Node, authentifiziert und mit CSRF-/Origin-Schutz. Am Empfänger werden dessen Herausgeber-ID und Empfangsschlüssel weiterhin über die geschützte Node-Konfiguration festgelegt. Betriebssystem-Mounts, Dienstrechte und TLS-Termination werden nicht durch die Zielverwaltung eingerichtet.
+
+`peer_url`, `nas_backup`, `allow_http_peer` und `sync_interval` sind abwärtskompatible Startwerte für bestehende Installationen. Nach der ersten Bearbeitung der Zielliste ist diese persistent maßgeblich. `peer_key_file` bleibt unabhängig davon die Empfangskonfiguration des Catalog Node. Die lokale Steuerdatenbank enthält private Zielschlüssel und darf nicht öffentlich geteilt oder in Katalogexporte aufgenommen werden.

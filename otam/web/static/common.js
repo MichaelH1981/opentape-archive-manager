@@ -40,6 +40,13 @@ const ago = (n) => {
 };
 const labels = {
   VERIFIED: "Verifiziert",
+  UNCHANGED: "Unverändert",
+  DISABLED: "Deaktiviert",
+  ACTIVE: "Aktiv",
+  UPDATED: "Konfiguriert",
+  REMOVED: "Entfernt",
+  INITIALIZED: "Freigegeben",
+  PARTIAL: "Teilweise fehlgeschlagen",
   PLANNED: "Geplant",
   STAGED: "Vorbereitet",
   RUNNING: "In Bearbeitung",

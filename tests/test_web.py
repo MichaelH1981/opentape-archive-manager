@@ -609,16 +609,17 @@ class WebAcceptance(unittest.TestCase):
             second = push(config, self.control)
             self.assertEqual(send.call_count, 1)
         self.assertEqual(first["state"], "SUCCEEDED")
-        self.assertEqual(second["state"], "UNCHANGED")
-        self.assertEqual(first["sequence"], second["sequence"])
+        self.assertEqual(second["targets"][0]["state"], "UNCHANGED")
+        self.assertEqual(
+            first["targets"][0]["sequence"], second["targets"][0]["sequence"]
+        )
 
     def test_sync_failure_preserves_catalog_and_records_error(self):
         from otam.web.replication import push
 
         config = replace(self.config, peer_url="https://catalog.invalid")
         with patch("httpx.Client.put", side_effect=OSError("offline")):
-            with self.assertRaises(OSError):
-                push(config, self.control)
+            self.assertEqual(push(config, self.control)["state"], "PARTIAL")
         self.assertTrue(config.catalog.exists())
         with self.control.connect() as db:
             self.assertEqual(
@@ -628,6 +629,214 @@ class WebAcceptance(unittest.TestCase):
                 "FAILED",
             )
         self.assertIsNone(self.control.get("last_push"))
+
+    def target(self, kind="catalog", address="https://catalog.example", **overrides):
+        return dict(
+            label="Optional destination",
+            kind=kind,
+            address=address,
+            enabled=True,
+            interval=300,
+            allow_http=False,
+            key=self.key.read_text(),
+            **overrides,
+        )
+
+    def save_target_http(self, ident, data):
+        return self.client.put(
+            "/api/v1/replication/targets/" + ident,
+            json=data,
+            headers={"X-CSRF-Token": self.csrf},
+        )
+
+    def test_local_catalog_needs_no_targets_and_optional_configuration_is_durable(self):
+        from otam.web.targets import public_targets
+
+        self.assertTrue(self.config.catalog.is_file())
+        self.assertEqual(public_targets(self.config, self.control), [])
+        self.assertFalse(self.client.get("/api/v1/node").json()["sync_configured"])
+        ident = str(uuid.uuid4())
+        response = self.save_target_http(ident, self.target())
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn(self.key.read_text(), response.text)
+        self.assertNotIn("key_file", response.text)
+        restarted = Control(self.config.state)
+        self.assertEqual(public_targets(self.config, restarted)[0]["id"], ident)
+        self.assertEqual(self.control.path.stat().st_mode & 0o777, 0o600)
+        data = self.target()
+        data.update(enabled=False, key="")
+        self.assertEqual(self.save_target_http(ident, data).status_code, 200)
+        self.assertFalse(self.client.get("/api/v1/node").json()["sync_configured"])
+        response = self.client.request(
+            "DELETE",
+            "/api/v1/replication/targets/" + ident,
+            json={},
+            headers={"X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(public_targets(self.config, restarted), [])
+        self.assertTrue(self.config.catalog.is_file())
+
+    def test_multiple_targets_isolate_failure_and_retry_only_unsent_catalog(self):
+        from otam.web.replication import push
+        from otam.web.targets import initialize_directory
+
+        offline = str(uuid.uuid4())
+        good = str(uuid.uuid4())
+        folder = self.root / "snapshots"
+        folder.mkdir()
+        self.assertEqual(self.save_target_http(offline, self.target()).status_code, 200)
+        self.assertEqual(
+            self.save_target_http(
+                good, self.target("directory", str(folder))
+            ).status_code,
+            200,
+        )
+        initialize_directory(self.config, self.control, good, self.config.node_id)
+        with patch(
+            "httpx.Client.put", side_effect=OSError("secret-must-not-appear")
+        ) as send:
+            result = push(self.config, self.control)
+            self.assertEqual(result["state"], "PARTIAL")
+            self.assertEqual(
+                [r["state"] for r in result["targets"]], ["FAILED", "SUCCEEDED"]
+            )
+            second = push(self.config, self.control)
+            self.assertEqual(second["targets"][1]["state"], "UNCHANGED")
+            self.assertEqual(send.call_count, 2)
+            self.assertEqual(len(list(folder.glob("*.sqlite"))), 1)
+            self.assertNotIn(
+                "secret-must-not-appear", self.client.get("/api/v1/replication").text
+            )
+            # Failure does not prevent searching the mandatory local primary.
+            self.assertEqual(self.client.get("/api/v1/files").status_code, 200)
+            self.command("sync", {})
+            self.assertTrue(run_once(self.config, self.control))
+            self.assertEqual(self.control.commands()[0]["state"], "FAILED")
+
+    def test_target_configuration_is_authenticated_validated_and_marker_is_explicit(
+        self,
+    ):
+        ident = str(uuid.uuid4())
+        path = "/api/v1/replication/targets/" + ident
+        self.assertEqual(self.client.put(path, json=self.target()).status_code, 403)
+        for patch_data in (
+            {"address": "http://catalog.example"},
+            {"address": "https://user:pass@catalog.example"},
+            {"key": "short"},
+            {"key": "ä" * 40},
+            {"interval": True},
+            {"enabled": "yes"},
+            {"kind": "directory", "address": str(self.source)},
+            {"kind": "directory", "address": str(self.config.state)},
+        ):
+            data = self.target()
+            data.update(patch_data)
+            self.assertIn(self.save_target_http(ident, data).status_code, (400, 409))
+        folder = self.root / "destination"
+        folder.mkdir()
+        self.assertEqual(
+            self.save_target_http(
+                ident, self.target("directory", str(folder))
+            ).status_code,
+            200,
+        )
+        marker = folder / ".otam-backup-target"
+        self.assertFalse(marker.exists())
+        endpoint = path + "/initialize"
+        headers = {"X-CSRF-Token": self.csrf}
+        self.assertEqual(
+            self.client.post(
+                endpoint, json={"confirmation": "wrong"}, headers=headers
+            ).status_code,
+            409,
+        )
+        self.assertEqual(
+            self.client.post(
+                endpoint, json={"confirmation": self.config.node_id}, headers=headers
+            ).status_code,
+            200,
+        )
+        self.assertEqual(marker.read_text().strip(), self.config.node_id)
+        self.assertEqual(
+            self.client.post(
+                endpoint, json={"confirmation": self.config.node_id}, headers=headers
+            ).status_code,
+            503,
+        )
+        self.assertEqual(marker.read_text().strip(), self.config.node_id)
+
+    def test_destinations_use_distinct_keys_and_revalidate_directory_resolution(self):
+        import base64
+        import httpx
+        from otam.web.replication import push
+        from otam.web.targets import save_target, initialize_directory
+
+        keys = {
+            "https://one.example": "first-target-" + "a" * 32,
+            "https://two.example": "second-target-" + "b" * 32,
+        }
+        for address, key in keys.items():
+            data = self.target(address=address)
+            data["key"] = key
+            save_target(self.config, self.control, str(uuid.uuid4()), data)
+
+        def receipt(url, **kwargs):
+            key = keys[url.split("/api/")[0]].encode()
+            self.assertEqual(
+                kwargs["headers"]["Authorization"], "Bearer " + key.decode()
+            )
+            meta = json.loads(
+                base64.urlsafe_b64decode(kwargs["headers"]["X-OTAM-Manifest"])
+            )
+            self.assertEqual(meta["signature"], sign(meta, key)["signature"])
+            return httpx.Response(
+                200, json={"state": "PUBLISHED", "sequence": meta["sequence"]}
+            )
+
+        with patch("httpx.Client.put", side_effect=receipt) as send:
+            self.assertEqual(push(self.config, self.control)["state"], "SUCCEEDED")
+            self.assertEqual(send.call_count, 2)
+        folder = self.root / "mutable-target"
+        folder.mkdir()
+        ident = str(uuid.uuid4())
+        save_target(
+            self.config, self.control, ident, self.target("directory", str(folder))
+        )
+        initialize_directory(self.config, self.control, ident, self.config.node_id)
+        # A target symlink retargeted into source data must never become writable.
+        (folder / ".otam-backup-target").unlink()
+        folder.rmdir()
+        folder.symlink_to(self.source, target_is_directory=True)
+        with patch("httpx.Client.put", side_effect=receipt):
+            result = push(self.config, self.control)
+        self.assertEqual(result["targets"][-1]["state"], "FAILED")
+        self.assertEqual(
+            sorted(p.name for p in self.source.iterdir()), ["document.pdf", "photo.jpg"]
+        )
+
+    def test_legacy_targets_remain_removed_after_restart_and_target_intervals(self):
+        from otam.web.targets import delete_target, targets, save_target
+        from otam.web.replication import push
+
+        config = replace(self.config, peer_url="https://catalog.example")
+        self.assertEqual(targets(config, self.control)[0]["id"], "legacy-catalog")
+        delete_target(config, self.control, "legacy-catalog")
+        self.assertEqual(targets(config, Control(config.state)), [])
+        ident = str(uuid.uuid4())
+        save_target(config, self.control, ident, self.target())
+        self.control.set(
+            "target_status:" + ident,
+            {"time": time.time(), "revision": 1, "state": "SUCCEEDED"},
+        )
+        with patch("httpx.Client.put") as send:
+            push(config, self.control, due_only=True)
+            send.assert_not_called()
+        # A changed target configuration invalidates both the interval and prior receipt.
+        save_target(config, self.control, ident, self.target())
+        with patch("httpx.Client.put", side_effect=OSError("offline")) as send:
+            push(config, self.control, due_only=True)
+            send.assert_called_once()
 
 
 if __name__ == "__main__":

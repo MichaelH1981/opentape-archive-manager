@@ -29,3 +29,11 @@ Screenshots verwenden ausschließlich synthetische Beispieldateien: [Dashboard](
 Echtes LTO-Schreiben/Filemarks/EOM, produktive Archive, Proxmox-LXC-Installation, tatsächlicher NAS-Mount und Restore aus dessen Backup, OCI-Imagebau/Containerstart (keine Container-Engine verfügbar), tatsächliches iPhone/iOS Safari sowie Langzeittest und Lastprüfung großer Kataloge sind nicht abgenommen. Service-/Containerdateien sind vorbereitete Vorlagen. Kein Anspruch auf abgeschlossene produktive LTO-Freigabe oder vollständige Umsetzung aller späteren Lastenheftphasen.
 
 Die Sicherheits- und Architekturentscheidungen stehen in [modular-web](architecture/modular-web.md); Installation und Wiederaufnahme in [Webbetrieb](web.md).
+
+## Ergänzung: frei konfigurierbare optionale Ziele
+
+75 Tests auf dem Linux-Bandserver bestanden; macOS: 74 bestanden, ein Linux-spezifischer Test übersprungen. Keine Änderung an produktiven Daten oder physischen Bandmedien.
+
+Zusätzlich geprüft: leerer Zielbestand mit verfügbarem lokalem Katalog, persistente Zielverwaltung und Deaktivierung, Schutz vor erneutem Import entfernter Legacy-Ziele, unabhängige Fehlerbehandlung bei mehreren Zielen, gezielte Wiederholung fehlgeschlagener Übertragungen, unterschiedliche HMAC-Schlüssel je Empfänger, Einhaltung zielbezogener Intervalle, Schlüsselredaktion und private Steuerdaten, CSRF und Validierung, explizite Zielmarker sowie Ablehnung eines nachträglich in Quelldaten umgeleiteten Verzeichnisziels. Synchronisationsaufträge mit Einzelproblemen melden FAILED und bewahren erfolgreiche Resultate.
+
+Im Browser wurde ein vorhandenes lokales Simulator-Ziel bearbeitet, ohne erneute Schlüsseleingabe gespeichert und die Veröffentlichung an den eigenständigen Vorschaukatalog ausgelöst. Die Zielverwaltung benötigt keinen Dienstneustart. Der Konfigurationsdialog und die Zielübersicht wurden zusätzlich bei 390 Pixel Breite ohne horizontale Seitenüberbreite geprüft; keine JavaScript-Konsolenfehler. Die Desktopansicht ist unter [Optionale Ziele](images/otam-optional-targets.jpg) dokumentiert. Proxmox-/NAS-Deployment und physische Bandabnahme bleiben separat offen.

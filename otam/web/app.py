@@ -42,6 +42,13 @@ from .config import WebConfig
 from .control import Control
 from .query import CatalogView
 from .replication import decode_header, publish
+from .targets import (
+    enabled_targets,
+    public_targets,
+    save_target,
+    delete_target,
+    initialize_directory,
+)
 from .security import cookie_name, SecurityMiddleware, login, session
 from .worker import mounted, validate_command
 
@@ -209,14 +216,14 @@ def create_app(config: WebConfig) -> FastAPI:
                 "physical_tape": False,
             },
             "snapshot": active,
-            "last_push": control.get("last_push"),
+            "last_push": control.get("last_fanout", control.get("last_push")),
             "worker_heartbeat": control.get("worker_heartbeat", 0),
             "sources": (
                 [{"id": s.id, "label": s.label} for s in config.sources]
                 if config.role == "archive"
                 else []
             ),
-            "sync_configured": bool(config.peer_url or config.nas_backup),
+            "sync_configured": bool(enabled_targets(config, control)),
             "sync_interval": config.sync_interval,
             "publisher_id": config.publisher_id,
             "snapshot_age_seconds": (
@@ -321,14 +328,39 @@ def create_app(config: WebConfig) -> FastAPI:
             ]
         return {
             "active": control.get("active_snapshot"),
-            "last_push": control.get("last_push"),
+            "last_push": control.get("last_fanout", control.get("last_push")),
             "events": log,
-            "peer_configured": bool(config.peer_url),
-            "nas_configured": config.nas_backup is not None,
+            "peer_configured": any(
+                t["kind"] == "catalog" for t in enabled_targets(config, control)
+            ),
+            "nas_configured": any(
+                t["kind"] == "directory" for t in enabled_targets(config, control)
+            ),
             "interval": config.sync_interval,
             "publisher": config.publisher_id,
             "mode": "publisher" if config.role == "archive" else "replica",
+            "targets": (
+                public_targets(config, control) if config.role == "archive" else []
+            ),
+            "local_catalog": config.role == "archive",
         }
+
+    @api.put("/replication/targets/{ident}")
+    def configure_target(ident: str, data: dict[str, Any] = Body()):
+        save_target(config, control, ident, data)
+        return {"items": public_targets(config, control)}
+
+    @api.post("/replication/targets/{ident}/initialize")
+    def initialize_target(ident: str, data: dict[str, Any] = Body()):
+        if set(data) != {"confirmation"}:
+            raise SafetyError("Node-ID-Bestätigung erforderlich")
+        initialize_directory(config, control, ident, data["confirmation"])
+        return {"state": "INITIALIZED"}
+
+    @api.delete("/replication/targets/{ident}")
+    def remove_target(ident: str):
+        delete_target(config, control, ident)
+        return {"items": public_targets(config, control)}
 
     @api.get("/export")
     def export(table: str = "files", format: str = "csv"):

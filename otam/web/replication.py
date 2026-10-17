@@ -147,7 +147,9 @@ def validate_snapshot(path: Path) -> None:
         db.close()
 
 
-def make_snapshot(config: WebConfig, control: Control) -> tuple[Path, dict[str, Any]]:
+def make_snapshot(
+    config: WebConfig, control: Control, key: bytes | None = None
+) -> tuple[Path, dict[str, Any]]:
     if config.role != "archive" or not config.catalog.is_file():
         raise SafetyError("Nur der Archive Node veröffentlicht seinen Primärkatalog")
     folder = config.state / "outgoing"
@@ -180,7 +182,7 @@ def make_snapshot(config: WebConfig, control: Control) -> tuple[Path, dict[str, 
             "bytes": path.stat().st_size,
             "sha256": digest(path),
         }
-        meta = sign(meta, config.peer_key())
+        meta = sign(meta, key if key is not None else config.peer_key())
         path.chmod(0o400)
         return path, meta
     except BaseException:
@@ -192,9 +194,12 @@ def export_nas(config: WebConfig, path: Path, meta: dict[str, Any]) -> None:
     if config.nas_backup is None:
         return
     folder = config.nas_backup
+    from .targets import validate_directory
+
+    validate_directory(config, folder)
     if not folder.is_dir():
         raise SafetyError(
-            "NAS-Sicherungsziel ist nicht erreichbar; kein Verzeichnis automatisch angelegt"
+            "Snapshot-Verzeichnisziel ist nicht erreichbar; kein Verzeichnis automatisch angelegt"
         )
     marker = folder / ".otam-backup-target"
     if (
@@ -203,7 +208,7 @@ def export_nas(config: WebConfig, path: Path, meta: dict[str, Any]) -> None:
         or marker.read_text().strip() != config.node_id
     ):
         raise SafetyError(
-            "NAS-Zielmarker fehlt oder gehört zu einem anderen Node; Mount prüfen"
+            "Snapshot-Zielmarker fehlt oder gehört zu einem anderen Node; Mount prüfen"
         )
     name = f"otam-catalog-{meta['publisher']}-{meta['sequence']:012d}"
     # Never replace existing NAS data. Partial files are not advertised as valid snapshots.
@@ -214,7 +219,7 @@ def export_nas(config: WebConfig, path: Path, meta: dict[str, Any]) -> None:
             target.flush()
             os.fsync(target.fileno())
         if digest(temporary) != meta["sha256"]:
-            raise SafetyError("NAS-Snapshot-Prüfsumme stimmt nicht überein")
+            raise SafetyError("Snapshot-Prüfsumme stimmt nicht überein")
         os.link(temporary, folder / (name + ".sqlite"))
         with (folder / (name + ".json")).open("x") as stream:
             json.dump(meta, stream, indent=2)
@@ -279,18 +284,25 @@ def publish(
     }
 
 
-def push(config: WebConfig, control: Control) -> dict[str, Any]:
+def _push_one(
+    config: WebConfig,
+    control: Control,
+    status_key: str = "last_push",
+    key: bytes | None = None,
+) -> dict[str, Any]:
     import httpx
 
     if not config.peer_url and config.nas_backup is None:
-        raise SafetyError("Kein Katalog-Peer oder NAS-Sicherungsziel konfiguriert")
-    path, meta = make_snapshot(config, control)
+        raise SafetyError(
+            "Kein Katalog-Peer oder Snapshot-Verzeichnisziel konfiguriert"
+        )
+    key = key if key is not None else config.peer_key()
+    path, meta = make_snapshot(config, control, key)
     try:
         targets = hashlib.sha256(
-            (config.peer_url + "|" + str(config.nas_backup)).encode()
-            + config.peer_key()
+            (config.peer_url + "|" + str(config.nas_backup)).encode() + key
         ).hexdigest()
-        previous = control.get("last_push")
+        previous = control.get(status_key)
         if (
             previous
             and previous.get("sha256") == meta["sha256"]
@@ -318,7 +330,7 @@ def push(config: WebConfig, control: Control) -> dict[str, Any]:
                 response = client.put(
                     config.peer_url.rstrip("/") + "/api/v1/replication/snapshot",
                     headers={
-                        "Authorization": "Bearer " + config.peer_key().decode("ascii"),
+                        "Authorization": "Bearer " + key.decode("ascii"),
                         "Content-Type": "application/octet-stream",
                         "Content-Length": str(meta["bytes"]),
                         "X-OTAM-Manifest": metadata_header(meta),
@@ -343,7 +355,7 @@ def push(config: WebConfig, control: Control) -> dict[str, Any]:
             "nas_exported": config.nas_backup is not None,
             "peer_updated": bool(config.peer_url),
         }
-        control.set("last_push", result | {"time": time.time(), "targets": targets})
+        control.set(status_key, result | {"time": time.time(), "targets": targets})
         control.sync_event(
             "send", "SUCCEEDED", meta["sequence"], "Snapshot übertragen und bestätigt"
         )
@@ -359,3 +371,57 @@ def push(config: WebConfig, control: Control) -> dict[str, Any]:
     finally:
         # Only this invocation's own managed, fully exported source snapshot.
         path.unlink(missing_ok=True)
+
+
+def push(
+    config: WebConfig, control: Control, *, due_only: bool = False
+) -> dict[str, Any]:
+    """Fan out independently; a failed optional destination cannot stop another."""
+    from dataclasses import replace
+    from .targets import enabled_targets, key_for
+
+    destinations = enabled_targets(config, control)
+    if not destinations:
+        return {"state": "DISABLED", "targets": []}
+    results = []
+    for target in destinations:
+        ident = target["id"]
+        previous = control.get("target_status:" + ident, {})
+        if (
+            due_only
+            and previous.get("revision") == target["revision"]
+            and time.time() - previous.get("time", 0) < target["interval"]
+        ):
+            continue
+        status_key = "target_receipt:" + ident + ":" + str(target["revision"])
+        try:
+            outgoing = replace(
+                config,
+                peer_url=target["address"] if target["kind"] == "catalog" else "",
+                nas_backup=(
+                    Path(target["address"]) if target["kind"] == "directory" else None
+                ),
+            )
+            result = _push_one(outgoing, control, status_key, key_for(config, target))
+            status = {**result, "time": time.time(), "revision": target["revision"]}
+        except Exception:
+            status = {
+                "state": "FAILED",
+                "time": time.time(),
+                "revision": target["revision"],
+                "error": "Übertragung fehlgeschlagen; Erreichbarkeit, Zielmarker und Schlüssel prüfen",
+            }
+            control.sync_event("send", "FAILED", None, "Ziel fehlgeschlagen: " + ident)
+        control.sync_event(
+            "send", status["state"], status.get("sequence"), "Ziel: " + ident
+        )
+        control.set("target_status:" + ident, status)
+        results.append({"id": ident, **status})
+    result = {
+        "state": (
+            "PARTIAL" if any(r["state"] == "FAILED" for r in results) else "SUCCEEDED"
+        ),
+        "targets": results,
+    }
+    control.set("last_fanout", {**result, "time": time.time()})
+    return result

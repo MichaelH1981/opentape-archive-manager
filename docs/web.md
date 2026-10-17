@@ -12,8 +12,8 @@ OTAM 0.3 umfasst eine authentifizierte responsive Weboberfläche, REST-API, sepa
 - **Archive und Bandinventar:** Archivposition, Medienzuordnung, Dateianzahl, Status und logische Kapazität; neue Simulatormedien erstellen, vollständig prüfen, Katalog rekonstruieren oder unterbrochene Jobs erfassen. Keine automatische Wiederverwendung rotierender Medien.
 - **Wiederherstellung:** Dateien im Katalog markieren, nach Medium/Archiv gruppieren, Plan mit Medien-ID, Banddateien, Datenmenge und Ziel prüfen. Jede Gruppe wird in ein neues Zielverzeichnis unter dem festgelegten Restore-Root wiederhergestellt und verifiziert. Auf dem Catalog Node ist die Auswahl als JSON-Medienliste exportierbar; diese Liste ist noch kein automatisch importierbarer oder an den Bandserver versendeter Auftrag.
 - **Integrität:** vollständige Medienprüfung starten, Archiv-Prüfergebnisse und Fehler lesen. Hardware-Schnellprüfung und einzelne physische LTO-Archivprüfungen sind noch nicht integriert.
-- **Synchronisation:** Rolle, Herausgeber, letzte gültige Version, NAS-/Peer-Konfiguration und Übertragungsverlauf. Manuelle Veröffentlichung oder Workerintervall. Identische Snapshots werden bei unveränderten Zielen nicht erneut übertragen.
-- **Hardware, Einstellungen, Protokolle:** lesende Erkennung, aktive Module und freigegebene Quellen sowie strukturierte Ereignisse. Sicherheitsrelevante Pfade/Peer-Ziele werden in der geschützten Konfiguration und nicht als freie Browserpfade geändert.
+- **Synchronisation:** Lokaler Pflichtkatalog und beliebig viele optionale Katalogdienste oder Snapshot-Verzeichnisse. Ziele hinzufügen, bearbeiten, aktivieren/deaktivieren und entfernen; eigener Schlüssel, Intervall und Einzelstatus. Manuelle Veröffentlichung oder Workerintervall. Identische bestätigte Snapshots werden pro unverändertem Ziel nicht erneut übertragen.
+- **Hardware, Einstellungen, Protokolle:** lesende Erkennung, aktive Module und freigegebene Quellen sowie strukturierte Ereignisse. Quellen und lokale Basispfade bleiben in der geschützten Node-Konfiguration; optionale Veröffentlichungsziele werden in der authentifizierten Weboberfläche verwaltet.
 
 Bei mehr als einem Medium werden Restoregruppen derzeit einzeln bestätigt; ein geführter physischer Medienwechsel ist noch nicht implementiert. Im Simulator getestete Vorgänge sind keine Hardwareabnahme. Verfügbare Menüs und serverseitige Routen richten sich nach der Node-Rolle.
 
@@ -38,19 +38,19 @@ Die Dienste müssen als derselbe dedizierte Benutzer laufen und identische Konfi
 
 Nach Metadatenänderung eines READY-TARs kann der Jobdialog vor einem Bandversuch eine **ausdrückliche erneute Staging-Prüfung** anbieten. Diese bestätigt denselben ursprünglichen TAR-Hash und das vollständige Dateimanifest; Inhalt und Dateiidentität dürfen nicht abweichen. CLI: `stage JOB_UUID --staging /lokaler/pfad --revalidate-ready`. Kein Umgehen einer fehlgeschlagenen Prüfsumme.
 
-## Katalogdienst auf Proxmox
+## Optionaler eigenständiger Katalogdienst (Beispiel Proxmox)
 
 Empfohlene Zielanordnung:
 
 ```mermaid
 flowchart LR
     UI[Browser über internes Netz / WireGuard] --> A[Bandserver: Archive Node + Worker]
-    UI --> C[Proxmox: Catalog Node mit eigener Weboberfläche]
+    UI --> C[Optional: Catalog Node mit eigener Weboberfläche]
     A -->|Signierter, versionierter SQLite-Snapshot| C
-    A -->|Abgeschlossene Snapshot-Dateien| N[NAS-Sicherungsziel]
+    A -->|Abgeschlossene Snapshot-Dateien| N[Optional: Snapshot-Verzeichnis]
 ```
 
-Im unprivilegierten Debian-LXC-Container eigenes persistentes lokales Volume für `/var/lib/otam` verwenden. Die Datenbank des Catalog Node wird nicht direkt auf das NAS gelegt. Ein dediziertes Dienstkonto `otam`, Python >=3.11 und die Webinstallation wie oben genügen; kein Bandgerät und kein Archivierungsworker im Katalogcontainer erforderlich.
+Proxmox ist nur ein Deploymentbeispiel, keine OTAM-Voraussetzung; ein anderer Linux-Host, eine VM oder ein geeigneter Container funktionieren mit denselben Rollen. Im unprivilegierten Debian-LXC-Container eigenes persistentes lokales Volume für `/var/lib/otam` verwenden. Die Datenbank des Catalog Node wird nicht direkt auf das NAS gelegt. Ein dediziertes Dienstkonto `otam`, Python >=3.11 und die Webinstallation wie oben genügen; kein Bandgerät und kein Archivierungsworker im Katalogcontainer erforderlich.
 
 Initialisierung auf dem jeweiligen System:
 
@@ -67,15 +67,15 @@ Optionaler OCI-Container: `packaging/container/Dockerfile` und `compose.yaml`. I
 1. Auf dem Archive Node dessen `node_id` aus Konfiguration/Einstellungen ablesen.
 2. Einen eigenen zufälligen Peer-Schlüssel erzeugen, z. B. `python3 -c 'import secrets; print(secrets.token_urlsafe(48))'`, direkt in eine geschützte Datei schreiben. Die Datei auf beiden Nodes sicher bereitstellen, nicht per Chat oder Git.
 3. Catalog Node: `publisher_id` auf die Archive-Node-ID und `peer_key_file` auf die lokale Schlüsseldatei setzen.
-4. Archive Node: `peer_url` auf die feste Basisadresse des Catalog Node setzen, z. B. `https://catalog.example.internal`; `peer_key_file` konfigurieren. Keine Zugangsdaten oder API-Pfade in die URL schreiben.
+4. Archive Node: Unter **Synchronisation → Ziel hinzufügen** Typ **Katalogdienst** wählen, Basisadresse und denselben geheimen Schlüssel eintragen. HTTPS verwenden; internes HTTP nur bewusst freigeben. Keine Zugangsdaten oder API-Pfade in die URL schreiben. Weitere Instanzen lassen sich unabhängig hinzufügen.
 5. `host`, `port` und `allowed_hosts` ausdrücklich für die tatsächlichen internen Adressen konfigurieren; beide Dienste kontrolliert neu starten. Bei HTTP über WireGuard `allow_http_peer=true` ausdrücklich setzen. Kein öffentlicher HTTP-Zugang und keine deaktivierte TLS-Prüfung.
 6. Über Synchronisation → Jetzt synchronisieren veröffentlichen. Auf der Katalogoberfläche Sequenz, Zeitpunkt und Dateien prüfen. Danach Bandserver-Web/Worker stoppen und die Suche im Catalog Node erneut abnehmen.
 
 Der Schlüssel autorisiert ausschließlich die feste Replikationsschnittstelle, keinen Archivierungsauftrag oder SQL-Zugang. Empfänger akzeptieren keine fremden Herausgeber, abweichende gleiche Sequenzen oder Rückschritte. Bei Restore eines alten Primärsystems kann dessen persistente Sequenz hinter dem Empfänger liegen; dann wird die Übertragung verweigert. Nicht den Empfängerstand still löschen: Dienste stoppen, Katalog und Steuerdaten sichern, maßgeblichen Stand prüfen und Herausgeber/Sequenz bewusst wiederherstellen. V1 hat dafür keine automatische Konfliktauflösung.
 
-## NAS-Sicherungsziel
+## Optionales Snapshot-Verzeichnis (Beispiel NAS)
 
-Nur abgeschlossene Snapshot-Dateien, niemals eine live gemeinsam geöffnete SQLite-Datei. Das bereits gemountete NAS-Ziel in `nas_backup` eintragen; `peer_key_file` bleibt auch für einen reinen NAS-Export erforderlich. Im vorgesehenen Zielordner bewusst eine Datei `.otam-backup-target` mit der Archive-Node-ID als Inhalt anlegen. Ein fehlender/fremder Marker blockiert den Export und hilft, ein ungemountetes lokales Ersatzverzeichnis zu erkennen. Die Anwendung mountet/erzeugt dieses Ziel nicht selbst.
+Nur abgeschlossene Snapshot-Dateien, niemals eine live gemeinsam geöffnete SQLite-Datei. Unter **Synchronisation → Ziel hinzufügen** Typ **Snapshot-Verzeichnis** wählen und absoluten Pfad des bereits gemounteten Ziels sowie einen eigenen Signaturschlüssel hinterlegen. Anschließend über **Zielmarker** die Node-ID bestätigen, nachdem der gewünschte Mount geprüft wurde. Alternativ den Marker `.otam-backup-target` bewusst mit der Archive-Node-ID als Inhalt administrativ anlegen. Schlüssel für spätere unabhängige Signaturprüfung sicher aufbewahren. Ein fehlender/fremder Marker blockiert den Export und hilft, ein ungemountetes lokales Ersatzverzeichnis zu erkennen. Die Anwendung mountet/erzeugt dieses Ziel nicht selbst.
 
 SQLite-Datei und signiertes JSON-Manifest besitzen eindeutige Namen aus Herausgeber und Sequenz. Vorhandene Dateien werden nicht überschrieben. Eine `.partial`-Datei oder ein Snapshot ohne passendes Manifest ist kein abgeschlossener Backup-Satz. Den Worker-Dienst erst nach dem NAS-Mount starten, etwa mit einem installationsspezifischen `RequiresMountsFor=`-Drop-in. Verfügbarkeit und Stromversorgung des NAS bleiben betriebliche Voraussetzungen.
 
