@@ -136,14 +136,15 @@ class ArchiveService:
             raise SafetyError("Use the original staging root to resume this job")
         return StagingStore(self.catalog, spool)
 
-    def stage(self, job: str, spool: Path) -> dict[str, Any]:
+    def stage(self, job: str, spool: Path, *, revalidate_ready: bool = False) -> dict[str, Any]:
         """Prepare the entire plan without accessing the tape or requiring source later."""
         with io_lock():
             row, plan = self._load_plan(job)
             if row["state"] not in ("PLANNED", "STAGED", "FAILED", "INTERRUPTED"):
                 raise SafetyError("Job cannot enter staging in its current state")
             attempted = self.catalog.db.execute("SELECT 1 FROM staged_archives WHERE job_id=? AND phase IN ('TAPE_WRITE','TAPE_READBACK','VERIFIED','STAGING_CLEANUP')", (job,)).fetchone()
-            if attempted:
+            attempted_archive = self.catalog.db.execute("SELECT 1 FROM archives WHERE job_id=?", (job,)).fetchone()
+            if attempted or attempted_archive:
                 raise SafetyError("Tape was already attempted; use explicit backup --resume after media inspection")
             store = self._store(job, plan, spool)
             missing = [m for m in plan["archives"] if store.row(job, m["archive_id"])["sha256"] is None]
@@ -152,6 +153,8 @@ class ArchiveService:
                 self.catalog.db.execute("UPDATE jobs SET state='RUNNING',phase='STAGING',updated=? WHERE id=?", (time.time(), job))
             try:
                 for manifest in plan["archives"]:
+                    if revalidate_ready and store.row(job, manifest["archive_id"])["fingerprint_json"]:
+                        store.revalidate_ready(job, manifest)
                     store.prepare(job, Path(plan["source"]), manifest)
                 report = {"job_id": job, "state": "STAGED", "archives": len(plan["archives"]), "staging": str(store.root)}
                 self.catalog.finish(job, "STAGED", report=report)

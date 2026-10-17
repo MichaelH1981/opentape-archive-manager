@@ -113,6 +113,28 @@ class StagingStore:
             raise SafetyError("Prepared TAR changed during validation")
         return path
 
+    def revalidate_ready(self, job: str, manifest: dict[str, Any]) -> None:
+        """Explicitly recertify metadata-only changes; never accept changed content/identity."""
+        archive = manifest["archive_id"]
+        directory = self.directory(job, archive)
+        row = self.row(job, archive)
+        path = directory / "ready.tar"
+        if row["path"] != str(path) or not row["sha256"] or not row["fingerprint_json"]:
+            raise SafetyError("No previously validated READY archive to recertify")
+        previous = json.loads(row["fingerprint_json"])
+        before = fingerprint(path)
+        if before[:4] != previous[:4] or path.stat().st_mode & 0o222:
+            raise SafetyError("Recertification requires unchanged identity, size, mtime and read-only mode")
+        require_local(path)
+        if sha256(path) != row["sha256"]:
+            raise SafetyError("Recertification refused: original TAR checksum differs")
+        verify_archive(path, manifest)
+        if fingerprint(path) != before:
+            raise SafetyError("Archive changed during explicit recertification")
+        self.phase(job, archive, "READY", "COMPLETE", fingerprint_json=encode(before).decode())
+        self.catalog.event(job, "staging_explicitly_revalidated", archive=archive,
+                           original_sha256=row["sha256"], previous_fingerprint=previous, fingerprint=before)
+
     def prepare(self, job: str, root: Path, manifest: dict[str, Any]) -> Path:
         archive = manifest["archive_id"]
         directory = self.directory(job, archive)

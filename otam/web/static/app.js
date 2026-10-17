@@ -1,0 +1,501 @@
+import {
+  $,
+  $$,
+  esc,
+  short,
+  bytes,
+  num,
+  date,
+  ago,
+  labels,
+  badge,
+  kindLabel,
+  titles,
+} from "./common.js";
+import { icon } from "./icons.js";
+import { state } from "./state.js";
+import {
+  paintIcons,
+  toast,
+  heading,
+  linkButton,
+  empty,
+  note,
+  progress,
+  modal,
+  closeModal,
+  sourceName,
+  mediaName,
+  mediaOptions,
+  table,
+  pipeline,
+  storageCard,
+  sparkline,
+  eventLabel,
+  queuePanel,
+  getFileParams,
+  selectionBar,
+} from "./ui.js";
+import { api, enqueue, refreshBase } from "./api.js";
+import { renderers } from "./views.js";
+let renderId = 0;
+async function render() {
+  const id = ++renderId;
+  let page = location.hash.slice(1) || "dashboard";
+  if (!renderers[page]) page = "dashboard";
+  if (state.node?.role === "catalog" && ["planning", "hardware"].includes(page))
+    page = "catalog";
+  state.page = page;
+  $("#breadcrumb-title").textContent = titles[page];
+  document.title = titles[page] + " · OTAM";
+  $$("nav a[data-page]").forEach((a) =>
+    a.classList.toggle("active", a.dataset.page === page),
+  );
+  try {
+    const html = await renderers[page]();
+    if (id !== renderId) return;
+    const freshness =
+      state.node.role === "catalog"
+        ? `<div class="catalog-freshness">${note(state.node.snapshot ? `Katalogstand: ${date(state.node.snapshot.created)} · Eigenständige Kopie. Neue Änderungen erscheinen erst nach der nächsten Synchronisation.` : "Noch kein Katalog empfangen. Der Herausgeber muss zuerst einen gültigen Stand veröffentlichen.", "info")}</div>`
+        : "";
+    $("#content").innerHTML = freshness + html;
+    paintIcons($("#content"));
+    bindForms();
+  } catch (e) {
+    if (id !== renderId) return;
+    $("#content").innerHTML =
+      heading("Diese Ansicht ist gerade nicht verfügbar.", e.message) +
+      `<button class="button" id="retry">Erneut versuchen</button>`;
+  }
+}
+async function showJob(id) {
+  const j = await api("/jobs/" + encodeURIComponent(id)),
+    p = j.plan;
+  let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.phase] || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
+  if (p?.archives) {
+    html += `<h3>Geprüfter Archivplan</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Medium</dt><dd>${esc(mediaName(p.media_id))}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>Bedarf mit Reserve</dt><dd>${bytes(p.required_estimate)}</dd><dt>Verfügbar</dt><dd>${bytes(p.available)}</dd><dt>Plan-SHA-256</dt><dd class="mono">${esc(p.sha256)}</dd></dl><h3>Vorgesehene TAR-Archive</h3>${table(
+      ["Archiv", "Dateien", "Nutzdaten"],
+      p.archives.map(
+        (a) =>
+          `<tr><td class="mono">${esc(short(a.archive_id))}</td><td>${num(a.file_count)}</td><td>${bytes(a.payload_bytes)}</td></tr>`,
+      ),
+    )}`;
+  }
+  if (j.staging?.length)
+    html += `<h3>Vorbereitung und Transfer</h3>${j.staging.map((s) => `<div class="progress-meta"><span>${esc(short(s.archive_id))} · ${esc(labels[s.phase] || s.phase)}</span>${badge(s.state)}</div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}`).join("")}`;
+  if (j.error) html += `<p class="error-text">${esc(j.error)}</p>`;
+  if (j.report)
+    html += `<h3>Abschlussbericht</h3><pre class="code-block">${esc(JSON.stringify(j.report, null, 2))}</pre>`;
+  if (
+    state.node.role === "archive" &&
+    p?.archives &&
+    ["PLANNED", "STAGED", "FAILED", "INTERRUPTED"].includes(j.state)
+  ) {
+    html += `<div class="button-row">${["PLANNED", "STAGED"].includes(j.state) ? `<button class="button" data-stage="${esc(j.id)}">${icon("layers")}Lokal vorbereiten</button><button class="button primary" data-backup="${esc(j.id)}">${icon("tape")}Archivierung bestätigen</button>` : `<button class="button" ${j.tape_attempted ? "data-resume" : "data-revalidate"}="${esc(j.id)}">${icon("restore")}${j.tape_attempted ? "Wiederaufnahme prüfen" : "Staging erneut prüfen"}</button>`}</div>`;
+  }
+  modal(kindLabel(j.kind) + " · " + short(j.id), html);
+}
+async function confirmBackup(id, resume = false) {
+  const j = await api("/jobs/" + encodeURIComponent(id));
+  if (!j.plan?.archives) throw Error("Archivplan fehlt");
+  modal(
+    resume ? "Archivierung bewusst wiederaufnehmen" : "Archivierung bestätigen",
+    `<p>Der bestätigte Auftrag schreibt ausschließlich vollständige, geprüfte lokale TAR-Archive auf das zugeordnete <strong>Simulatormedium ${esc(mediaName(j.plan.media_id))}</strong> und liest sie vollständig zurück.</p>${resume ? note("Vor Wiederaufnahme wird die tatsächliche Mediensequenz erneut geprüft. Ein unvollständiges Medienende bleibt gesperrt.", "warning") : ""}<dl class="detail-list"><dt>Dateien</dt><dd>${num(j.plan.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(j.plan.payload_bytes)}</dd><dt>Job-ID</dt><dd class="mono">${esc(id)}</dd></dl><form id="backup-form" data-job="${esc(id)}" data-hash="${esc(j.plan.sha256)}" data-resume="${resume}"><label style="margin-top:22px">Job-ID zur Bestätigung<input name="confirmation" autocomplete="off" required placeholder="Obige Job-ID eintragen"></label><label class="check-label" style="margin-top:17px"><input type="checkbox" name="reviewed" required>Ich habe Quelle, Umfang und Zielmedium geprüft.</label><label class="check-label" style="margin-top:14px"><input type="checkbox" name="prepare_all">Alle TARs vor dem ersten Schreibvorgang vorbereiten</label><div class="form-actions"><button class="button primary" type="submit">${icon("shield")}Bestätigten Job ausführen</button></div></form>`,
+  );
+  bindForms($("#modal"));
+}
+function newMedium() {
+  modal(
+    "Simulatormedium erstellen",
+    `<p>Ein neues, unabhängiges Testmedium auf dem lokalen Dateisystem. Diese Aktion öffnet oder verändert kein physisches Bandlaufwerk.</p><form id="medium-form"><div class="form-grid"><label class="full">Bezeichnung<input name="label" placeholder="z. B. TEST-001" required maxlength="100"></label><label>Native Kapazität (GB)<input name="capacity" type="number" min="0.001" step="0.001" max="100000" value="800" required></label><label>Medienklasse<select name="media_class"><option value="permanent">Dauerarchiv</option><option value="rotation">Rotierende Sicherung</option></select></label></div><div class="form-actions"><button class="button primary" type="submit">Testmedium erstellen</button></div></form>`,
+  );
+  bindForms($("#modal"));
+}
+async function restoreGroup(key) {
+  const files = [...state.selection.values()].filter(
+    (f) => f.media_id + ":" + f.archive_id === key,
+  );
+  if (!files.length) return;
+  const payload = {
+    media_id: files[0].media_id,
+    archive_id: files[0].archive_id,
+    paths: files.map((f) => f.path),
+    target_name:
+      "restore-" +
+      new Date()
+        .toISOString()
+        .replace(/[^0-9]/g, "")
+        .slice(0, 14),
+  };
+  const r = await api("/restore-plan", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  modal(
+    "Wiederherstellungsplan prüfen",
+    `<dl class="detail-list"><dt>Medium</dt><dd>${esc(mediaName(r.media_id))}</dd><dt>Benötigte Medien</dt><dd>${r.media_count}</dd><dt>Banddateien</dt><dd>${r.tape_files.join(", ")}</dd><dt>Dateien</dt><dd>${num(r.files.length)}</dd><dt>Datenmenge</dt><dd>${bytes(r.payload_bytes)}</dd><dt>Ziel</dt><dd>${esc(r.target)}</dd></dl><form id="restore-form"><label style="margin-top:23px">Name des neuen Zielverzeichnisses<input name="target_name" value="${esc(payload.target_name)}" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,79}"></label><small class="hint">Ein vorhandenes Ziel wird nicht überschrieben. SHA-256 wird nach Restore geprüft.</small><div class="form-actions"><button class="button primary" type="submit">${icon("restore")}Wiederherstellung starten</button></div></form>`,
+  );
+  $("#restore-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const b = $("button[type=submit]", e.target);
+    b.disabled = true;
+    try {
+      payload.target_name = new FormData(e.target).get("target_name");
+      await enqueue("restore", payload);
+      closeModal();
+      location.hash = "jobs";
+    } catch (err) {
+      toast(err.message, true);
+      b.disabled = false;
+    }
+  });
+}
+function downloadSelection() {
+  const files = [...state.selection.values()];
+  const blob = new Blob(
+    [
+      JSON.stringify(
+        {
+          format: "otam-restore-selection-v1",
+          created: new Date().toISOString(),
+          catalog_node: state.node.id,
+          snapshot: state.node.snapshot?.sequence || null,
+          files,
+        },
+        null,
+        2,
+      ),
+    ],
+    { type: "application/json" },
+  );
+  const url = URL.createObjectURL(blob),
+    a = document.createElement("a");
+  a.href = url;
+  a.download = "otam-restore-auswahl.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function bindForms(root = $("#content")) {
+  const on = (id, handler) => {
+    const f = $(id, root);
+    if (f)
+      f.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const button = $("button[type=submit]", f);
+        if (button) button.disabled = true;
+        try {
+          await handler(new FormData(f), f);
+        } catch (err) {
+          toast(err.message, true);
+        } finally {
+          if (button) button.disabled = false;
+        }
+      });
+  };
+  on("#plan-form", async (d) => {
+    await enqueue("plan", {
+      source_id: d.get("source_id"),
+      media_id: d.get("media_id"),
+      target: Math.round(Number(d.get("target")) * 1e9),
+    });
+    location.hash = "jobs";
+  });
+  on("#medium-form", async (d) => {
+    await enqueue("create-medium", {
+      label: d.get("label"),
+      capacity: Math.round(Number(d.get("capacity")) * 1e9),
+      media_class: d.get("media_class"),
+    });
+    closeModal();
+    await render();
+  });
+  on("#backup-form", async (d, f) => {
+    if (d.get("confirmation") !== f.dataset.job)
+      throw new Error("Die eingegebene Job-ID stimmt nicht überein.");
+    await enqueue("backup", {
+      job_id: f.dataset.job,
+      confirm: d.get("confirmation"),
+      plan_hash: f.dataset.hash,
+      resume: f.dataset.resume === "true",
+      prepare_all: d.get("prepare_all") === "on",
+    });
+    closeModal();
+    location.hash = "jobs";
+    await render();
+  });
+  on("#revalidate-form", async (d, f) => {
+    if (d.get("confirmation") !== f.dataset.job)
+      throw new Error("Job-ID stimmt nicht überein.");
+    await enqueue("stage", {
+      job_id: f.dataset.job,
+      revalidate_ready: true,
+      confirm: d.get("confirmation"),
+    });
+    closeModal();
+    location.hash = "staging";
+    await render();
+  });
+  on("#verify-form", async (d) => {
+    await enqueue("verify", { media_id: d.get("media_id") });
+    location.hash = "jobs";
+  });
+  on("#catalog-form", async (d) => {
+    const f = {
+      q: d.get("q"),
+      file_type: d.get("file_type"),
+      media_id: d.get("media_id"),
+      checksum: d.get("checksum"),
+      state: d.get("state"),
+      duplicates: d.get("duplicates") === "on",
+      archive_id: state.filters.archive_id || "",
+    };
+    for (const [key, name] of [
+      ["min_size", "min_mb"],
+      ["max_size", "max_mb"],
+    ])
+      if (d.get(name) !== "") f[key] = Math.round(Number(d.get(name)) * 1e6);
+    for (const [key, name] of [
+      ["after", "after_date"],
+      ["before", "before_date"],
+    ])
+      if (d.get(name)) {
+        f[name] = d.get(name);
+        f[key] = Math.round(
+          new Date(
+            d.get(name) + (key === "before" ? "T23:59:59.999" : "T00:00:00"),
+          ).getTime() * 1e6,
+        );
+      }
+    state.filters = f;
+    state.offset = 0;
+    await render();
+  });
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest(
+    "button,[data-archive-files],[data-media-files],[data-copies]",
+  );
+  if (!b) return;
+  try {
+    if (b.dataset.job) await showJob(b.dataset.job);
+    else if (b.dataset.stage) {
+      await enqueue("stage", { job_id: b.dataset.stage });
+      closeModal();
+      location.hash = "staging";
+      await render();
+    } else if (b.dataset.backup) await confirmBackup(b.dataset.backup);
+    else if (b.dataset.revalidate) {
+      const ident = b.dataset.revalidate;
+      modal(
+        "Staging ausdrücklich erneut prüfen",
+        `<p>OTAM prüft das ursprüngliche TAR vollständig gegen den gespeicherten Hash und das Dateimanifest. Geänderte Inhalte, eine ausgetauschte Datei oder ein bereits versuchter Bandschreibvorgang werden nicht freigegeben.</p><p class="mono">${esc(ident)}</p><form id="revalidate-form" data-job="${esc(ident)}"><label>Job-ID zur Bestätigung<input name="confirmation" required autocomplete="off"></label><div class="form-actions"><button class="button primary" type="submit">Vollständig erneut prüfen</button></div></form>`,
+      );
+      bindForms($("#modal"));
+    } else if (b.dataset.resume) await confirmBackup(b.dataset.resume, true);
+    else if (b.dataset.verify) {
+      modal(
+        "Medium vollständig prüfen",
+        `<p>Alle Archive auf <strong>${esc(mediaName(b.dataset.verify))}</strong> werden vollständig zurückgelesen und gegen ihre Manifeste und Prüfsummen geprüft.</p><div class="button-row"><button class="button primary" data-confirm-verify="${esc(b.dataset.verify)}">${icon("shield")}Prüfung starten</button></div>`,
+      );
+    } else if (b.dataset.confirmVerify) {
+      await enqueue("verify", { media_id: b.dataset.confirmVerify });
+      closeModal();
+      location.hash = "integrity";
+    } else if (b.dataset.archiveFiles) {
+      state.filters = { archive_id: b.dataset.archiveFiles };
+      state.offset = 0;
+      location.hash = "catalog";
+      if (state.page === "catalog") await render();
+    } else if (b.dataset.mediaFiles) {
+      state.filters = { media_id: b.dataset.mediaFiles };
+      state.offset = 0;
+      location.hash = "catalog";
+    } else if (b.dataset.copies) {
+      state.filters = { checksum: b.dataset.copies };
+      state.offset = 0;
+      state.advanced = true;
+      await render();
+    } else if (b.dataset.restoreGroup)
+      await restoreGroup(b.dataset.restoreGroup);
+    else if (b.dataset.mediumTools) {
+      const id = b.dataset.mediumTools;
+      modal(
+        "Medien-Werkzeuge · " + mediaName(id),
+        `<p>Diese Aktionen lesen und prüfen das Simulatormedium. Sie überschreiben keine vorhandenen Banddateien.</p><div class="button-row"><button class="button" data-recover="${esc(id)}">Unterbrochene Jobs erfassen</button><button class="button" data-rebuild="${esc(id)}">Katalog aus Medium rekonstruieren</button></div>`,
+      );
+    } else if (b.dataset.recover || b.dataset.rebuild) {
+      await enqueue(b.dataset.recover ? "recover" : "rebuild", {
+        media_id: b.dataset.recover || b.dataset.rebuild,
+      });
+      closeModal();
+      location.hash = "jobs";
+    } else
+      switch (b.id) {
+        case "new-medium":
+          newMedium();
+          break;
+        case "modal-close":
+          closeModal();
+          break;
+        case "sync-now":
+          await enqueue("sync", {});
+          break;
+        case "filter-toggle":
+          state.advanced = !state.advanced;
+          $(".advanced-filters").hidden = !state.advanced;
+          b.setAttribute("aria-expanded", state.advanced);
+          break;
+        case "clear-filters":
+          state.filters = {};
+          state.offset = 0;
+          await render();
+          break;
+        case "prev-page":
+          state.offset = Math.max(0, state.offset - 50);
+          await render();
+          break;
+        case "next-page":
+          state.offset += 50;
+          await render();
+          break;
+        case "clear-selection":
+          state.selection.clear();
+          await render();
+          break;
+        case "download-selection":
+          downloadSelection();
+          break;
+        case "retry":
+          await refreshBase();
+          await render();
+          break;
+        case "nav-toggle": {
+          const open = $("#sidebar").classList.toggle("open");
+          $("#nav-backdrop").hidden = !open;
+          b.setAttribute("aria-expanded", open);
+          break;
+        }
+      }
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.classList.contains("file-select")) {
+    const f = state.files[Number(e.target.dataset.index)],
+      key = f.archive_id + ":" + f.path;
+    if (e.target.checked) state.selection.set(key, f);
+    else state.selection.delete(key);
+    $("#selection-bar").innerHTML = selectionBar();
+  } else if (e.target.id === "select-page") {
+    $$(".file-select").forEach((el) => {
+      el.checked = e.target.checked;
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+});
+$("#nav-backdrop").addEventListener("click", () => {
+  $("#sidebar").classList.remove("open");
+  $("#nav-backdrop").hidden = true;
+  $("#nav-toggle").setAttribute("aria-expanded", "false");
+});
+window.addEventListener("hashchange", () => {
+  $("#sidebar").classList.remove("open");
+  $("#nav-backdrop").hidden = true;
+  $("#nav-toggle").setAttribute("aria-expanded", "false");
+  if (state.node) render();
+});
+$("#modal").addEventListener("click", (e) => {
+  if (e.target === $("#modal")) {
+    const r = $("#modal").getBoundingClientRect();
+    if (
+      e.clientX < r.left ||
+      e.clientX > r.right ||
+      e.clientY < r.top ||
+      e.clientY > r.bottom
+    )
+      closeModal();
+  }
+});
+function showLogin() {
+  $("#shell").hidden = true;
+  $("#login").hidden = false;
+  state.csrf = "";
+  state.node = null;
+  paintIcons($("#login"));
+}
+async function start() {
+  await refreshBase();
+  $("#login").hidden = true;
+  $("#shell").hidden = false;
+
+  paintIcons();
+  await render();
+}
+$("#login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const d = new FormData(e.target),
+    b = $("button", e.target);
+  b.disabled = true;
+  $("#login-error").textContent = "";
+  try {
+    const r = await api("/login", {
+      method: "POST",
+      body: JSON.stringify({
+        username: d.get("username"),
+        password: d.get("password"),
+      }),
+    });
+    state.csrf = r.csrf;
+    $("#username").textContent = r.username;
+    e.target.elements.password.value = "";
+    await start();
+  } catch (err) {
+    $("#login-error").textContent = err.message;
+  } finally {
+    b.disabled = false;
+  }
+});
+$("#logout").addEventListener("click", async () => {
+  try {
+    await api("/logout", { method: "POST", body: "{}" });
+    state.selection.clear();
+    showLogin();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+setInterval(async () => {
+  if (!state.node || state.polling || document.hidden) return;
+  state.polling = true;
+  try {
+    await refreshBase();
+    if (
+      ["dashboard", "jobs", "staging", "integrity", "sync", "logs"].includes(
+        state.page,
+      ) &&
+      !$("#modal").open &&
+      !document.activeElement.matches(
+        "input, select, textarea, [contenteditable=true]",
+      )
+    )
+      await render();
+  } catch (err) {
+    $("#connection-label").textContent = "Verbindung unterbrochen";
+    $("#connection-dot").classList.add("off");
+  } finally {
+    state.polling = false;
+  }
+}, 5000);
+(async () => {
+  paintIcons();
+  try {
+    const r = await api("/session");
+    state.csrf = r.csrf;
+    await start();
+  } catch (e) {
+    showLogin();
+  }
+})();
+
+document.addEventListener("otam:unauthorized", showLogin);

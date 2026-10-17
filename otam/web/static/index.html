@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#12352f" />
+    <title>OTAM · Dein Langzeitarchiv</title>
+    <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <div id="login" class="login-screen" hidden>
+      <div class="login-art">
+        <div class="wordmark">
+          <span class="brand-mark">O</span>otam<span class="brand-dot">.</span>
+        </div>
+        <div class="login-copy">
+          <span class="eyebrow">OPENTAPE ARCHIVE MANAGER</span>
+          <h1>Was wichtig ist,<br />bleibt.</h1>
+          <p>Dein Archiv. Offene Formate.<br />Ein sicherer Ort für morgen.</p>
+        </div>
+        <div class="tape-art" aria-hidden="true">
+          <div class="tape-window"><i></i><i></i></div>
+          <span>OPEN TAPE / LONG TERM ARCHIVE</span><strong>OTAM</strong>
+          <div class="tape-line"></div>
+        </div>
+        <p class="login-foot">Offen entwickelt. Unter deiner Kontrolle.</p>
+      </div>
+      <main class="login-form">
+        <div class="login-box">
+          <span class="eyebrow green">WILLKOMMEN ZURÜCK</span>
+          <h2>Dein Archiv wartet.</h2>
+          <p>Melde dich an, um deinen Archivbestand zu verwalten.</p>
+          <form id="login-form">
+            <label
+              >Benutzername<input
+                name="username"
+                autocomplete="username"
+                required
+                value="admin" /></label
+            ><label
+              >Passwort<input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                required /></label
+            ><button class="button primary wide" type="submit">
+              Anmelden <span aria-hidden="true">→</span>
+            </button>
+            <p id="login-error" class="error-text" role="alert"></p>
+          </form>
+          <div class="login-note">
+            <span data-icon="shield"></span
+            ><span>Lokaler Zugriff · Keine Cloudverbindung erforderlich</span>
+          </div>
+        </div>
+      </main>
+    </div>
+    <div id="shell" class="shell" hidden>
+      <div id="nav-backdrop" class="nav-backdrop" hidden></div>
+      <aside class="sidebar" id="sidebar" aria-label="Hauptnavigation">
+        <a href="#dashboard" class="wordmark"
+          ><span class="brand-mark">O</span>otam<span class="brand-dot"
+            >.</span
+          ></a
+        >
+        <div class="workspace">
+          <span class="workspace-icon" data-icon="layers"></span>
+          <div>
+            <strong id="node-name">Dein Archiv</strong
+            ><small id="node-role">Archive Node</small>
+          </div>
+          <span class="status-dot"></span>
+        </div>
+        <div class="nav-label">ARBEITSBEREICH</div>
+        <nav id="navigation">
+          <a href="#dashboard" data-page="dashboard"
+            ><span data-icon="dashboard"></span>Übersicht</a
+          >
+          <a href="#planning" data-page="planning" data-archive
+            ><span data-icon="calendar"></span>Planung</a
+          >
+          <a href="#staging" data-page="staging"
+            ><span data-icon="layers"></span>Staging</a
+          >
+          <a href="#jobs" data-page="jobs"
+            ><span data-icon="activity"></span>Archivierungsjobs<span
+              id="nav-jobs"
+              class="nav-count"
+              hidden
+            ></span
+          ></a>
+          <a href="#catalog" data-page="catalog"
+            ><span data-icon="search"></span>Dateikatalog</a
+          >
+          <a href="#archives" data-page="archives"
+            ><span data-icon="archive"></span>Archive</a
+          >
+          <a href="#media" data-page="media"
+            ><span data-icon="tape"></span>Bandinventar</a
+          >
+          <a href="#restore" data-page="restore"
+            ><span data-icon="restore"></span>Wiederherstellen</a
+          >
+          <span class="nav-label">SYSTEM</span>
+          <a href="#integrity" data-page="integrity"
+            ><span data-icon="shield"></span>Integrität</a
+          >
+          <a href="#sync" data-page="sync"
+            ><span data-icon="sync"></span>Synchronisation</a
+          >
+          <a href="#hardware" data-page="hardware" data-archive
+            ><span data-icon="server"></span>Hardware</a
+          >
+          <a href="#logs" data-page="logs"
+            ><span data-icon="list"></span>Protokolle</a
+          >
+          <a href="#settings" data-page="settings"
+            ><span data-icon="settings"></span>Einstellungen</a
+          >
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="node-status">
+            <span class="status-dot" id="connection-dot"></span
+            ><span id="connection-label">Mit Node verbunden</span>
+          </div>
+          <div class="sidebar-version">
+            OpenTape Archive Manager <span>v0.3</span>
+          </div>
+        </div>
+      </aside>
+      <div class="main-shell">
+        <header class="topbar">
+          <div class="breadcrumb">
+            <button
+              class="icon-button mobile-only"
+              id="nav-toggle"
+              aria-label="Navigation öffnen"
+              aria-expanded="false"
+            >
+              <span data-icon="menu"></span></button
+            ><span class="breadcrumb-home" data-icon="home"></span
+            ><span class="breadcrumb-separator">/</span
+            ><span id="breadcrumb-title">Übersicht</span>
+          </div>
+          <div class="topbar-right">
+            <span class="node-pill" id="role-pill"
+              ><span class="status-dot"></span>Archive Node</span
+            ><span class="topbar-divider"></span
+            ><button id="logout" class="account-button" aria-label="Abmelden">
+              <span class="avatar">A</span><span id="username">admin</span
+              ><span data-icon="logout"></span>
+            </button>
+          </div>
+        </header>
+        <main
+          id="content"
+          class="content"
+          tabindex="-1"
+          aria-live="polite"
+        ></main>
+        <footer class="footer">
+          <span>Deine Daten. Dein Archiv. Deine Kontrolle.</span
+          ><span
+            >OTAM <span id="footer-mode">Archive Node</span> <i></i>
+            <span id="last-refresh">Verbunden</span></span
+          >
+        </footer>
+      </div>
+    </div>
+    <div id="toasts" class="toast-stack" aria-live="polite"></div>
+    <dialog id="modal">
+      <div class="modal-header">
+        <h2 id="modal-title"></h2>
+        <button
+          id="modal-close"
+          class="icon-button"
+          aria-label="Dialog schließen"
+        >
+          ×
+        </button>
+      </div>
+      <div id="modal-body"></div>
+    </dialog>
+  </body>
+</html>

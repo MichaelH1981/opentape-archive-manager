@@ -24,6 +24,18 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--db", type=Path, default=Path(".otam/catalog.sqlite"))
     sub = cli.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Read-only environment inventory; does not open tape devices")
+    web_init = sub.add_parser("web-init", help="Create a private node configuration; no tape operations")
+    web_init.add_argument("--config", required=True, type=Path)
+    web_init.add_argument("--root", required=True, type=Path)
+    web_init.add_argument("--role", choices=("archive", "catalog"), default="archive")
+    web_init.add_argument("--source", type=Path, action="append", default=[])
+    web_init.add_argument("--password-file", type=Path, help="Mode 0600 file; otherwise prompt securely")
+    for name in ("serve", "worker"):
+        web_command = sub.add_parser(name, help="Run the optional web server or separate durable worker")
+        web_command.add_argument("--config", required=True, type=Path)
+        if name == "worker":
+            web_command.add_argument("--once", action="store_true")
+
     create = sub.add_parser("init-sim", help="Create a NEW simulator directory, never a physical tape")
     create.add_argument("medium", type=Path)
     create.add_argument("--label", default="Test medium")
@@ -46,6 +58,7 @@ def parser() -> argparse.ArgumentParser:
     stage = sub.add_parser("stage", help="Prepare all TARs locally without accessing the tape")
     stage.add_argument("job_id")
     stage.add_argument("--staging", "--spool", dest="spool", type=Path, default=Path(".otam/staging"))
+    stage.add_argument("--revalidate-ready", action="store_true", help="Explicit full recertification of metadata-only READY changes before any tape attempt")
     status = sub.add_parser("staging-status")
     status.add_argument("--staging", required=True, type=Path)
     status.add_argument("--job-id")
@@ -78,7 +91,38 @@ def main(argv: list[str] | None = None) -> int:
     catalog = None
     try:
         result: Any
-        if args.command == "doctor":
+        if args.command == "web-init":
+            import getpass
+            from .web.config import initialize
+            if args.password_file:
+                if args.password_file.is_symlink() or args.password_file.stat().st_mode & 0o077:
+                    raise SafetyError("Password file requires mode 0600 and must not be a symlink")
+                password = args.password_file.read_text().rstrip("\r\n")
+            else:
+                password = getpass.getpass("Neues OTAM-Passwort (mindestens 12 Zeichen): ")
+                if password != getpass.getpass("Passwort wiederholen: "):
+                    raise SafetyError("Passwörter stimmen nicht überein")
+            initialize(args.config, args.root, args.role, password, args.source)
+            result = {"config": str(args.config.resolve()), "role": args.role, "state": "CONFIGURED"}
+        elif args.command in ("serve", "worker"):
+            from .web.config import WebConfig
+            config = WebConfig.load(args.config)
+            if args.command == "worker":
+                from .web.worker import run_worker
+                run_worker(config, once=args.once)
+            else:
+                try:
+                    import uvicorn
+                    from .web.app import create_app
+                except ImportError as error:
+                    raise SafetyError("Web dependencies missing; install OTAM with the [web] extra") from error
+                uvicorn.run(create_app(config), host=config.host, port=config.port,
+                            proxy_headers=bool(config.trusted_proxy_ips),
+                            forwarded_allow_ips=",".join(config.trusted_proxy_ips),
+                            server_header=False, workers=1,
+                            timeout_keep_alive=5, limit_concurrency=100)
+            return 0
+        elif args.command == "doctor":
             result = discover()
         else:
             catalog = Catalog(args.db)
@@ -100,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Staging is deliberately independent of a currently attached drive/medium.
                 class NoTape:
                     pass
-                result = ArchiveService(catalog, NoTape()).stage(args.job_id, args.spool)
+                result = ArchiveService(catalog, NoTape()).stage(args.job_id, args.spool, revalidate_ready=args.revalidate_ready)
             elif args.command == "search":
                 result = catalog.search(args.query, args.sha256)
             elif args.command == "jobs":

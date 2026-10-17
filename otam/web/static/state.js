@@ -1,0 +1,15 @@
+export const state = {
+  csrf: "",
+  node: null,
+  overview: null,
+  media: [],
+  commands: [],
+  page: "dashboard",
+  files: [],
+  selection: new Map(),
+  offset: 0,
+  filters: {},
+  advanced: false,
+  notified: new Set(),
+  polling: false,
+};
