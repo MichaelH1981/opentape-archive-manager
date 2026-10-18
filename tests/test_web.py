@@ -862,6 +862,16 @@ class WebAcceptance(unittest.TestCase):
             ident,
             [r.id for r in resources.effective(config, Control(config.state)).sources],
         )
+        with patch(
+            "otam.web.resources.filesystem", side_effect=OSError("unavailable source")
+        ) as probe:
+            listing = resources.overview(config, self.control)
+            self.assertTrue(
+                all(r["available"] is None for r in listing if r["kind"] == "source")
+            )
+            self.assertNotIn(self.source, [c.args[0] for c in probe.call_args_list])
+            self.assertNotIn(second, [c.args[0] for c in probe.call_args_list])
+
         for path in [
             str(config.state),
             str(config.media_root),

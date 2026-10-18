@@ -289,6 +289,12 @@ def overview(config: WebConfig, control: Control) -> list[dict[str, Any]]:
     result = []
     for r in entries(config, control):
         entry = dict(r)
+        if r["kind"] == "source":
+            # Never poll statvfs/stat on hard-mounted network sources from dashboard refreshes.
+            # Actual accessibility is checked only on explicit browsing/inventory.
+            entry.update(available=None, storage=None, writable=False)
+            result.append(entry)
+            continue
         try:
             path = Path(r["path"])
             entry["storage"] = filesystem(path)

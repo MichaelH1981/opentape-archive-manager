@@ -1836,8 +1836,13 @@ dialog::backdrop {
     font-size: 10px;
     padding: 9px 11px;
   }
-  .page-actions .button:not(.primary) {
-    display: none;
+  .page-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .page-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
   }
   .stats {
     gap: 10px;
@@ -2013,8 +2018,8 @@ dialog::backdrop {
     font-size: 24px;
   }
   .page-actions .button.primary {
-    font-size: 0;
-    gap: 0;
+    font-size: 10px;
+    gap: 6px;
     padding: 11px;
   }
   .page-actions .button.primary .icon {
