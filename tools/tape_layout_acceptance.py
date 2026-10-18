@@ -123,12 +123,16 @@ class Acceptance:
             flush=True,
         )
 
-    def position(self, expected: int, *, at_start: bool = True) -> dict[str, Any]:
+    def position(
+        self, expected: int, *, at_start: bool = True, at_eod: bool = False
+    ) -> dict[str, Any]:
         value = status(self.device.device)
         self.record("POSITION", expected_file=expected, actual=value)
-        if value["file_number"] != expected or (
-            at_start and value["block_number"] != 0
-        ):
+        confirmed_eod = at_eod and value["eod"] and value["block_number"] == -1
+        valid_position = confirmed_eod if at_eod else (
+            value["block_number"] == 0 if at_start else True
+        )
+        if value["file_number"] != expected or not valid_position:
             raise SafetyError("Unconfirmed tape position; no blind continuation")
         return value
 
@@ -151,9 +155,9 @@ class Acceptance:
             self.move("fsf", position)
         self.position(position)
 
-    def write(self, source: Path, position: int) -> None:
+    def write(self, source: Path, position: int, *, at_eod: bool = False) -> None:
         self.device.check()
-        self.position(position)
+        self.position(position, at_start=not at_eod, at_eod=at_eod)
         checksum = sha256(source)
         self.record(
             "WRITE_START",
@@ -237,8 +241,8 @@ class Acceptance:
             self.device.check()
             self.move("rewind")
             self.move("eod")
-            self.position(3)
-            self.write(archives[3], 3)
+            self.position(3, at_start=False, at_eod=True)
+            self.write(archives[3], 3, at_eod=True)
             self.read(archives[3], 3, "new-data")
             self.finalize_receipt(archives, 4)
             self.seek(4)

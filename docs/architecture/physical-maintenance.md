@@ -41,7 +41,7 @@ Grundlagen: [Linux SCSI Tape Driver](https://www.kernel.org/doc/html/latest/scsi
 
 ## Abnahmegrenze
 
-Automatisierte Tests verwenden ausschließlich einen speicherbasierten Band-Doppelgänger und synthetische lokale Dateien. Sie testen EOM, vollständige Rücklesung, Blockvertauschung/-beschädigung, Kurzschreiben, I/O-/Filemark-Fehler, Sicherheitslimit, beide Löschvarianten, einmalige/abgelaufene Freigaben, Quellen-/Staginggrenzen, Jobbindung und Rollen/CSRF. Kein Test darf physische Bandgeräte öffnen. Am 18.10.2026 war das IBM-Laufwerk auf dem Bandserver nicht in sysfs vorhanden; reale Hardwareabnahme und tatsächlicher qualifizierender Volltest sind weiterhin offen.
+Automatisierte Tests verwenden ausschließlich einen speicherbasierten Band-Doppelgänger und synthetische lokale Dateien. Sie testen EOM, vollständige Rücklesung, Blockvertauschung/-beschädigung, Kurzschreiben, I/O-/Filemark-Fehler, Sicherheitslimit, beide Löschvarianten, einmalige/abgelaufene Freigaben, Quellen-/Staginggrenzen, Jobbindung und Rollen/CSRF. Kein Test darf physische Bandgeräte öffnen. Die reale Abnahme bleibt von diesen Softwaretests getrennt. Ein begrenzter Testbereich oder ein kleiner TAR-Positionierungstest ersetzen keine Vollqualifikation des Mediums. Der aktuelle Abnahmeumfang steht im [Testprotokoll](../testing.md).
 
 ## Zeitlich begrenzter Dauertest
 

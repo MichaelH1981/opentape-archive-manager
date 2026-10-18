@@ -1,6 +1,6 @@
 # OpenTape Archive Manager (OTAM)
 
-Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.3 mit Weboberfläche, separatem Worker und eigenständigem Katalogdienst.** Der Archivierungskern arbeitet mit einem persistenten Bandsimulator; reale Bandschreibzugriffe bleiben bis zur Testband-Abnahme gesperrt.
+Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.3 mit Weboberfläche, separatem Worker und eigenständigem Katalogdienst.** Der Archivierungskern arbeitet mit einem persistenten Bandsimulator; reguläre physische Dateiarchivierung bleibt bis zur Bandformat-Abnahme gesperrt. Separat freigegebene physische Wartung ist verfügbar.
 
 [Projektübersicht und Funktionsstand](docs/project-overview.md) · [Weboberfläche und Installation](docs/web.md) · [Modulare Architektur](docs/architecture/modular-web.md)
 
@@ -41,4 +41,4 @@ Standardzugriff: http://127.0.0.1:8765. Eigenes Passwort bei Initialisierung; ke
 
 ![OTAM-Weboberfläche mit synthetischen Vorschaudaten](docs/images/otam-dashboard.jpg)
 
-Quellen und lokale Staging-Verzeichnisse sind in der Weboberfläche registrierbar und bei der Planung auswählbar. Die Hardwareansicht erkennt Laufwerke automatisch und bietet separat bestätigten physischen Wartungsbetrieb für Vollqualifikation sowie Kurz-/Langlöschen. Reguläre physische Archivierung bleibt bis zur Bandformat-Abnahme gesperrt. [Wartungsabläufe und Freigaben](docs/architecture/physical-maintenance.md).
+Quellen und lokale Staging-Verzeichnisse sind in der Weboberfläche registrierbar und bei der Planung auswählbar. Die Hardwareansicht erkennt Laufwerke automatisch und bietet separat bestätigten physischen Wartungsbetrieb für Vollqualifikation, begrenzte Dauertests sowie Kurz-/Langlöschen. Reguläre physische Archivierung bleibt bis zur Bandformat-Abnahme gesperrt. [Wartungsabläufe und Freigaben](docs/architecture/physical-maintenance.md).

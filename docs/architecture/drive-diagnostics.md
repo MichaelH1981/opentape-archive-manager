@@ -29,7 +29,7 @@ Pro Laufwerk werden die neueste Diagnose (maximal vier begrenzte Logseiten), die
 
 Alle Hardware-Routen bleiben auf Archive Nodes beschränkt. Die Web-Unit behält PrivateDevices; nur der bereits separat berechtigte Worker fragt die festen Band-SCSI-Generic-Geräte ab. Ein geänderter SG-Gerätepfad macht eine ältere destruktive Freigabe ebenfalls ungültig.
 
-Softwaretests verwenden ausschließlich synthetische SCSI-Antworten: Seiten-/Längenprüfung, 64-Bit-Zähler, unbekannte Temperaturen, Persistenz nach Rohdatenerfassung, fehlende/nicht unterstützte Seiten, Speicherfehler, Medienwechsel, Offline-/Altdatenzustände sowie Authentifizierung/Rollentrennung. Eine reale Abnahme bleibt offen, solange das Laufwerk ausgeschaltet ist. Die Software aktiviert es nicht und verändert keine Bandinhalte.
+Softwaretests verwenden ausschließlich synthetische SCSI-Antworten: Seiten-/Längenprüfung, 64-Bit-Zähler, unbekannte Temperaturen, Persistenz nach Rohdatenerfassung, fehlende/nicht unterstützte Seiten, Speicherfehler, Medienwechsel, Offline-/Altdatenzustände sowie Authentifizierung/Rollentrennung. Reale Diagnoseabfragen benötigen ein eingeschaltetes Laufwerk und werden getrennt von den Softwaretests abgenommen. Diese Abfragen schreiben keine Bandnutzdaten; schreibende Wartungsjobs benötigen daneben weiterhin eine ausdrückliche, mediengebundene Freigabe.
 
 Während physischer Wartung zeigt die Übersicht persistenten Transferfortschritt
 (Phase, Datenmenge, Durchsatz, Job-ID) aus dem Worker an. Dieser Fortschritt wird

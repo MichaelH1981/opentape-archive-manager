@@ -19,6 +19,7 @@ class RecordTape:
         self.files = []
         self.file = 0
         self.cursor = 0
+        self.at_eod = False
         self.fault = fault
         self.write_count = 0
 
@@ -28,6 +29,7 @@ class RecordTape:
     def mt(self, operation, *args):
         if operation == "rewind":
             self.file = self.cursor = 0
+            self.at_eod = False
 
     def writer(self):
         self.pending = []
@@ -52,20 +54,28 @@ class RecordTape:
         if fd == "write":
             self.files = self.files[: self.file] + [self.pending]
             self.write_count += 1
+            self.at_eod = False
         self.file += 1
         self.cursor = 0
 
     def status(self, _):
-        return {"file_number": self.file, "block_number": 0}
+        return {
+            "file_number": self.file,
+            "block_number": -1 if self.at_eod else 0,
+            "eod": self.at_eod,
+        }
 
     def run(self, args, **kwargs):
         if args[0] == "mt":
             if args[3] == "rewind":
                 self.file = 0
+                self.at_eod = False
             elif args[3] == "fsf":
                 self.file += int(args[4])
+                self.at_eod = False
             elif args[3] == "eod":
                 self.file = len(self.files) + (1 if self.fault == "unknown-eod" else 0)
+                self.at_eod = True
             self.cursor = 0
         return b""
 
