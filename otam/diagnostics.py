@@ -165,6 +165,7 @@ def collect(
                     "sg_logs",
                     "--readonly",
                     "--raw",
+                    "--raw",  # sg_logs -rr includes the log-page header.
                     "--maxlen=4096",
                     f"--page=0x{page:02x}",
                     sg,

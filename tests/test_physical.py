@@ -107,6 +107,45 @@ class PhysicalBoundary(unittest.TestCase):
             self.assertNotEqual(first, test_block(2, "b" * 64, data))
             self.assertEqual(first, test_block(1, "b" * 64, pattern("b" * 64)))
 
+    def test_bounded_sample_does_not_claim_full_medium_verification(self):
+        with patch("otam.physical.PATTERN_SIZE", 2 * BLOCK_SIZE):
+            result = qualify(
+                MemoryDrive(capacity=100),
+                "a" * 64,
+                lambda **v: None,
+                sample=True,
+                max_bytes=3 * BLOCK_SIZE,
+            )
+        self.assertEqual(result["state"], "SAMPLE_VERIFIED")
+        self.assertFalse(result["eom"])
+        self.assertEqual(result["bytes"], 3 * BLOCK_SIZE)
+        for fault in ("short", "io", "corrupt", "truncate", "extra", "close"):
+            with (
+                self.subTest(fault=fault),
+                patch("otam.physical.PATTERN_SIZE", 2 * BLOCK_SIZE),
+            ):
+                with self.assertRaises((SafetyError, OSError)):
+                    qualify(
+                        MemoryDrive(capacity=100, fault=fault),
+                        "a" * 64,
+                        lambda **v: None,
+                        sample=True,
+                        max_bytes=3 * BLOCK_SIZE,
+                    )
+
+    def test_vpd_serial_matches_direct_scsi_response(self):
+        from otam.physical import inquiry_serial
+
+        self.assertEqual(inquiry_serial(b"\x01\x80\x00\x04ABCD"), "ABCD")
+        for invalid in (
+            b"",
+            b"\x01\x81\x00\x04ABCD",
+            b"\x01\x80\x00\x05ABCD",
+            b"\x01\x80\x00\x03x\x00x",
+        ):
+            with self.assertRaises((SafetyError, UnicodeError)):
+                inquiry_serial(invalid)
+
     def test_erase_methods_are_explicit_not_certified_sanitization(self):
         for long in (False, True):
             device = MemoryDrive()

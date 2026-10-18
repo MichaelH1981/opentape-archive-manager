@@ -44,7 +44,7 @@ def prepare(
         raise SafetyError(
             "Zuerst ausdrücklich den physischen Wartungsbetrieb aktivieren"
         )
-    if operation not in ("qualify", "erase-short", "erase-long"):
+    if operation not in ("qualify", "qualify-sample", "erase-short", "erase-long"):
         raise SafetyError("Ungültige Wartungsaktion")
     inventory = control.get("hardware_inventory", {})
     if time.time() - inventory.get("time", 0) > 30:
@@ -62,7 +62,7 @@ def prepare(
             "Laufwerk und Medium müssen eindeutig erkannt und schreibbar sein"
         )
     ident = str(uuid.uuid4())
-    phrase = f"{'TESTEN' if operation=='qualify' else 'LÖSCHEN'} {drive['serial']} {drive['medium_serial']}"
+    phrase = f"{'TESTEN' if operation.startswith('qualify') else 'LÖSCHEN'} {drive['serial']} {drive['medium_serial']}"
     grant = {
         "id": ident,
         "operation": operation,
@@ -152,8 +152,21 @@ def execute(
         with io_lock(), device.locked():
             progress(phase="STARTING", state="RUNNING", seed=grant["seed"])
             result = (
-                qualify(device, grant["seed"], progress)
-                if grant["operation"] == "qualify"
+                qualify(
+                    device,
+                    grant["seed"],
+                    progress,
+                    **(
+                        {
+                            "sample": True,
+                            "max_bytes": 256 * 1024**3,
+                            "write_seconds": 3000,
+                        }
+                        if grant["operation"] == "qualify-sample"
+                        else {}
+                    ),
+                )
+                if grant["operation"].startswith("qualify")
                 else erase(device, grant["operation"] == "erase-long", progress)
             )
             progress(

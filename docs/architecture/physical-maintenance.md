@@ -42,3 +42,20 @@ Grundlagen: [Linux SCSI Tape Driver](https://www.kernel.org/doc/html/latest/scsi
 ## Abnahmegrenze
 
 Automatisierte Tests verwenden ausschließlich einen speicherbasierten Band-Doppelgänger und synthetische lokale Dateien. Sie testen EOM, vollständige Rücklesung, Blockvertauschung/-beschädigung, Kurzschreiben, I/O-/Filemark-Fehler, Sicherheitslimit, beide Löschvarianten, einmalige/abgelaufene Freigaben, Quellen-/Staginggrenzen, Jobbindung und Rollen/CSRF. Kein Test darf physische Bandgeräte öffnen. Am 18.10.2026 war das IBM-Laufwerk auf dem Bandserver nicht in sysfs vorhanden; reale Hardwareabnahme und tatsächlicher qualifizierender Volltest sind weiterhin offen.
+
+## Zeitlich begrenzter Dauertest
+
+`qualify-sample` überschreibt das ausdrücklich freigegebene Medium ab BOT mit
+rekonstruierbaren Daten. Es schreibt höchstens 256 GiB oder 50 Minuten (Prüfung
+zwischen vollständigen Records), schließt die Banddatei mit Dateimarke und liest
+alle geschriebenen Records vollständig zurück. Ein früheres echtes ENOSPC wird
+protokolliert; Bandende wird niemals künstlich simuliert. Nur identische Records,
+Datenmenge und SHA-256 ergeben `SAMPLE_VERIFIED`. Dies ist keine Vollqualifikation
+des Mediums. Die Rücklesezeit und blockierende Hardwarekommandos haben kein hartes
+Zeitlimit; bei langsamen oder fehlerhaften Geräten kann der Gesamtlauf länger dauern.
+Freigabe, Identitätskontrolle, Sperren und Wiederanlaufsperre entsprechen dem Volltest.
+
+Laufwerksseriennummern werden aus VPD 0x80 gelesen; fehlt die sysfs-Datei, wird
+dieselbe Seite lesend mit `sg_inq` abgefragt. `sg_logs --raw --raw` liefert die
+vollständige Logseite einschließlich des vom Parser benötigten Headers. Ein
+einzelnes `--raw` liefert bei sg3_utils nur Parameter und ist dafür ungeeignet.

@@ -111,7 +111,7 @@ class Diagnostics(unittest.TestCase):
 
         def command(args, timeout):
             self.assertIn("--readonly", args)
-            self.assertIn("--raw", args)
+            self.assertEqual(args.count("--raw"), 2)
             self.assertIn("--maxlen=4096", args)
             self.assertNotIn("--reset", args)
             self.assertNotIn("--select", args)

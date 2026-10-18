@@ -430,6 +430,7 @@ async function hardwarePage() {
         (d) =>
           `<tr><td><strong>${esc(d.vendor || "")} ${esc(d.model || "")}</strong><small class="hint mono">Seriennummer ${esc(d.serial || "unbekannt")}</small></td><td class="mono">${esc(d.device)}</td><td><span class="mono">${esc(d.medium_serial || "Nicht identifiziert")}</span><small class="hint">${esc(d.error || "Bereit")}</small></td><td>${[
             ["qualify", "Vollständig testen"],
+            ["qualify-sample", "Begrenzter Dauertest"],
             ["erase-short", "Kurz löschen"],
             ["erase-long", "Lang löschen"],
           ]

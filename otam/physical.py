@@ -102,6 +102,19 @@ def status(device: str) -> dict[str, Any]:
     }
 
 
+def inquiry_serial(vpd: bytes) -> str:
+    """Validate standard INQUIRY VPD page 0x80, from sysfs or sg_inq."""
+    if len(vpd) < 4 or vpd[1] != 0x80:
+        raise SafetyError("Ungültige Seriennummern-VPD-Seite")
+    length = int.from_bytes(vpd[2:4], "big")
+    if not 1 <= length <= 128 or length > len(vpd) - 4:
+        raise SafetyError("Unvollständige Seriennummern-VPD-Seite")
+    serial = vpd[4 : 4 + length].decode("ascii").strip(" \0")
+    if not serial or not all(32 <= ord(c) < 127 for c in serial):
+        raise SafetyError("Ungültige Laufwerksseriennummer")
+    return serial
+
+
 def discover_drives() -> list[dict[str, Any]]:
     if platform.system() != "Linux":
         return []
@@ -124,21 +137,9 @@ def discover_drives() -> list[dict[str, Any]]:
                 item[field] = None
         try:
             vpd = (base / "vpd_pg80").read_bytes()
-            if len(vpd) < 4 or int.from_bytes(vpd[2:4], "big") > len(vpd) - 4:
-                raise ValueError()
-            serial = (
-                vpd[4 : 4 + int.from_bytes(vpd[2:4], "big")]
-                .decode("ascii")
-                .strip(" \0")
-            )
-            if (
-                not serial
-                or len(serial) > 128
-                or not all(32 <= ord(c) < 127 for c in serial)
-            ):
-                raise ValueError()
+            serial = inquiry_serial(vpd)
             item["serial"] = serial
-        except (OSError, ValueError, UnicodeError):
+        except (OSError, ValueError, UnicodeError, SafetyError):
             pass
         item["id"] = hashlib.sha256(
             (item["sysfs"] + "|" + str(item["serial"])).encode()
@@ -146,6 +147,13 @@ def discover_drives() -> list[dict[str, Any]]:
         try:
             sg = next((base / "scsi_generic").glob("sg[0-9]*"))
             item["sg"] = "/dev/" + sg.name
+            if not item["serial"]:
+                item["serial"] = inquiry_serial(
+                    run(["sg_inq", "--page=0x80", "--raw", item["sg"]])
+                )
+                item["id"] = hashlib.sha256(
+                    (item["sysfs"] + "|" + item["serial"]).encode()
+                ).hexdigest()[:32]
             item["status"] = status(item["device"])
             if not item["serial"]:
                 raise SafetyError("Laufwerksseriennummer nicht lesbar")
@@ -160,6 +168,7 @@ def discover_drives() -> list[dict[str, Any]]:
             item["error"] = None if item["ready"] else "Medium ist schreibgeschützt"
         except (
             OSError,
+            UnicodeError,
             SafetyError,
             StopIteration,
             subprocess.TimeoutExpired,
@@ -285,6 +294,8 @@ def qualify(
     progress: Callable[..., None],
     *,
     max_bytes: int = 20_000_000_000_000,
+    sample: bool = False,
+    write_seconds: float = 3000,
 ) -> dict[str, Any]:
     """Fill to the first ENOSPC early warning, then verify every accepted record.
 
@@ -293,6 +304,12 @@ def qualify(
     """
     if not re.fullmatch("[0-9a-f]{64}", seed):
         raise SafetyError("Ungültiger reproduzierbarer Testseed")
+    if sample and (
+        max_bytes < 2 * BLOCK_SIZE
+        or max_bytes % BLOCK_SIZE
+        or not 0 < write_seconds <= 3000
+    ):
+        raise SafetyError("Ungültige Grenzen für begrenzten Bandtest")
     data = pattern(seed)
     before = device.alerts()
     accepted = 0
@@ -309,6 +326,8 @@ def qualify(
     last = started
     try:
         while accepted * BLOCK_SIZE < max_bytes:
+            if sample and accepted >= 2 and time.monotonic() - started >= write_seconds:
+                break
             block = test_block(accepted, seed, data)
             try:
                 n = device.write(fd, block)
@@ -331,7 +350,8 @@ def qualify(
                 last = now
     finally:
         device.close(fd)
-    if not eom:
+    write_elapsed = time.monotonic() - started
+    if not eom and not sample:
         raise SafetyError(
             "Sicherheitslimit erreicht, ohne Bandende; keine Vollqualifikation"
         )
@@ -342,7 +362,7 @@ def qualify(
         bytes=0,
         written_bytes=accepted * BLOCK_SIZE,
         expected_sha256=expected.hexdigest(),
-        eom=True,
+        eom=eom,
     )
     device.check()
     device.mt("rewind")
@@ -373,15 +393,22 @@ def qualify(
         raise SafetyError("Vollständige Rückleseverifikation fehlgeschlagen")
     device.check()
     return {
-        "state": "VERIFIED",
+        "state": "SAMPLE_VERIFIED" if sample else "VERIFIED",
+        "scope": "bounded_sample" if sample else "full_medium",
+        "write_seconds": write_elapsed,
+        "read_seconds": time.monotonic() - started,
         "bytes": count * BLOCK_SIZE,
         "sha256": actual.hexdigest(),
         "seed": seed,
-        "eom": True,
+        "eom": eom,
         "before": before,
         "after": device.alerts(),
         "compression": "disabled",
-        "capacity_meaning": "usable capacity to first early-warning ENOSPC; not forced physical EOT",
+        "capacity_meaning": (
+            "sample only; no full-media qualification"
+            if sample
+            else "usable capacity to first early-warning ENOSPC; not forced physical EOT"
+        ),
     }
 
 
