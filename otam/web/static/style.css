@@ -2195,3 +2195,28 @@ dialog::backdrop {
   cursor: pointer;
   padding: 12px 0;
 }
+.settings-account-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(360px, 1.25fr);
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.settings-account-grid .panel { min-width: 0; }
+.settings-field { display: grid; gap: 9px; max-width: 360px; font-weight: 600; }
+.settings-field select { width: 100%; }
+.settings-account-grid .hint { display: block; margin-top: 10px; }
+.security-future {
+  display: grid;
+  gap: 4px;
+  padding: 16px;
+  margin-top: 22px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.security-future small { color: var(--muted); line-height: 1.5; }
+.user-management { margin-bottom: 22px; }
+.user-management .button-row { justify-content: flex-end; flex-wrap: wrap; }
+@media (max-width: 900px) {
+  .settings-account-grid { grid-template-columns: 1fr; }
+}

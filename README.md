@@ -1,6 +1,6 @@
 # OpenTape Archive Manager (OTAM)
 
-Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.3 mit Weboberfläche, separatem Worker und eigenständigem Katalogdienst.** Der Archivierungskern arbeitet mit einem persistenten Bandsimulator; reguläre physische Dateiarchivierung bleibt bis zur Bandformat-Abnahme gesperrt. Separat freigegebene physische Wartung ist verfügbar.
+Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.4 mit deutscher/englischer Weboberfläche, lokaler Benutzerverwaltung, separatem Worker und eigenständigem Katalogdienst.** Der Archivierungskern arbeitet mit einem persistenten Bandsimulator; reguläre physische Dateiarchivierung bleibt bis zur Bandformat-Abnahme gesperrt. Separat freigegebene physische Wartung ist verfügbar.
 
 [Projektübersicht und Funktionsstand](docs/project-overview.md) · [Weboberfläche und Installation](docs/web.md) · [Modulare Architektur](docs/architecture/modular-web.md)
 

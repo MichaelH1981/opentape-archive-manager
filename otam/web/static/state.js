@@ -1,5 +1,6 @@
 export const state = {
   csrf: "",
+  account: null,
   node: null,
   overview: null,
   media: [],

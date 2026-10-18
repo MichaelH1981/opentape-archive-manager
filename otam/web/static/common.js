@@ -1,3 +1,4 @@
+import { localeTag, translate } from "./i18n.js";
 const $ = (s, r = document) => r.querySelector(s),
   $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (v) =>
@@ -25,28 +26,28 @@ const bytes = (n, prec = 1) => {
   if (!n) return "0 B";
   const u = ["B", "KB", "MB", "GB", "TB"],
     i = Math.min(4, Math.floor(Math.log(n) / Math.log(1000)));
-  return `${(n / 1000 ** i).toLocaleString("de-DE", { maximumFractionDigits: prec })} ${u[i]}`;
+  return `${(n / 1000 ** i).toLocaleString(localeTag(), { maximumFractionDigits: prec })} ${u[i]}`;
 };
-const num = (n) => Number(n || 0).toLocaleString("de-DE");
+const num = (n) => Number(n || 0).toLocaleString(localeTag());
 const date = (n) =>
   n
-    ? new Date(n * 1000).toLocaleString("de-DE", {
+    ? new Date(n * 1000).toLocaleString(localeTag(), {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
       })
-    : "Noch nicht";
+    : translate("Noch nicht");
 const ago = (n) => {
-  if (!n) return "Noch nicht";
+  if (!n) return translate("Noch nicht");
   let s = Math.max(0, Date.now() / 1000 - n);
   return s < 60
-    ? "gerade eben"
+    ? translate("gerade eben")
     : s < 3600
-      ? `vor ${Math.floor(s / 60)} Min.`
+      ? translate(`vor ${Math.floor(s / 60)} Min.`)
       : s < 86400
-        ? `vor ${Math.floor(s / 3600)} Std.`
+        ? translate(`vor ${Math.floor(s / 3600)} Std.`)
         : date(n);
 };
 const labels = {

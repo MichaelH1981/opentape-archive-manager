@@ -16,6 +16,7 @@ import {
 import { icon } from "./icons.js";
 import { state } from "./state.js";
 import { toast } from "./ui.js";
+import { localeTag, translate } from "./i18n.js";
 async function api(path, options = {}) {
   const headers = { ...options.headers };
   if (options.body) {
@@ -31,24 +32,22 @@ async function api(path, options = {}) {
       cache: "no-store",
     });
   } catch (e) {
-    throw new Error("Der Node ist nicht erreichbar. Verbindung prüfen.");
+    throw new Error(translate("Der Node ist nicht erreichbar. Verbindung prüfen."));
   }
   let result;
   try {
     result = await response.json();
   } catch (e) {
-    throw new Error(
-      `Serverantwort konnte nicht gelesen werden (HTTP ${response.status})`,
-    );
+    throw new Error(translate("Serverantwort konnte nicht gelesen werden") + ` (HTTP ${response.status})`);
   }
   if (!response.ok) {
     if (response.status === 401 && path != "/login")
       document.dispatchEvent(new Event("otam:unauthorized"));
     const detail = result.error || result.detail;
     throw new Error(
-      typeof detail === "string"
+      translate(typeof detail === "string"
         ? detail
-        : "Eingaben konnten nicht verarbeitet werden.",
+        : "Eingaben konnten nicht verarbeitet werden."),
     );
   }
   return result;
@@ -91,7 +90,7 @@ async function refreshBase() {
   $("#nav-jobs").textContent = running;
   $("#last-refresh").textContent =
     "Aktualisiert " +
-    new Date().toLocaleTimeString("de-DE", {
+    new Date().toLocaleTimeString(localeTag(), {
       hour: "2-digit",
       minute: "2-digit",
     });

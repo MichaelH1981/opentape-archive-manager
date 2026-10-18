@@ -49,10 +49,11 @@ from .targets import (
     delete_target,
     initialize_directory,
 )
-from .security import cookie_name, SecurityMiddleware, login, session
+from .security import cookie_name, SecurityMiddleware, login, session, require_admin
 from .worker import mounted, validate_command
 from . import resources, maintenance
 from . import diagnostics
+from . import accounts
 
 STATIC = Path(__file__).parent / "static"
 
@@ -68,6 +69,31 @@ class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class NewUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=12, max_length=1024)
+    role: str
+
+
+class EditUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str | None = None
+    enabled: bool | None = None
+    password: str | None = Field(default=None, min_length=12, max_length=1024)
+
+
+class LocaleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    locale: str
+
+
+class PasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
 
 
 class CommandRequest(BaseModel):
@@ -110,6 +136,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 "SQLite-Node-Daten benötigen ein lokales persistentes Dateisystem, keine Netzwerkfreigabe"
             )
     control = Control(config.state)
+    accounts.bootstrap(control, config.username, config.password)
     if config.role == "archive":
         catalog = Catalog(config.catalog)
         catalog.close()
@@ -122,7 +149,7 @@ def create_app(config: WebConfig) -> FastAPI:
         modules.append(Module("archive", "Archivierung und Staging", True))
     app = FastAPI(
         title="OpenTape Archive Manager",
-        version="0.3.0",
+        version="0.4.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -172,7 +199,7 @@ def create_app(config: WebConfig) -> FastAPI:
     @app.post("/api/v1/login")
     def sign_in(data: LoginRequest, request: Request, response: Response):
         ip = request.client.host if request.client else "local"
-        token, csrf = login(config, control, data.username, data.password, ip)
+        token, csrf, user = login(config, control, data.username, data.password, ip)
         response.set_cookie(
             cookie_name(config),
             token,
@@ -182,13 +209,43 @@ def create_app(config: WebConfig) -> FastAPI:
             samesite="strict",
             path="/",
         )
-        return {"csrf": csrf, "username": config.username}
+        return {"csrf": csrf, **user}
 
     api = APIRouter(prefix="/api/v1", dependencies=[Depends(session)])
 
     @api.get("/session")
     def current(request: Request):
-        return {"csrf": session(request)["csrf"], "username": config.username}
+        user = session(request)
+        return {key: user[key] for key in ("csrf", "user_id", "username", "role", "locale", "mfa_state")}
+
+    @api.get("/account")
+    def account(request: Request):
+        user = session(request)
+        return {key: user[key] for key in ("user_id", "username", "role", "locale", "mfa_state")}
+
+    @api.put("/account/locale")
+    def account_locale(data: LocaleRequest, request: Request):
+        return accounts.set_locale(control, session(request)["user_id"], data.locale)
+
+    @api.post("/account/password")
+    def account_password(data: PasswordRequest, request: Request):
+        user = session(request)
+        accounts.change_own_password(control, user["user_id"], data.current_password,
+                                     data.new_password, user["hash"])
+        return {"state": "UPDATED"}
+
+    @api.get("/users", dependencies=[Depends(require_admin)])
+    def users():
+        return {"items": accounts.list_users(control)}
+
+    @api.post("/users", dependencies=[Depends(require_admin)], status_code=201)
+    def new_user(data: NewUserRequest):
+        return accounts.create_user(control, data.username, data.password, data.role)
+
+    @api.patch("/users/{ident}", dependencies=[Depends(require_admin)])
+    def edit_user(ident: str, data: EditUserRequest):
+        return accounts.update_user(control, ident, role=data.role, enabled=data.enabled,
+                                    password=data.password)
 
     @api.post("/logout")
     def logout(request: Request, response: Response):
@@ -210,7 +267,7 @@ def create_app(config: WebConfig) -> FastAPI:
             "id": config.node_id,
             "name": config.name,
             "role": config.role,
-            "version": "0.3.0",
+            "version": "0.4.0",
             "modules": [vars(m) for m in modules],
             "capabilities": {
                 "catalog": True,
@@ -364,19 +421,19 @@ def create_app(config: WebConfig) -> FastAPI:
             "local_catalog": config.role == "archive",
         }
 
-    @api.put("/replication/targets/{ident}")
+    @api.put("/replication/targets/{ident}", dependencies=[Depends(require_admin)])
     def configure_target(ident: str, data: dict[str, Any] = Body()):
         save_target(config, control, ident, data)
         return {"items": public_targets(config, control)}
 
-    @api.post("/replication/targets/{ident}/initialize")
+    @api.post("/replication/targets/{ident}/initialize", dependencies=[Depends(require_admin)])
     def initialize_target(ident: str, data: dict[str, Any] = Body()):
         if set(data) != {"confirmation"}:
             raise SafetyError("Node-ID-Bestätigung erforderlich")
         initialize_directory(config, control, ident, data["confirmation"])
         return {"state": "INITIALIZED"}
 
-    @api.delete("/replication/targets/{ident}")
+    @api.delete("/replication/targets/{ident}", dependencies=[Depends(require_admin)])
     def remove_target(ident: str):
         delete_target(config, control, ident)
         return {"items": public_targets(config, control)}
@@ -447,7 +504,10 @@ def create_app(config: WebConfig) -> FastAPI:
         def command(
             data: CommandRequest,
             idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
+            request: Request,
         ):
+            if data.kind == "tape-maintenance":
+                require_admin(request)
             validate_command(config, control, data.kind, data.payload)
             result = control.enqueue(data.kind, data.payload, idempotency_key)
             return {
@@ -479,24 +539,24 @@ def create_app(config: WebConfig) -> FastAPI:
         def storage_resources():
             return {"items": resources.overview(config, control)}
 
-        @archive.put("/storage-resources/{ident}")
+        @archive.put("/storage-resources/{ident}", dependencies=[Depends(require_admin)])
         def save_resource(ident: str, data: dict[str, Any] = Body()):
             resources.save(config, control, ident, data)
             return {"state": "REGISTERED"}
 
-        @archive.delete("/storage-resources/{ident}")
+        @archive.delete("/storage-resources/{ident}", dependencies=[Depends(require_admin)])
         def remove_resource(ident: str):
             resources.remove(config, control, ident)
             return {"state": "REMOVED", "files_deleted": False}
 
-        @archive.put("/operation-mode")
+        @archive.put("/operation-mode", dependencies=[Depends(require_admin)])
         def operation_mode(data: dict[str, Any] = Body()):
             if set(data) != {"mode"}:
                 raise SafetyError("Betriebsart fehlt")
             maintenance.set_mode(config, control, data["mode"])
             return {"mode": maintenance.mode(config, control)}
 
-        @archive.post("/maintenance/prepare")
+        @archive.post("/maintenance/prepare", dependencies=[Depends(require_admin)])
         def maintenance_prepare(data: dict[str, Any] = Body()):
             if set(data) != {"drive_id", "operation"} or not isinstance(
                 data["drive_id"], str

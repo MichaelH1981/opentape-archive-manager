@@ -38,6 +38,41 @@ HASH = password_hash(PASSWORD)
 
 
 @unittest.skipUnless(WEB_AVAILABLE, "Optional [web] dependencies not installed")
+class AccountMigration(unittest.TestCase):
+    def test_v1_control_upgrade_preserves_commands_and_invalidates_anonymous_sessions(self):
+        from otam.web.accounts import bootstrap
+
+        with tempfile.TemporaryDirectory(prefix="otam-account-upgrade-") as folder:
+            state = Path(folder)
+            with sqlite3.connect(state / "control.sqlite") as db:
+                db.executescript("""
+                    CREATE TABLE commands(id TEXT PRIMARY KEY,kind TEXT,state TEXT,
+                        created REAL,updated REAL,payload TEXT,result TEXT,error TEXT,idempotency TEXT UNIQUE);
+                    CREATE TABLE sessions(hash TEXT PRIMARY KEY,csrf TEXT,expires REAL);
+                    CREATE TABLE attempts(ip TEXT,time REAL);
+                    CREATE TABLE resources(id TEXT PRIMARY KEY,path TEXT UNIQUE);
+                    CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);
+                    CREATE TABLE sync_log(id INTEGER PRIMARY KEY,time REAL,direction TEXT,
+                        state TEXT,sequence INTEGER,details TEXT);
+                    INSERT INTO sessions VALUES('old','csrf',9999999999);
+                    INSERT INTO settings VALUES('operation_mode','\"simulator\"');
+                    INSERT INTO commands VALUES('existing','plan','SUCCEEDED',1,1,'{}',NULL,NULL,'prior-key');
+                    PRAGMA user_version=1;
+                """)
+            control = Control(state)
+            bootstrap(control, "admin", HASH)
+            with control.connect() as db:
+                self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], 2)
+                self.assertEqual(db.execute("SELECT count(*) FROM sessions").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT state FROM commands WHERE id='existing'").fetchone()[0], "SUCCEEDED")
+                self.assertEqual(db.execute("SELECT value FROM settings WHERE key='operation_mode'").fetchone()[0], '"simulator"')
+                self.assertEqual(db.execute("SELECT role FROM users WHERE username='admin'").fetchone()[0], "admin")
+            bootstrap(control, "admin", password_hash("different-password-1234"))
+            with control.connect() as db:
+                self.assertEqual(db.execute("SELECT password_hash FROM users WHERE username='admin'").fetchone()[0], HASH)
+
+
+@unittest.skipUnless(WEB_AVAILABLE, "Optional [web] dependencies not installed")
 class WebAcceptance(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
@@ -219,6 +254,90 @@ class WebAcceptance(unittest.TestCase):
             200,
         )
         self.assertEqual(self.client.get("/api/v1/session").status_code, 401)
+
+    def test_local_users_roles_language_and_session_revocation(self):
+        from fastapi.testclient import TestClient
+
+        headers = {"X-CSRF-Token": self.csrf}
+        initial = self.client.get("/api/v1/users").json()["items"]
+        self.assertEqual(len(initial), 1)
+        self.assertEqual(initial[0]["role"], "admin")
+        self.assertNotIn("password_hash", initial[0])
+        self.assertEqual(
+            self.client.patch(
+                "/api/v1/users/" + initial[0]["id"],
+                json={"enabled": False}, headers=headers,
+            ).status_code, 409,
+        )
+        created = self.client.post(
+            "/api/v1/users",
+            json={"username": "archive.viewer", "password": "viewer-password-1234", "role": "viewer"},
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        ident = created.json()["id"]
+        viewer = TestClient(self.app)
+        signed = viewer.post(
+            "/api/v1/login", json={"username": "archive.viewer", "password": "viewer-password-1234"}
+        )
+        self.assertEqual(signed.status_code, 200, signed.text)
+        self.assertEqual(signed.json()["role"], "viewer")
+        vheaders = {"X-CSRF-Token": signed.json()["csrf"], "Idempotency-Key": str(uuid.uuid4())}
+        self.assertEqual(viewer.get("/api/v1/files").status_code, 200)
+        self.assertEqual(viewer.get("/api/v1/users").status_code, 403)
+        self.assertEqual(viewer.post(
+            "/api/v1/commands", json={"kind": "create-medium", "payload": {"label": "blocked"}},
+            headers=vheaders,
+        ).status_code, 403)
+        self.assertEqual(viewer.put(
+            "/api/v1/account/locale", json={"locale": "en"}, headers=vheaders,
+        ).json()["locale"], "en")
+        self.assertEqual(viewer.get("/api/v1/session").json()["locale"], "en")
+        self.assertEqual(viewer.post(
+            "/api/v1/account/password",
+            json={"current_password": "viewer-password-1234", "new_password": "new-viewer-password-1234"},
+            headers=vheaders,
+        ).status_code, 200)
+        self.assertEqual(viewer.get("/api/v1/session").status_code, 200)
+        self.assertEqual(viewer.post(
+            "/api/v1/login", json={"username": "archive.viewer", "password": "viewer-password-1234"}
+        ).status_code, 401)
+        self.assertEqual(self.client.patch(
+            "/api/v1/users/" + ident, json={"enabled": False}, headers=headers,
+        ).status_code, 200)
+        self.assertEqual(viewer.get("/api/v1/session").status_code, 401)
+        self.assertEqual(viewer.post(
+            "/api/v1/login", json={"username": "archive.viewer", "password": "new-viewer-password-1234"}
+        ).status_code, 401)
+        viewer.close()
+
+    def test_operator_cannot_manage_users_or_approve_tape_maintenance(self):
+        from fastapi.testclient import TestClient
+
+        created = self.client.post(
+            "/api/v1/users",
+            json={"username": "operator1", "password": "operator-password-1234", "role": "operator"},
+            headers={"X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        operator = TestClient(self.app)
+        signed = operator.post(
+            "/api/v1/login", json={"username": "operator1", "password": "operator-password-1234"}
+        ).json()
+        headers = {"X-CSRF-Token": signed["csrf"], "Idempotency-Key": str(uuid.uuid4())}
+        self.assertEqual(operator.get("/api/v1/users").status_code, 403)
+        self.assertEqual(operator.put(
+            "/api/v1/operation-mode", json={"mode": "physical"}, headers=headers,
+        ).status_code, 403)
+        self.assertEqual(operator.post(
+            "/api/v1/commands", json={"kind": "tape-maintenance", "payload": {}},
+            headers=headers,
+        ).status_code, 403)
+        self.assertEqual(operator.post(
+            "/api/v1/commands", json={"kind": "create-medium", "payload": {"label": "allowed"}},
+            headers=headers,
+        ).status_code, 202)
+        operator.close()
 
     def test_login_rate_limit(self):
         for _ in range(10):

@@ -15,6 +15,7 @@ import {
 } from "./common.js";
 import { icon } from "./icons.js";
 import { state } from "./state.js";
+import { getLanguage, localize, setLanguage, translate } from "./i18n.js";
 import {
   paintIcons,
   toast,
@@ -40,6 +41,15 @@ import {
 import { api, enqueue, refreshBase } from "./api.js";
 import { renderers } from "./views.js";
 let renderId = 0;
+function applyPermissions(root) {
+  const role = state.account?.role || "viewer";
+  if (role !== "admin")
+    $$("#new-source, #new-staging, #new-target, #mode-form, [data-maintenance-drive], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
+      .forEach((element) => (element.hidden = true));
+  if (role === "viewer")
+    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group]", root)
+      .forEach((element) => (element.hidden = true));
+}
 async function render() {
   const id = ++renderId;
   let page = location.hash.slice(1) || "dashboard";
@@ -48,7 +58,7 @@ async function render() {
     page = "catalog";
   state.page = page;
   $("#breadcrumb-title").textContent = titles[page];
-  document.title = titles[page] + " · OTAM";
+  document.title = translate(titles[page]) + " · OTAM";
   $$("nav a[data-page]").forEach((a) =>
     a.classList.toggle("active", a.dataset.page === page),
   );
@@ -61,12 +71,15 @@ async function render() {
         : "";
     $("#content").innerHTML = freshness + html;
     paintIcons($("#content"));
+    localize(document);
+    applyPermissions($("#content"));
     bindForms();
   } catch (e) {
     if (id !== renderId) return;
     $("#content").innerHTML =
       heading("Diese Ansicht ist gerade nicht verfügbar.", e.message) +
       `<button class="button" id="retry">Erneut versuchen</button>`;
+    localize($("#content"));
   }
 }
 async function showJob(id) {
@@ -328,6 +341,43 @@ async function targetAction(ident, initialize = false) {
     }
   });
 }
+function newUser() {
+  modal("Benutzer hinzufügen", `<p>Jedes Konto gilt nur auf diesem Node. Administratoren verwalten Konten und Hardwarewartung; Operatoren bedienen Archivjobs; Benutzer mit Leserechten durchsuchen den Katalog.</p>
+    <form id="new-user-form"><div class="form-grid"><label>Benutzername<input name="username" pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,63}" maxlength="64" autocomplete="off" required></label><label>Berechtigung<select name="role"><option value="viewer">Nur lesen</option><option value="operator">Operator</option><option value="admin">Administrator</option></select></label><label class="full">Passwort<input name="password" type="password" autocomplete="new-password" minlength="12" required><small class="hint">Mindestens 12 Zeichen</small></label></div><div class="form-actions"><button class="button primary" type="submit">Benutzer hinzufügen</button></div></form>`);
+  $("#new-user-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(e.target), b = $("button[type=submit]", e.target);
+    b.disabled = true;
+    try {
+      await api("/users", { method: "POST", body: JSON.stringify({ username: d.get("username"), password: d.get("password"), role: d.get("role") }) });
+      closeModal(); await render(); toast("Benutzer angelegt.");
+    } catch (error) { toast(error.message, true); b.disabled = false; }
+  });
+}
+async function editUser(id, resetPassword = false) {
+  const users = (await api("/users")).items;
+  const user = users.find((u) => u.id === id);
+  if (!user) throw Error("Benutzer nicht gefunden");
+  if (resetPassword) {
+    modal("Passwort setzen", `<p><strong>${esc(user.username)}</strong></p><form id="user-password-form"><label>Neues Passwort<input name="password" type="password" autocomplete="new-password" minlength="12" required><small class="hint">Mindestens 12 Zeichen. Andere Sitzungen des Kontos werden beendet.</small></label><div class="form-actions"><button class="button primary" type="submit">Passwort setzen</button></div></form>`);
+    $("#user-password-form").addEventListener("submit", async (e) => {
+      e.preventDefault(); const b = $("button[type=submit]", e.target); b.disabled = true;
+      try {
+        await api("/users/" + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify({ password: new FormData(e.target).get("password") }) });
+        closeModal(); await render(); toast("Passwort geändert.");
+      } catch (error) { toast(error.message, true); b.disabled = false; }
+    });
+    return;
+  }
+  modal("Benutzer bearbeiten", `<p><strong>${esc(user.username)}</strong></p><form id="edit-user-form"><div class="form-grid"><label>Berechtigung<select name="role"><option value="viewer" ${user.role === "viewer" ? "selected" : ""}>Nur lesen</option><option value="operator" ${user.role === "operator" ? "selected" : ""}>Operator</option><option value="admin" ${user.role === "admin" ? "selected" : ""}>Administrator</option></select></label><label class="check-label"><input type="checkbox" name="enabled" ${user.enabled ? "checked" : ""}>Konto aktiviert</label></div><p class="hint">Der letzte aktive Administrator kann nicht deaktiviert oder herabgestuft werden. Rollenänderungen beenden bestehende Sitzungen.</p><div class="form-actions"><button class="button primary" type="submit">Speichern</button></div></form>`);
+  $("#edit-user-form").addEventListener("submit", async (e) => {
+    e.preventDefault(); const d = new FormData(e.target), b = $("button[type=submit]", e.target); b.disabled = true;
+    try {
+      await api("/users/" + encodeURIComponent(id), { method: "PATCH", body: JSON.stringify({ role: d.get("role"), enabled: d.has("enabled") }) });
+      closeModal(); await render(); toast("Benutzer aktualisiert.");
+    } catch (error) { toast(error.message, true); b.disabled = false; }
+  });
+}
 function bindForms(root = $("#content")) {
   const on = (id, handler) => {
     const f = $(id, root);
@@ -433,6 +483,28 @@ function bindForms(root = $("#content")) {
     state.offset = 0;
     await render();
   });
+  on("#own-password-form", async (d, form) => {
+    await api("/account/password", { method: "POST", body: JSON.stringify({
+      current_password: d.get("current_password"), new_password: d.get("new_password"),
+    }) });
+    form.reset();
+    toast("Passwort geändert. Andere Sitzungen wurden beendet.");
+  });
+  const languageSelect = $("#language-select", root);
+  if (languageSelect) languageSelect.addEventListener("change", async () => {
+    const previous = getLanguage();
+    languageSelect.disabled = true;
+    try {
+      const user = await api("/account/locale", { method: "PUT", body: JSON.stringify({ locale: languageSelect.value }) });
+      state.account = { ...state.account, ...user };
+      setLanguage(user.locale);
+      await refreshBase();
+      await render();
+    } catch (error) {
+      languageSelect.value = previous;
+      toast(error.message, true);
+    } finally { languageSelect.disabled = false; }
+  });
 }
 document.addEventListener("click", async (e) => {
   const b = e.target.closest(
@@ -442,6 +514,8 @@ document.addEventListener("click", async (e) => {
   try {
     if (b.dataset.maintenanceDrive)
       await maintenanceDialog(b.dataset.maintenanceDrive, b.dataset.operation);
+    else if (b.dataset.editUser) await editUser(b.dataset.editUser);
+    else if (b.dataset.passwordUser) await editUser(b.dataset.passwordUser, true);
     else if (b.dataset.removeResource) {
       modal(
         "Verzeichnis abmelden",
@@ -507,6 +581,9 @@ document.addEventListener("click", async (e) => {
       switch (b.id) {
         case "new-medium":
           newMedium();
+          break;
+        case "new-user":
+          newUser();
           break;
         case "modal-close":
           closeModal();
@@ -613,18 +690,25 @@ $("#modal").addEventListener("click", (e) => {
   }
 });
 function showLogin() {
+  document.title = translate("OTAM · Dein Langzeitarchiv");
   $("#shell").hidden = true;
   $("#login").hidden = false;
   state.csrf = "";
   state.node = null;
+  state.account = null;
   paintIcons($("#login"));
 }
 async function start() {
   await refreshBase();
   $("#login").hidden = true;
   $("#shell").hidden = false;
+  if (state.account) {
+    $("#username").textContent = state.account.username;
+    $(".account-button .avatar").textContent = state.account.username.slice(0, 1).toUpperCase();
+  }
 
   paintIcons();
+  localize(document);
   await render();
 }
 $("#login-form").addEventListener("submit", async (e) => {
@@ -642,6 +726,8 @@ $("#login-form").addEventListener("submit", async (e) => {
       }),
     });
     state.csrf = r.csrf;
+    state.account = r;
+    setLanguage(r.locale);
     $("#username").textContent = r.username;
     e.target.elements.password.value = "";
     await start();
@@ -684,9 +770,12 @@ setInterval(async () => {
 }, 5000);
 (async () => {
   paintIcons();
+  localize(document);
   try {
     const r = await api("/session");
     state.csrf = r.csrf;
+    state.account = r;
+    setLanguage(r.locale);
     await start();
   } catch (e) {
     showLogin();

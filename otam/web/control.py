@@ -18,15 +18,23 @@ CREATE TABLE IF NOT EXISTS commands(
  id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL,
  created REAL NOT NULL, updated REAL NOT NULL, payload TEXT NOT NULL,
  result TEXT, error TEXT, idempotency TEXT UNIQUE);
+CREATE TABLE IF NOT EXISTS users(
+ id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+ password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','operator','viewer')),
+ enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+ locale TEXT NOT NULL DEFAULT 'de' CHECK(locale IN ('de','en')),
+ mfa_state TEXT NOT NULL DEFAULT 'disabled',
+ created REAL NOT NULL, updated REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions(
- hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires REAL NOT NULL);
+ hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires REAL NOT NULL,
+ user_id TEXT NOT NULL REFERENCES users(id));
 CREATE TABLE IF NOT EXISTS attempts(ip TEXT NOT NULL,time REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY,path TEXT NOT NULL UNIQUE);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sync_log(
  id INTEGER PRIMARY KEY, time REAL NOT NULL, direction TEXT NOT NULL,
  state TEXT NOT NULL, sequence INTEGER, details TEXT NOT NULL);
-PRAGMA user_version=1;
+PRAGMA user_version=2;
 """
 
 
@@ -35,14 +43,34 @@ class Control:
         state.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = state / "control.sqlite"
         with self.connect() as db:
-            if db.execute("PRAGMA user_version").fetchone()[0] not in (0, 1):
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version not in (0, 1, 2):
                 raise SafetyError("Unbekannte Steuerdatenbank-Version")
-            db.executescript(CONTROL_SCHEMA)
+            if version == 0:
+                db.executescript(CONTROL_SCHEMA)
+            elif version == 1:
+                # Old sessions have no user identity. Invalidate them rather than
+                # silently assigning elevated privileges during migration.
+                db.execute("BEGIN IMMEDIATE")
+                db.execute("""CREATE TABLE users(
+                    id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('admin','operator','viewer')),
+                    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+                    locale TEXT NOT NULL DEFAULT 'de' CHECK(locale IN ('de','en')),
+                    mfa_state TEXT NOT NULL DEFAULT 'disabled',
+                    created REAL NOT NULL, updated REAL NOT NULL)""")
+                db.execute("DROP TABLE sessions")
+                db.execute("""CREATE TABLE sessions(
+                    hash TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires REAL NOT NULL,
+                    user_id TEXT NOT NULL REFERENCES users(id))""")
+                db.execute("PRAGMA user_version=2")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA synchronous=FULL")
         db.execute("PRAGMA journal_mode=WAL")
         try:

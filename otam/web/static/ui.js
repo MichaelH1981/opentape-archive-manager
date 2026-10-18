@@ -14,13 +14,14 @@ import {
 } from "./common.js";
 import { icon } from "./icons.js";
 import { state } from "./state.js";
+import { localize, translate } from "./i18n.js";
 function paintIcons(root = document) {
   $$("[data-icon]", root).forEach((e) => (e.innerHTML = icon(e.dataset.icon)));
 }
 function toast(text, error = false) {
   const e = document.createElement("div");
   e.className = "toast" + (error ? " error" : "");
-  e.textContent = text;
+  e.textContent = translate(text);
   $("#toasts").append(e);
   setTimeout(() => e.remove(), error ? 10000 : 6500);
 }
@@ -39,6 +40,7 @@ function modal(title, html) {
   $("#modal-title").textContent = title;
   $("#modal-body").innerHTML = html;
   paintIcons($("#modal"));
+  localize($("#modal"));
   if (!$("#modal").open) $("#modal").showModal();
 }
 function closeModal() {

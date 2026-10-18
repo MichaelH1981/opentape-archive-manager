@@ -73,7 +73,11 @@ def session(request: Request) -> dict:
     hashed = hashlib.sha256(value.encode()).hexdigest()
     with control.connect() as db:
         row = db.execute(
-            "SELECT * FROM sessions WHERE hash=? AND expires>?", (hashed, time.time())
+            """SELECT s.hash,s.csrf,s.expires,s.user_id,
+                      u.username,u.role,u.locale,u.mfa_state
+               FROM sessions s JOIN users u ON u.id=s.user_id
+               WHERE s.hash=? AND s.expires>? AND u.enabled=1 AND u.mfa_state='disabled'""",
+            (hashed, time.time()),
         ).fetchone()
     if row is None:
         raise HTTPException(401, "Sitzung abgelaufen; bitte erneut anmelden")
@@ -82,12 +86,23 @@ def session(request: Request) -> dict:
             request.headers.get("x-csrf-token", "").encode(), row["csrf"].encode()
         ):
             raise HTTPException(403, "CSRF-Prüfung fehlgeschlagen")
+        if row["role"] == "viewer" and request.url.path not in {
+            "/api/v1/logout", "/api/v1/account/locale", "/api/v1/account/password"
+        }:
+            raise HTTPException(403, "Nur lesender Zugriff")
     return dict(row)
+
+
+def require_admin(request: Request) -> dict:
+    current = session(request)
+    if current["role"] != "admin":
+        raise HTTPException(403, "Administratorrechte erforderlich")
+    return current
 
 
 def login(
     config: WebConfig, control: Control, username: str, password: str, ip: str
-) -> tuple[str, str]:
+) -> tuple[str, str, dict]:
     now = time.time()
     with control.connect() as db:
         db.execute("DELETE FROM attempts WHERE time<?", (now - 900,))
@@ -99,22 +114,30 @@ def login(
                 429, "Zu viele Anmeldeversuche; nach 15 Minuten erneut versuchen"
             )
         db.execute("INSERT INTO attempts VALUES(?,?)", (ip, now))
-    valid = password_matches(password, config.password)
-    if not valid or not hmac.compare_digest(
-        username.encode(), config.username.encode()
-    ):
+    with control.connect() as db:
+        user = db.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE", (username,)).fetchone()
+    valid = password_matches(password, user["password_hash"] if user else config.password)
+    if not valid or user is None or not user["enabled"]:
         raise HTTPException(401, "Benutzername oder Passwort ungültig")
+    # An unsupported future factor must never silently fall back to password-only.
+    if user["mfa_state"] != "disabled":
+        raise HTTPException(403, "Zusätzlicher Anmeldefaktor wird noch nicht unterstützt")
     token = secrets.token_urlsafe(48)
     csrf = secrets.token_urlsafe(32)
     with control.connect() as db:
         db.execute("DELETE FROM attempts WHERE ip=?", (ip,))
         db.execute("DELETE FROM sessions WHERE expires<?", (now,))
         db.execute(
-            "INSERT INTO sessions VALUES(?,?,?)",
+            "INSERT INTO sessions VALUES(?,?,?,?)",
             (
                 hashlib.sha256(token.encode()).hexdigest(),
                 csrf,
                 now + config.session_seconds,
+                user["id"],
             ),
         )
-    return token, csrf
+    return token, csrf, {
+        "id": user["id"], "username": user["username"],
+        "role": user["role"], "locale": user["locale"],
+        "mfa_state": user["mfa_state"],
+    }

@@ -1,6 +1,6 @@
 # Weboberfläche und modularer Betrieb
 
-OTAM 0.3 umfasst eine authentifizierte responsive Weboberfläche, REST-API, separate persistente Auftragsausführung und einen unabhängig betreibbaren Katalogdienst. Der echte LTO-Adapter bleibt bis zur ausdrücklich freigegebenen Testband-Abnahme deaktiviert. Alle verfügbaren Archivierungsaktionen verwenden den persistenten Simulator.
+OTAM 0.4 umfasst eine authentifizierte responsive Weboberfläche mit deutscher und englischer Sprache, lokale Benutzerverwaltung, REST-API, separate persistente Auftragsausführung und einen unabhängig betreibbaren Katalogdienst. Der echte LTO-Adapter bleibt bis zur ausdrücklich freigegebenen Testband-Abnahme für reguläre Archivierung deaktiviert. Verfügbare Archivierungsaktionen verwenden den persistenten Simulator.
 
 ## Ansichten und Bedienablauf
 
@@ -33,6 +33,22 @@ python3 -m venv .venv
 ```
 
 Browser: http://127.0.0.1:8765. Benutzername standardmäßig `admin`; Passwort ist das bei Initialisierung gewählte. Kein ausgeliefertes Standardpasswort. Alternativ `--password-file` mit einer nur für den Betreiber lesbaren Datei, Modus 0600. Weder Passwort noch Schlüssel in die Shellargumente schreiben.
+
+## Sprache, Benutzer und Rollen
+
+Unter **Einstellungen → Sprache** kann jeder angemeldete Benutzer zwischen Deutsch und Englisch wechseln. Die Auswahl wird pro Konto gespeichert; Datums- und Zahlenformate folgen der Sprache. Vor der Anmeldung merkt sich der Browser die zuletzt verwendete Sprache. Dateinamen, Archivpfade und IDs bleiben unverändert. Beide Oberflächen funktionieren ohne Internetverbindung oder externe Übersetzungsdienste.
+
+Administratoren verwalten unter **Einstellungen → Benutzerverwaltung** lokale Konten: Benutzer anlegen, Rolle ändern, Konten deaktivieren/reaktivieren und Passwörter zurücksetzen. Jeder Benutzer kann sein eigenes Passwort nach Eingabe des bisherigen Passworts ändern. Passwörter benötigen mindestens 12 Zeichen und werden mit PBKDF2-SHA256 (600.000 Iterationen, zufälliges Salt) gespeichert. Eine Rollenänderung, Deaktivierung oder Passwortzurücksetzung beendet alle Sitzungen des betroffenen Kontos. Der letzte aktive Administrator kann nicht deaktiviert oder herabgestuft werden.
+
+| Rolle | Rechte |
+| --- | --- |
+| Administrator | Benutzer, Einstellungen, Synchronisationsziele, Quellen/Staging und freigabepflichtige Bandwartung verwalten; Jobs bedienen |
+| Operator | Archivierungs- und Wiederherstellungsjobs bedienen und Katalog durchsuchen; keine Benutzer-, Sicherheits- oder Bandwartungsfreigaben verwalten |
+| Leser | Katalog, Hardwarestatus, Jobs und Protokolle lesen; eigene Sprache und eigenes Passwort ändern |
+
+Konten sind **pro Node lokal**. Katalog-Snapshots übertragen keine Benutzer, Passwort-Hashes oder Sitzungen. Für einen eigenständigen Catalog Node werden dessen Konten gesondert verwaltet. Eine Datenbankspalte `mfa_state` ist für spätere Zwei-Faktor-Authentifizierung reserviert; 2FA ist in 0.4 **nicht verfügbar**. Ein unbekannter/aktivierter MFA-Zustand führt derzeit zur Ablehnung der Anmeldung, damit eine spätere Migration nicht stillschweigend 2FA umgeht.
+
+Beim Upgrade von der alten Steuerdatenbank-Version 1 auf Version 2 bleiben Einstellungen, Auftragsdaten und Synchronisationsverlauf erhalten. Das bisherige Konfigurations-Administratorkonto wird einmalig importiert. Alte Sitzungen werden bewusst ungültig; nach dem Upgrade bitte erneut anmelden. Vor einem produktiven Upgrade beide Dienste stoppen und eine konsistente Sicherung von `control.sqlite` samt WAL sowie der Node-Konfiguration erstellen. Nach dem Upgrade das frühere Administratorkennwort weiterverwenden; spätere Kennwortänderungen bleiben bei Neustarts erhalten.
 
 Die Dienste müssen als derselbe dedizierte Benutzer laufen und identische Konfiguration/TMPDIR verwenden. Der Worker besitzt einen exklusiven Node-Lock und die Kern-I/O-/Medienlocks. Ohne Worker bleiben neue Aufträge sichtbar QUEUED. Ein Browserneuladen setzt keinen Job zurück. Nach einem harten Workerabbruch werden laufende Queue-Aufträge INTERRUPTED; Kernjobs über den Medien-Werkzeugdialog bewusst prüfen. Kein automatisches Retry von Band-Schreibjobs.
 

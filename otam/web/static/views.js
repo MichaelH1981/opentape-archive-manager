@@ -14,6 +14,7 @@ import {
 } from "./common.js";
 import { icon } from "./icons.js";
 import { state } from "./state.js";
+import { getLanguage, localeTag } from "./i18n.js";
 import {
   paintIcons,
   toast,
@@ -329,7 +330,7 @@ async function syncPage() {
 }
 function exactCounter(value) {
   try {
-    return BigInt(value).toLocaleString("de-DE");
+    return BigInt(value).toLocaleString(localeTag());
   } catch {
     return "Nicht verfügbar";
   }
@@ -478,18 +479,33 @@ async function logsPage() {
     )}</section>`
   );
 }
+function accountSettings(users) {
+  const account = state.account;
+  const roleName = { admin: "Administrator", operator: "Operator", viewer: "Nur lesen" };
+  return `<div class="settings-account-grid">
+    <section class="panel"><div class="panel-header"><div><h2>Sprache</h2><p>Oberfläche und Datumsformat</p></div></div><div class="panel-body">
+      <label class="settings-field">Sprache<select id="language-select" aria-label="Sprache"><option value="de" ${getLanguage() === "de" ? "selected" : ""}>Deutsch</option><option value="en" ${getLanguage() === "en" ? "selected" : ""}>Englisch</option></select></label>
+      <small class="hint">Die Auswahl wird für dieses Benutzerkonto gespeichert.</small></div></section>
+    <section class="panel"><div class="panel-header"><div><h2>Mein Konto</h2><p>${esc(account?.username || "")}</p></div><span class="badge blue">${roleName[account?.role] || ""}</span></div><div class="panel-body">
+      <form id="own-password-form"><div class="form-grid"><label>Aktuelles Passwort<input name="current_password" type="password" autocomplete="current-password" required></label><label>Neues Passwort<input name="new_password" type="password" autocomplete="new-password" minlength="12" required><small class="hint">Mindestens 12 Zeichen</small></label></div><div class="form-actions"><button class="button" type="submit">Passwort ändern</button></div></form>
+      <div class="security-future"><strong>Zwei-Faktor-Authentifizierung</strong><small>Für eine spätere Version vorbereitet; derzeit nicht aktivierbar.</small></div>
+    </div></section></div>
+    ${account?.role === "admin" ? `<section class="panel user-management"><div class="panel-header"><div><h2>Benutzerverwaltung</h2><p>Lokale Konten dieses Node; Zugangsdaten werden nicht mit dem Katalog synchronisiert.</p></div><button class="button primary" id="new-user">${icon("plus")}Benutzer hinzufügen</button></div>${table(["Benutzer", "Berechtigung", "Status", ""], users.map((u) => `<tr><td><strong>${esc(u.username)}</strong><small class="cell-sub">${esc(date(u.created))}</small></td><td>${esc(roleName[u.role])}</td><td>${badge(u.enabled ? "ACTIVE" : "DISABLED")}</td><td><div class="button-row"><button class="button small" data-edit-user="${esc(u.id)}">Bearbeiten</button><button class="button small" data-password-user="${esc(u.id)}">Passwort setzen</button></div></td></tr>`), "Noch keine Benutzer")}</section>` : ""}`;
+}
 async function settingsPage() {
   const n = state.node;
   const storage =
     n.role === "archive" ? (await api("/storage-resources")).items : [];
+  const users = state.account?.role === "admin" ? (await api("/users")).items : [];
   return (
     heading(
       "Unter deiner Kontrolle.",
       "Node-Rolle, Module und bewusst konfigurierte Ressourcen.",
-      n.role === "archive"
+      n.role === "archive" && state.account?.role === "admin"
         ? `<button class="button" id="new-source">Quelle hinzufügen</button><button class="button primary" id="new-staging">Staging hinzufügen</button>`
         : "",
     ) +
+    accountSettings(users) +
     `${n.role === "archive" ? `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><h2>Quellen & Staging</h2></div>${resourceTable(storage)}</section>` : ""}<div class="split"><section class="panel"><div class="panel-header"><h2>Node-Konfiguration</h2><span class="badge neutral">v${esc(n.version)}</span></div><div class="panel-body"><dl class="detail-list"><dt>Name</dt><dd>${esc(n.name)}</dd><dt>Rolle</dt><dd>${n.role === "archive" ? "Archive Node" : "Catalog Node"}</dd><dt>Node-ID</dt><dd class="mono">${esc(n.id)}</dd><dt>Authentifizierung</dt><dd>Passwortgeschützte Sitzung · CSRF-Schutz</dd><dt>Reguläre LTO-Archivierung</dt><dd>Bis zur Bandformat-Abnahme gesperrt</dd><dt>Verbindungen</dt><dd>Keine Telemetrie oder CDN-Abhängigkeit</dd></dl><p class="hint" style="margin-top:22px">Optionale Katalogdienste und Snapshot-Ziele verwaltest du unter Synchronisation. Änderungen gelten ohne Neustart. Quellen und Staging verwaltest du hier. Administrativ freigegebene Verzeichnisbereiche, Dienstrechte und Bind-Adresse bleiben in der geschützten Konfiguration.</p></div></section><section class="panel"><div class="panel-header"><h2>Aktive Module</h2></div><div class="panel-body">${n.modules.map((m) => `<div class="node-detail"><div class="node-detail-icon">${icon(m.id === "archive" ? "tape" : m.id === "catalog" ? "search" : "sync")}</div><div><strong>${esc(m.label)}</strong><small>${m.writable ? "Steuerung auf diesem Node" : "Lesender Zugriff"}</small></div><span class="status-dot"></span></div>`).join("")}</div></section><section class="panel"><div class="panel-header"><h2>Freigegebene Quellen</h2></div><div class="panel-body">${n.sources.length ? n.sources.map((s) => `<div class="node-detail"><div class="node-detail-icon">${icon("folder")}</div><div><strong>${esc(s.label)}</strong><small>${esc(s.id)}</small></div></div>`).join("") : empty("Keine lokalen Datenquellen", n.role === "catalog" ? "Der Catalog Node benötigt keine Quelldateisysteme." : "Quellen in der Node-Konfiguration freigeben.", "folder", "", true)}</div></section><section class="panel"><div class="panel-header"><h2>Offen und wiederherstellbar</h2></div><div class="panel-body">${note("PAX-TAR, SHA-256 und selbstbeschreibende Manifeste. Der Katalog lässt sich aus Medieninhalt rekonstruieren.")}<p class="hint" style="margin-top:15px">System-Snapshots, Hardwareverschlüsselung und automatische Medienrotation sind noch nicht freigegeben. Unvollständige Archive bleiben eindeutig gekennzeichnet.</p></div></section></div>`
   );
 }
