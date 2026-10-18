@@ -82,6 +82,9 @@ class PhysicalBoundary(unittest.TestCase):
         self.assertIn(("compression", ("0",)), device.calls)
         self.assertIn(b"OTAM-QUALIFICATION-V1", device.records[0])
         self.assertTrue(any(p["phase"] == "TAPE_READBACK" for p in progress))
+        positioning = next(p for p in progress if p["phase"] == "READBACK_POSITIONING")
+        self.assertIsNone(positioning["bytes_per_second"])
+        self.assertEqual(positioning["total_bytes"], 4 * BLOCK_SIZE)
 
     def test_faults_never_qualify_or_blindly_continue(self):
         for fault in ("short", "io", "corrupt", "truncate", "extra", "close"):

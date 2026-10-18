@@ -90,6 +90,7 @@ const labels = {
   VALIDATION: "Validierung",
   TAPE_WRITE: "Schreiben",
   TAPE_READBACK: "Rücklesen",
+  READBACK_POSITIONING: "Zur Rücklesung positionieren",
   STAGING_CLEANUP: "Bereinigt",
 };
 const badge = (s) =>

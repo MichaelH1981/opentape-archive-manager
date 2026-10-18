@@ -160,9 +160,7 @@ def discover_drives() -> list[dict[str, Any]]:
             if not item["status"]["online"]:
                 raise SafetyError("Kein bereites Medium eingelegt")
             item["medium_serial"] = mam_serial(
-                run(
-                    ["sg_read_attr", "--raw", "--first=0x401", item["sg"]]
-                )
+                run(["sg_read_attr", "--raw", "--first=0x401", item["sg"]])
             )
             item["ready"] = not item["status"]["write_protected"]
             item["error"] = None if item["ready"] else "Medium ist schreibgeschützt"
@@ -358,8 +356,10 @@ def qualify(
     if accepted < 2:
         raise SafetyError("Bandende ohne nutzbaren Testdatenbereich")
     progress(
-        phase="TAPE_READBACK",
+        phase="READBACK_POSITIONING",
         bytes=0,
+        bytes_per_second=None,
+        total_bytes=accepted * BLOCK_SIZE,
         written_bytes=accepted * BLOCK_SIZE,
         expected_sha256=expected.hexdigest(),
         eom=eom,
@@ -368,6 +368,12 @@ def qualify(
     device.mt("rewind")
     device.check()
     fd = device.reader()
+    progress(
+        phase="TAPE_READBACK",
+        bytes=0,
+        bytes_per_second=None,
+        total_bytes=accepted * BLOCK_SIZE,
+    )
     actual = hashlib.sha256()
     count = 0
     started = time.monotonic()
