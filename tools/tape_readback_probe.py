@@ -168,6 +168,12 @@ def main() -> None:
                             "Variable block mode is required; no automatic settings change"
                         )
                     report["kernel_before"] = kernel_stats(expected)
+                    cpu_before = list(
+                        map(
+                            int,
+                            Path("/proc/stat").read_text().splitlines()[0].split()[1:9],
+                        )
+                    )
                     fd = device.reader()
                     try:
                         checked = verify_prefix(
@@ -176,6 +182,17 @@ def main() -> None:
                     finally:
                         device.close(fd)
                     device.check()
+                    cpu_after = list(
+                        map(
+                            int,
+                            Path("/proc/stat").read_text().splitlines()[0].split()[1:9],
+                        )
+                    )
+                    total = sum(cpu_after) - sum(cpu_before)
+                    idle = cpu_after[3] + cpu_after[4] - cpu_before[3] - cpu_before[4]
+                    checked["system_cpu_busy_percent"] = (
+                        100 * (total - idle) / max(total, 1)
+                    )
                     report["kernel_after"] = kernel_stats(expected)
                     report.update(
                         state=checked["state"], result=checked, ended=time.time()
