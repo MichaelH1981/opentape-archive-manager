@@ -340,25 +340,33 @@ function driveStatusPanel(status) {
       st = d.status || {},
       diag = d.diagnostics,
       sample = diag.sample;
-    const stateLabel = !current
-      ? d.contact_state === "OFFLINE"
-        ? "Nicht erreichbar"
-        : "Status veraltet"
-      : d.busy
-        ? "Laufwerk belegt"
-        : st.online
-          ? !d.medium_serial
-            ? "Medium nicht identifiziert"
-            : st.write_protected
-              ? "Schreibgeschützt"
-              : "Medium bereit"
-          : st.door_open
-            ? "Kein Medium"
-            : "Nicht bereit / unbekannt";
+    const stateLabel = d.active_maintenance
+      ? d.active_maintenance.fresh
+        ? "Bandwartung läuft"
+        : "Bandwartung · Status veraltet"
+      : !current
+        ? d.contact_state === "OFFLINE"
+          ? "Nicht erreichbar"
+          : "Status veraltet"
+        : d.busy
+          ? "Laufwerk belegt"
+          : st.online
+            ? !d.medium_serial
+              ? "Medium nicht identifiziert"
+              : st.write_protected
+                ? "Schreibgeschützt"
+                : "Medium bereit"
+            : st.door_open
+              ? "Kein Medium"
+              : "Nicht bereit / unbekannt";
     const alerts = sample?.pages?.["2e"];
     return `<article class="drive-status-card"><div class="job-top"><div><strong>${esc([d.vendor, d.model].filter(Boolean).join(" ") || d.device)}</strong><small class="mono">${esc(d.device)} · SN ${esc(d.serial || "nicht ermittelt")}</small></div><span class="badge neutral">${esc(stateLabel)}</span></div><dl class="detail-list"><dt>${current ? "Medium zuletzt erkannt" : "Zuletzt erkanntes Medium"}</dt><dd class="mono">${esc(d.medium_serial || (current && st.door_open ? "Keines" : "Nicht identifiziert"))}</dd><dt>Schreibschutz</dt><dd>${typeof st.write_protected === "boolean" ? (st.write_protected ? "Ja" : "Nein") : "Nicht ermittelt"}${current ? "" : " · letzter Stand"}</dd><dt>Firmware</dt><dd>${esc(d.rev || "Nicht ermittelt")}</dd><dt>Statusabfrage</dt><dd>${esc(date(d.last_seen))}</dd><dt>Diagnoseabfrage</dt><dd>${sample ? esc(date(sample.time)) : "Noch keine Messung"}${diag.stale ? " · veraltet / nicht verfügbar" : ""}</dd></dl><p class="hint">${alerts?.state === "AVAILABLE" ? `TapeAlert bei letzter Abfrage: ${alerts.decoded.active_flags.length} ${alerts.decoded.active_flags.length === 1 ? "gemeldetes Flag" : "gemeldete Flags"}.` : "TapeAlert: nicht auswertbar oder noch nicht abgefragt."}</p>${diag.warning_history.length ? `<p class="diagnostic-warning">${num(diag.warning_history.length)} ${diag.warning_history.length === 1 ? "TapeAlert-Hinweis" : "TapeAlert-Hinweise"} gespeichert. Verlauf unter Diagnosedaten.</p>` : ""}${d.error && current ? `<p class="hint">${esc(d.error)}</p>` : ""}</article>`;
   });
-  return `<section class="panel drive-overview"><div class="panel-header"><div><h2>Laufwerk & eingelegtes Medium</h2><p>Physische Geräte · unabhängig vom Simulatorbetrieb</p></div><a class="button subtle" href="#hardware">Diagnosedaten ${icon("arrow")}</a></div>${status.busy ? `<div class="panel-body">${note("Worker beschäftigt: zusätzliche Status- und Diagnoseabfragen pausieren während des Jobs. Angezeigt werden die letzten Messwerte.", "info")}</div>` : ""}${cards.length ? `<div class="drive-status-list">${cards.join("")}</div>` : `<div class="panel-body">${note(status.fresh ? "Kein Bandlaufwerk erreichbar. Es ist möglicherweise ausgeschaltet oder nicht verbunden." : "Noch kein aktueller Laufwerksstatus. Worker und Verbindung prüfen.", "info")}<p class="hint">Letzte Erkennung: ${esc(date(status.last_scan))} · Worker ${status.worker_online ? "verbunden" : "ohne aktuelles Lebenszeichen"}. Der Status wird automatisch aktualisiert.</p></div>`}</section>`;
+  const running = status.active_maintenance;
+  const runHtml = running
+    ? `<div class="panel-body"><div class="archive-current"><div class="file-tile">${icon("tape")}</div><div><strong>${esc(running.operation === "qualify-sample" ? "Begrenzter Dauertest" : running.operation)}</strong><small>Job ${esc(short(running.command_id))} · ${esc(labels[running.phase] || running.phase)} · ${esc(ago(running.time))}</small></div>${badge("RUNNING")}</div>${!running.fresh ? note("Kein aktueller Fortschritt: Worker und Verbindung prüfen. Der letzte gespeicherte Stand ist kein Nachweis für laufenden Transfer.", "warning") : ""}<div class="progress-meta"><span>${bytes(running.bytes || 0)}${running.total_bytes ? " / " + bytes(running.total_bytes) : ""}</span><strong>${running.bytes_per_second ? bytes(running.bytes_per_second) + "/s" : "Messung steht aus"}</strong></div>${running.total_bytes ? progress((100 * running.bytes) / running.total_bytes) : ""}${running.operation === "qualify-sample" ? '<p class="hint">Begrenzter Testbereich. Erfolg erst nach vollständiger Rücklesung; keine Vollqualifikation des Mediums.</p>' : ""}</div>`
+    : "";
+  return `<section class="panel drive-overview"><div class="panel-header"><div><h2>Laufwerk & eingelegtes Medium</h2><p>Physische Geräte · unabhängig vom Simulatorbetrieb</p></div><a class="button subtle" href="#hardware">Diagnosedaten ${icon("arrow")}</a></div>${status.busy ? `<div class="panel-body">${note("Worker beschäftigt: zusätzliche Status- und Diagnoseabfragen pausieren während des Jobs. Angezeigt werden die letzten Messwerte.", "info")}</div>` : ""}${runHtml}${cards.length ? `<div class="drive-status-list">${cards.join("")}</div>` : `<div class="panel-body">${note(status.fresh ? "Kein Bandlaufwerk erreichbar. Es ist möglicherweise ausgeschaltet oder nicht verbunden." : "Noch kein aktueller Laufwerksstatus. Worker und Verbindung prüfen.", "info")}<p class="hint">Letzte Erkennung: ${esc(date(status.last_scan))} · Worker ${status.worker_online ? "verbunden" : "ohne aktuelles Lebenszeichen"}. Der Status wird automatisch aktualisiert.</p></div>`}</section>`;
 }
 function diagnosticDetails(status) {
   return `<section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Diagnosedaten</h2></div><div class="panel-body">${note("Nur lesende SCSI-Abfragen. TapeAlert kann beim Lesen quittiert werden; gemeldete Hinweise bleiben deshalb in OTAM gespeichert. Werte sind keine Vorhersage der verbleibenden Lebensdauer.", "info")}${
@@ -447,7 +455,7 @@ async function hardwarePage() {
       ["Vorgang", "Medium", "Phase", "Fortschritt", "Ergebnis"],
       r.maintenance.map(
         (m) =>
-          `<tr><td>${esc(m.operation)}<small class="hint mono">${esc(short(m.approval_id))}</small></td><td class="mono">${esc(m.drive.medium_serial)}</td><td>${esc(labels[m.phase] || m.phase)}</td><td>${bytes(m.bytes)}${m.total_bytes ? " / " + bytes(m.total_bytes) : ""}<small class="hint">${m.bytes_per_second ? bytes(m.bytes_per_second) + "/s" : "Keine belastbare ETA"}</small></td><td>${badge(m.state)}${m.result?.sha256 ? `<small class="hint mono">SHA-256 ${esc(m.result.sha256)}</small>` : ""}${m.error ? `<small class="error-text">${esc(m.error)}</small>` : ""}${m.result?.state === "ERASE_COMMAND_COMPLETED" ? '<small class="hint">Löschkommando abgeschlossen; keine zertifizierte Datenträgerbereinigung.</small>' : ""}</td></tr>`,
+          `<tr><td>${esc(m.operation)}<small class="hint mono">${esc(short(m.approval_id))}</small></td><td class="mono">${esc(m.drive.medium_serial)}</td><td>${esc(labels[m.phase] || m.phase)}</td><td>${bytes(m.bytes)}${m.total_bytes ? " / " + bytes(m.total_bytes) : ""}<small class="hint">${m.bytes_per_second ? bytes(m.bytes_per_second) + "/s" : "Keine belastbare ETA"}</small></td><td>${badge(m.state)}${m.result?.sha256 ? `<small class="hint mono">SHA-256 ${esc(m.result.sha256)}</small>` : ""}${m.error ? `<small class="error-text">${esc(m.error)}</small>` : ""}${m.result?.state === "SAMPLE_VERIFIED" ? '<small class="hint">Testbereich vollständig verifiziert; keine Vollqualifikation des Mediums.</small>' : ""}${m.result?.state === "ERASE_COMMAND_COMPLETED" ? '<small class="hint">Löschkommando abgeschlossen; keine zertifizierte Datenträgerbereinigung.</small>' : ""}</td></tr>`,
       ),
       "Noch keine Bandwartung ausgeführt",
     )}</section>`

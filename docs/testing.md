@@ -52,3 +52,33 @@ Für Tests auf Linux kann OTAM_TEST_TMPDIR ein neues Testverzeichnis auf lokalem
 Mit installierter Web-Laufzeit umfasst die Suite 70 Tests. Auf dem Debian-Archivserver bestanden alle 70 in einer eigens angelegten und anschließend entfernten Umgebung unter /var/tmp; keine Systeminstallation und keine Bandzugriffe. Auf macOS wird der Linux-O_DIRECT-Test übersprungen. Neue Tests prüfen HTTP-Archivzyklus, authentifizierte Rollen/CSRF/Origin/Host, durable/idempotente Queue, Workerexklusivität, Filter/Pagination/Kopien, sichere Exporte, Restore ohne Überschreiben, vollständige Snapshotvalidierung/Replay/Orphan-Recovery, NAS-Zielmarker und ausdrücklich bestätigte Staging-Nachprüfung.
 
 Zusätzliche manuelle Browserabnahme: Planung und lokales Staging per Formular, bestätigter Simulator-Archivjob, Dateisuche/Auswahl und erfolgreicher Einzeldatei-Restore; unabhängige Catalog-Node-Weboberfläche nach tatsächlichem Stoppen von Archive-Webdienst und Worker weiterhin durchsuchbar. Zwei Archivkopien derselben Datei wurden am eigenständigen Node angezeigt. Responsive Prüfung im In-App-Browser auf Desktop- und Mobilbreiten; dies ersetzt keine tatsächliche iPhone-Geräteabnahme. Der Container-Imagebau und die reale Proxmox-/NAS-Installation sind mangels vorhandener Zielumgebung nicht abgenommen.
+
+## Expliziter kleiner Bandlayout-Test
+
+`tools/tape_layout_acceptance.py` ist ein **separater destruktiver Hardwaretest**,
+kein Bestandteil der automatisierten Tests. Ausschließlich für ein ausdrücklich
+freigegebenes entbehrliches Medium: Laufwerk und MAM-Seriennummer müssen exakt
+angegeben und mit `--confirm 'TESTEN <Laufwerks-SN> <Medien-SN>'` bestätigt werden.
+Der reguläre Worker muss zuvor ohne aktive Aufträge pausiert sein. Der Test läuft
+als unprivilegierter Workerbenutzer mit dessen Tape-Gerätegruppe, gleichem TMPDIR
+und `--state`-Verzeichnis; er hält Worker-, I/O- und Gerätesperre.
+
+`--output` muss ein neues privates Verzeichnis auf einem bestätigten lokalen,
+schreibbaren Dateisystem mit mindestens 512 MiB freiem Platz sein. Es werden nur
+eigene synthetische Quelldateien und vollständig lokale PAX-TARs erstellt, keine
+externen Nutzdaten akzeptiert. Das bestehende Band wird ab BOT überschrieben.
+Header, Daten und Receipt werden einzeln geschrieben und vollständig zurückgelesen.
+Receipts erhalten erst nach erfolgreichem tatsächlichem Daten-Readback einen
+Verifikationszeitpunkt. Vor Append wird der bestehende vollständige Präfix erneut
+gelesen; EOD muss die erwartete Banddatei und Blockposition 0 melden. Jede
+unbekannte Position führt zum Abbruch, ohne Schreibversuch an dieser Position.
+Nach Append werden sämtliche vorherigen und neuen Banddateien in anderer
+Reihenfolge mit BOT+fsf gelesen und komplett gehasht; GNU tar prüft ihre Lesbarkeit.
+Job-ID, Bewegungen, Positionen, Hashes und Abschlussstatus werden atomar im
+Testverzeichnis gespeichert. Bei Fehlern kein automatischer Neustart oder Replay.
+
+Auch ein erfolgreicher `LAYOUT_READBACK_VERIFIED`-Test ersetzt weder vollständige
+Medienqualifikation noch EOM-/Abbruch-/Medienwechselabnahme und schaltet keinen
+produktiven Backendzugriff frei. Standalone-Restore und Katalogrekonstruktion
+können anschließend ausschließlich mit den lokalen Test-Rücklesedateien geprüft
+werden. Produktive Kataloge dürfen dafür nicht gelöscht werden.

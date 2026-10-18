@@ -111,13 +111,59 @@ def overview(control: Control) -> dict[str, Any]:
     fresh = 0 <= now - inventory.get("time", 0) <= 30 and 0 <= now - heartbeat <= 20
     with control.connect() as db:
         active = db.execute(
-            "SELECT kind FROM commands WHERE state='RUNNING' ORDER BY created LIMIT 1"
+            "SELECT id,kind,payload FROM commands WHERE state='RUNNING' ORDER BY created LIMIT 1"
         ).fetchone()
     present = {d["id"]: d for d in inventory["drives"]}
     known = control.get("hardware_last_seen", {})
+    active_maintenance = None
+    if active and active["kind"] == "tape-maintenance":
+        payload = json.loads(active["payload"])
+        progress = control.get(
+            "maintenance_progress:" + payload.get("approval_id", ""), {}
+        )
+        if progress.get("state") == "RUNNING":
+            active_maintenance = {
+                key: progress.get(key)
+                for key in (
+                    "phase",
+                    "time",
+                    "bytes",
+                    "bytes_per_second",
+                    "total_bytes",
+                    "written_bytes",
+                    "operation",
+                )
+            }
+            active_maintenance.update(
+                fresh=0 <= now - heartbeat <= 20
+                and 0 <= now - progress.get("time", 0) <= 15,
+                command_id=active["id"],
+                drive_id=progress.get("drive", {}).get("id"),
+            )
+    all_known = {**known, **present}
     drives = []
     for ident in sorted(set(present) | set(known)):
         drive = dict(present.get(ident) or known[ident])
+        # Resolve earlier anonymous observations without fabricating a second drive.
+        # Raw diagnostics and warning history remain stored under the original ID.
+        if (
+            not drive.get("serial")
+            and drive.get("sysfs")
+            and any(
+                value.get("serial")
+                and value.get("sysfs") == drive["sysfs"]
+                and known.get(other, {}).get("last_seen", inventory.get("time", 0))
+                >= known.get(ident, {}).get("last_seen", 0)
+                for other, value in all_known.items()
+                if other != ident
+            )
+        ):
+            continue
+        drive["active_maintenance"] = (
+            active_maintenance
+            if active_maintenance and active_maintenance["drive_id"] == ident
+            else None
+        )
         drive["observed_present"] = ident in present
         drive["contact_state"] = (
             "CURRENT"
@@ -142,5 +188,6 @@ def overview(control: Control) -> dict[str, Any]:
         "worker_online": 0 <= now - heartbeat <= 20,
         "fresh": fresh,
         "busy": active["kind"] if active else None,
+        "active_maintenance": active_maintenance,
         "drives": drives,
     }

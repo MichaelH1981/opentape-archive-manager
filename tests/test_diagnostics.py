@@ -170,6 +170,58 @@ class Diagnostics(unittest.TestCase):
         self.control.set("worker_heartbeat", 0)
         self.assertFalse(overview(self.control)["worker_online"])
 
+    def test_resolved_identity_hides_anonymous_duplicate_but_preserves_history(self):
+        now = time.time()
+        d = {**drive(), "sysfs": "/sys/tape/device"}
+        old = {**d, "id": "b" * 32, "serial": None, "last_seen": now - 10}
+        other = {**d, "id": "c" * 32, "serial": "OTHER", "last_seen": now - 20}
+        self.control.set("worker_heartbeat", now)
+        self.control.set("hardware_inventory", {"time": now, "drives": [d]})
+        self.control.set("hardware_last_seen", {old["id"]: old, other["id"]: other})
+        self.control.set(
+            "drive_alerts:" + old["id"], {"3": {"code": 3, "last_seen": now}}
+        )
+        self.assertEqual(
+            {v["id"] for v in overview(self.control)["drives"]}, {d["id"], other["id"]}
+        )
+        self.assertEqual(
+            detail(self.control, old["id"])["warning_history"][0]["code"], 3
+        )
+
+    def test_running_maintenance_shows_persistent_progress_without_hardware_queries(
+        self,
+    ):
+        now = time.time()
+        d = drive()
+        self.control.set("worker_heartbeat", now)
+        self.control.set("hardware_inventory", {"time": now - 90, "drives": [d]})
+        command = self.control.enqueue(
+            "tape-maintenance", {"approval_id": "approval"}, "test-maintenance"
+        )
+        self.control.claim()
+        self.control.set(
+            "maintenance_progress:approval",
+            {
+                "state": "RUNNING",
+                "phase": "TAPE_WRITE",
+                "time": now,
+                "bytes": 123,
+                "drive": d,
+                "seed": "private",
+            },
+        )
+        with patch(
+            "otam.web.diagnostics.discover_drives",
+            side_effect=AssertionError("must remain cached"),
+        ):
+            value = overview(self.control)
+        self.assertEqual(value["active_maintenance"]["command_id"], command["id"])
+        self.assertEqual(value["drives"][0]["active_maintenance"]["bytes"], 123)
+        self.assertEqual(value["drives"][0]["contact_state"], "STALE")
+        self.assertNotIn("seed", value["active_maintenance"])
+        self.control.set("worker_heartbeat", 0)
+        self.assertFalse(overview(self.control)["worker_online"])
+
     def test_interval_and_medium_changes_trigger_fresh_diagnostics(self):
         d = drive()
         calls = []

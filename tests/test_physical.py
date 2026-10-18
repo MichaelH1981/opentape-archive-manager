@@ -133,6 +133,25 @@ class PhysicalBoundary(unittest.TestCase):
                         max_bytes=3 * BLOCK_SIZE,
                     )
 
+    def test_bounded_sample_stops_at_time_limit_and_still_reads_back(self):
+        import itertools
+
+        with (
+            patch("otam.physical.PATTERN_SIZE", 2 * BLOCK_SIZE),
+            patch("otam.physical.time.monotonic", side_effect=itertools.count()),
+        ):
+            result = qualify(
+                MemoryDrive(capacity=100),
+                "a" * 64,
+                lambda **v: None,
+                sample=True,
+                max_bytes=100 * BLOCK_SIZE,
+                write_seconds=1,
+            )
+        self.assertEqual(result["state"], "SAMPLE_VERIFIED")
+        self.assertEqual(result["bytes"], 2 * BLOCK_SIZE)
+        self.assertFalse(result["eom"])
+
     def test_vpd_serial_matches_direct_scsi_response(self):
         from otam.physical import inquiry_serial
 

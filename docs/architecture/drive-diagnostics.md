@@ -30,3 +30,11 @@ Pro Laufwerk werden die neueste Diagnose (maximal vier begrenzte Logseiten), die
 Alle Hardware-Routen bleiben auf Archive Nodes beschränkt. Die Web-Unit behält PrivateDevices; nur der bereits separat berechtigte Worker fragt die festen Band-SCSI-Generic-Geräte ab. Ein geänderter SG-Gerätepfad macht eine ältere destruktive Freigabe ebenfalls ungültig.
 
 Softwaretests verwenden ausschließlich synthetische SCSI-Antworten: Seiten-/Längenprüfung, 64-Bit-Zähler, unbekannte Temperaturen, Persistenz nach Rohdatenerfassung, fehlende/nicht unterstützte Seiten, Speicherfehler, Medienwechsel, Offline-/Altdatenzustände sowie Authentifizierung/Rollentrennung. Eine reale Abnahme bleibt offen, solange das Laufwerk ausgeschaltet ist. Die Software aktiviert es nicht und verändert keine Bandinhalte.
+
+Während physischer Wartung zeigt die Übersicht persistenten Transferfortschritt
+(Phase, Datenmenge, Durchsatz, Job-ID) aus dem Worker an. Dieser Fortschritt wird
+getrennt vom älteren Geräte-/Diagnosestatus auf Aktualität geprüft. Eine frühere
+Beobachtung ohne Seriennummer erzeugt nach erfolgreicher Identifikation am gleichen
+sysfs-Pfad keine zweite Laufwerkskarte; ihre gespeicherten Rohdaten und TapeAlert-
+Hinweise bleiben unter der ursprünglichen ID erhalten. Bereits identifizierte
+andere Laufwerke werden dadurch nicht zusammengefasst.
