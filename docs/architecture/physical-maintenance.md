@@ -59,3 +59,10 @@ Laufwerksseriennummern werden aus VPD 0x80 gelesen; fehlt die sysfs-Datei, wird
 dieselbe Seite lesend mit `sg_inq` abgefragt. `sg_logs --raw --raw` liefert die
 vollständige Logseite einschließlich des vom Parser benötigten Headers. Ein
 einzelnes `--raw` liefert bei sg3_utils nur Parameter und ist dafür ungeeignet.
+
+Bei Linux sg benötigt READ ATTRIBUTE (MAM) einen mit Schreibberechtigung geöffneten
+sg-Dateideskriptor; `sg_read_attr --readonly` scheitert für den Dienstbenutzer mit
+EPERM. OTAM verwendet daher `sg_read_attr --raw --first=0x401` ohne `--readonly`.
+Das ausgeführte SCSI-Kommando bleibt READ ATTRIBUTE; WRITE ATTRIBUTE wird nicht
+verwendet. Die Tape-only-Gerätegruppe reicht aus, zusätzliche Root-Capabilities
+sind nicht erforderlich. Auf dem IBM-Laufwerk mit Debian 13 überprüft.

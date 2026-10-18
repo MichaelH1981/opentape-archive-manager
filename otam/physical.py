@@ -161,7 +161,7 @@ def discover_drives() -> list[dict[str, Any]]:
                 raise SafetyError("Kein bereites Medium eingelegt")
             item["medium_serial"] = mam_serial(
                 run(
-                    ["sg_read_attr", "--readonly", "--raw", "--first=0x401", item["sg"]]
+                    ["sg_read_attr", "--raw", "--first=0x401", item["sg"]]
                 )
             )
             item["ready"] = not item["status"]["write_protected"]
