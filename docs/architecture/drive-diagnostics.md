@@ -38,3 +38,9 @@ Beobachtung ohne Seriennummer erzeugt nach erfolgreicher Identifikation am gleic
 sysfs-Pfad keine zweite Laufwerkskarte; ihre gespeicherten Rohdaten und TapeAlert-
 Hinweise bleiben unter der ursprünglichen ID erhalten. Bereits identifizierte
 andere Laufwerke werden dadurch nicht zusammengefasst.
+
+Eine frühere anonyme Beobachtung mit gespeicherten TapeAlert-Hinweisen bleibt
+auch nach erfolgreicher Identifikation gesondert sichtbar: Hinweise werden nicht
+stillschweigend einem später identifizierten Gerät zugerechnet oder ausgeblendet.
+Nur anonyme Einträge ohne gespeicherte Warnungen werden in der Kartenübersicht
+zusammengeführt; Rohantworten bleiben weiterhin erhalten.

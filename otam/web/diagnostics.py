@@ -149,6 +149,7 @@ def overview(control: Control) -> dict[str, Any]:
         if (
             not drive.get("serial")
             and drive.get("sysfs")
+            and not control.get("drive_alerts:" + ident, {})
             and any(
                 value.get("serial")
                 and value.get("sysfs") == drive["sysfs"]

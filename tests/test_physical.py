@@ -178,6 +178,24 @@ class PhysicalBoundary(unittest.TestCase):
             with prefetched_records(Reader(), 7, max_records=0):
                 pass
 
+    def test_prefetch_propagates_read_errors_instead_of_treating_them_as_eof(self):
+        from otam.physical import prefetched_records
+
+        for fail_at in (1, 2):
+
+            class Reader:
+                calls = 0
+
+                def read(self, fd):
+                    self.calls += 1
+                    if self.calls == fail_at:
+                        raise OSError(errno.EIO, "simulated read failure")
+                    return b"record"
+
+            with self.subTest(fail_at=fail_at), self.assertRaises(OSError):
+                with prefetched_records(Reader(), 7) as records:
+                    list(records)
+
     def test_prefetch_waits_for_outstanding_read_before_descriptor_can_close(self):
         from otam.physical import prefetched_records
         import threading

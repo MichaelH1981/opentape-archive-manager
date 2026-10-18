@@ -178,12 +178,13 @@ class Diagnostics(unittest.TestCase):
         self.control.set("worker_heartbeat", now)
         self.control.set("hardware_inventory", {"time": now, "drives": [d]})
         self.control.set("hardware_last_seen", {old["id"]: old, other["id"]: other})
-        self.control.set(
-            "drive_alerts:" + old["id"], {"3": {"code": 3, "last_seen": now}}
-        )
         self.assertEqual(
             {v["id"] for v in overview(self.control)["drives"]}, {d["id"], other["id"]}
         )
+        self.control.set(
+            "drive_alerts:" + old["id"], {"3": {"code": 3, "last_seen": now}}
+        )
+        self.assertIn(old["id"], {v["id"] for v in overview(self.control)["drives"]})
         self.assertEqual(
             detail(self.control, old["id"])["warning_history"][0]["code"], 3
         )
