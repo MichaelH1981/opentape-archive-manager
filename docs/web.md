@@ -95,3 +95,11 @@ python -m unittest tests.test_web -v
 ```
 
 HTTP-Tests prüfen Authentifizierung, Rollen, Queue, Planbestätigung, Staging/Archiv/Restore, Filter/Exporte, Replikation bei ausgefallenem Primärkatalog, unvollständige/korrupten Snapshots, Replay, idempotente Veröffentlichung und NAS-Export. Browserprüfung und tatsächliche Proxmox-/NAS-/iOS-Abnahme getrennt dokumentieren. Details: [Architektur](architecture/modular-web.md), [Konfiguration](web-configuration.md).
+
+## Quellen-/Stagingauswahl und Bandwartung
+
+Unter **Einstellungen** lassen sich bestehende Quell- und Staging-Verzeichnisse aus administrativ freigegebenen Bereichen registrieren. **Planung** bietet Quelle, Staging und Zielmedium an; ein ausgewähltes Unterverzeichnis kann als eigene Quelle hinzugefügt werden. **Staging** zeigt alle registrierten lokalen Ziele und deren freien Speicher. Registrierung/Abmeldung verändern keine Quelldateien. Noch gebundene Jobs und unverifizierte Dateien verhindern die Abmeldung.
+
+Unter **Hardware** werden angeschlossene Laufwerke automatisch erkannt und Simulator bzw. physischer Wartungsbetrieb gewählt. Der Moduswechsel allein verändert kein Band. Vollqualifikation und Kurz-/Langlöschen brauchen jeweils eine frische Einzelfreigabe mit Laufwerks- und Medienseriennummer. Die Vollqualifikation schreibt rekonstruierbare Daten bis zur regulären Early-Warning-Grenze und liest alles vollständig zurück. Nur vollständige Integritätsgleichheit gilt als VERIFIED. Löschen wird als abgeschlossenes Kommando, nicht als zertifizierte Vernichtung gemeldet.
+
+Reguläre physische Archivierung bleibt bis zur Bandformat-Abnahme gesperrt. Kein Laufwerk, unbekannte Identität, Schreibschutz, alte oder bereits verbrauchte Freigabe führen zu keiner destruktiven Ausführung. [Details und Abnahmegrenzen](architecture/physical-maintenance.md).

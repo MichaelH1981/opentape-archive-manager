@@ -838,6 +838,186 @@ class WebAcceptance(unittest.TestCase):
             push(config, self.control, due_only=True)
             send.assert_called_once()
 
+    def test_resource_picker_and_persistent_source_registration(self):
+        from otam.web import resources
+
+        config = replace(self.config, directory_roots=(self.root,))
+        before = resources.browse(config, self.control)
+        self.assertTrue(before["items"])
+        self.assertEqual(
+            resources.browse(config, self.control, str(self.source))["path"],
+            str(self.source),
+        )
+        second = self.root / "second-source"
+        second.mkdir()
+        (second / "new.txt").write_text("source remains untouched")
+        ident = str(uuid.uuid4())
+        resources.save(
+            config,
+            self.control,
+            ident,
+            dict(kind="source", label="New source", path=str(second)),
+        )
+        self.assertIn(
+            ident,
+            [r.id for r in resources.effective(config, Control(config.state)).sources],
+        )
+        for path in [
+            str(config.state),
+            str(config.media_root),
+            str(self.root / ".."),
+            "/etc",
+        ]:
+            with self.assertRaises((SafetyError, OSError)):
+                resources.browse(config, self.control, path)
+        link = self.root / "symlink"
+        link.symlink_to(second, target_is_directory=True)
+        with self.assertRaises(SafetyError):
+            resources.save(
+                config,
+                self.control,
+                str(uuid.uuid4()),
+                dict(kind="source", label="Link", path=str(link)),
+            )
+        resources.remove(config, self.control, ident)
+        self.assertTrue((second / "new.txt").is_file())
+
+    def test_staging_selection_is_bound_to_job_and_not_silently_redirected(self):
+        from otam.web import resources
+
+        config = replace(self.config, directory_roots=(self.root,))
+        folder = self.root / "second-staging"
+        folder.mkdir()
+        ident = str(uuid.uuid4())
+        resources.save(
+            config,
+            self.control,
+            ident,
+            dict(kind="staging", label="Other SSD", path=str(folder)),
+        )
+        medium = execute(
+            config, self.control, "create-medium", {"label": "STAGING-TEST"}
+        )["media_id"]
+        plan = execute(
+            config,
+            self.control,
+            "plan",
+            {"media_id": medium, "source_id": "source-1", "staging_id": ident},
+        )
+        result = execute(config, self.control, "stage", {"job_id": plan["job_id"]})
+        self.assertEqual(result["staging"], str(folder))
+        with self.assertRaises(SafetyError):
+            resources.remove(config, self.control, ident)
+        result = execute(
+            config,
+            self.control,
+            "backup",
+            {
+                "job_id": plan["job_id"],
+                "confirm": plan["job_id"],
+                "plan_hash": plan["sha256"],
+            },
+        )
+        self.assertEqual(result["state"], "VERIFIED")
+        with self.assertRaises(SafetyError):
+            resources.save(
+                config,
+                self.control,
+                str(uuid.uuid4()),
+                dict(kind="source", label="Staging-as-source", path=str(folder)),
+            )
+
+        resources.remove(config, self.control, ident)
+        self.assertTrue(folder.is_dir())
+
+    def test_physical_mode_and_one_use_approval_require_fresh_identified_media(self):
+        from otam.web import maintenance
+
+        config = replace(self.config, physical_maintenance=True)
+        maintenance.set_mode(config, self.control, "physical")
+        with self.assertRaises(SafetyError):
+            validate_command(
+                config,
+                self.control,
+                "create-medium",
+                {"label": "No implicit simulation"},
+            )
+        with self.assertRaises(SafetyError):
+            maintenance.prepare(config, self.control, "drive", "qualify")
+        drive = {
+            "id": "drive",
+            "device": "/dev/nst0",
+            "serial": "DRIVE123",
+            "medium_serial": "TAPE123",
+            "ready": True,
+            "sg": "/dev/sg1",
+        }
+        self.control.set("hardware_inventory", {"time": time.time(), "drives": [drive]})
+        grant = maintenance.prepare(config, self.control, "drive", "qualify")
+        payload = {
+            "approval_id": grant["id"],
+            "confirmation": grant["confirmation"],
+            "destructive_confirmed": True,
+        }
+        validate_command(config, self.control, "tape-maintenance", payload)
+        missing_checkbox = dict(payload, destructive_confirmed=False)
+        with self.assertRaises(SafetyError):
+            maintenance.approval(config, self.control, missing_checkbox)
+        with patch("otam.web.maintenance.time.time", return_value=time.time() + 301):
+            with self.assertRaises(SafetyError):
+                maintenance.approval(config, self.control, payload)
+        bad = dict(payload, confirmation="wrong")
+        with self.assertRaises(SafetyError):
+            maintenance.approval(config, self.control, bad)
+        with patch(
+            "otam.web.maintenance.LinuxMaintenance",
+            side_effect=SafetyError("medium changed before lock"),
+        ):
+            with self.assertRaises(SafetyError):
+                maintenance.execute(config, self.control, payload)
+        with self.assertRaises(SafetyError):
+            maintenance.approval(config, self.control, payload)
+        self.assertEqual(
+            self.control.get("maintenance_progress:" + grant["id"])["state"], "FAILED"
+        )
+        self.command("hardware-scan", {})
+        with self.assertRaises(SafetyError):
+            maintenance.set_mode(config, self.control, "simulator")
+
+    def test_storage_and_maintenance_api_keep_authentication_and_catalog_role_boundaries(
+        self,
+    ):
+        self.assertEqual(self.client.get("/api/v1/directories").status_code, 200)
+        path = "/api/v1/storage-resources/" + str(uuid.uuid4())
+        data = dict(kind="source", label="Escaping", path="/etc")
+        self.assertEqual(self.client.put(path, json=data).status_code, 403)
+        self.assertEqual(
+            self.client.put(
+                path, json=data, headers={"X-CSRF-Token": self.csrf}
+            ).status_code,
+            409,
+        )
+        self.assertEqual(
+            self.client.put(
+                "/api/v1/operation-mode",
+                json={"mode": "physical"},
+                headers={"X-CSRF-Token": self.csrf},
+            ).status_code,
+            409,
+        )
+        cfg, app, client = self.replica()
+        try:
+            csrf = client.post(
+                "/api/v1/login", json={"username": "admin", "password": PASSWORD}
+            ).json()["csrf"]
+            self.assertEqual(client.get("/api/v1/directories").status_code, 404)
+            self.assertEqual(
+                client.put(path, json=data, headers={"X-CSRF-Token": csrf}).status_code,
+                404,
+            )
+        finally:
+            client.close()
+
 
 if __name__ == "__main__":
     unittest.main()

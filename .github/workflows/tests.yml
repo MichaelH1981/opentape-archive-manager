@@ -43,3 +43,7 @@ jobs:
           tests.test_web.WebAcceptance.test_target_configuration_is_authenticated_validated_and_marker_is_explicit
           tests.test_web.WebAcceptance.test_legacy_targets_remain_removed_after_restart_and_target_intervals
           tests.test_web.WebAcceptance.test_destinations_use_distinct_keys_and_revalidate_directory_resolution
+          tests.test_physical
+          tests.test_web.WebAcceptance.test_resource_picker_and_persistent_source_registration
+          tests.test_web.WebAcceptance.test_physical_mode_and_one_use_approval_require_fresh_identified_media
+          tests.test_web.WebAcceptance.test_storage_and_maintenance_api_keep_authentication_and_catalog_role_boundaries

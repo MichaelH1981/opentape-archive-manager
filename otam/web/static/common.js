@@ -51,6 +51,12 @@ const ago = (n) => {
 };
 const labels = {
   VERIFIED: "Verifiziert",
+  PREPARING: "Testdaten vorbereiten",
+  ERASING: "Löschen",
+  ERASE_COMMAND_COMPLETED: "Löschkommando abgeschlossen",
+  NOT_STARTED: "Nicht gestartet",
+  STARTING: "Wird gestartet",
+  "tape-maintenance": "Bandwartung",
   UNCHANGED: "Unverändert",
   DISABLED: "Deaktiviert",
   ACTIVE: "Aktiv",
@@ -99,6 +105,8 @@ const kindLabel = (k) =>
     rebuild: "Katalog rekonstruieren",
     recover: "Abbruchzustand prüfen",
     sync: "Katalog synchronisieren",
+    "hardware-scan": "Laufwerke erkennen",
+    "tape-maintenance": "Bandwartung",
     "create-medium": "Testmedium erstellen",
   })[k] || k;
 const titles = {

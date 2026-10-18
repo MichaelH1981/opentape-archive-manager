@@ -23,6 +23,8 @@ from .config import WebConfig
 from .control import Control
 from .replication import push
 from .targets import enabled_targets
+from . import resources, maintenance
+from ..physical import discover_drives
 
 COMMANDS = {
     "create-medium",
@@ -34,6 +36,8 @@ COMMANDS = {
     "recover",
     "rebuild",
     "sync",
+    "tape-maintenance",
+    "hardware-scan",
 }
 
 
@@ -62,6 +66,18 @@ def validate_command(
 ) -> None:
     if config.role != "archive" or kind not in COMMANDS:
         raise SafetyError("Dieser Node erlaubt keine Archivierungsaufträge")
+    config = resources.effective(config, control)
+    if kind == "tape-maintenance":
+        maintenance.approval(config, control, payload)
+        return
+    if kind == "hardware-scan":
+        if payload:
+            raise SafetyError("Laufwerkserkennung benötigt keine Parameter")
+        return
+    if kind not in ("sync",) and maintenance.mode(config, control) != "simulator":
+        raise SafetyError(
+            "Im physischen Wartungsbetrieb sind Simulator-Archivierungen gesperrt. Reale Archivierung benötigt die Bandformat-Abnahme."
+        )
     if kind == "sync":
         if payload:
             raise SafetyError(
@@ -89,7 +105,7 @@ def validate_command(
             raise SafetyError("Ungültige Medienklasse")
         return
     allowed = {
-        "plan": {"media_id", "source_id", "target"},
+        "plan": {"media_id", "source_id", "target", "staging_id"},
         "stage": {"job_id", "revalidate_ready", "confirm"},
         "backup": {"job_id", "confirm", "plan_hash", "resume", "prepare_all"},
         "verify": {"media_id"},
@@ -100,6 +116,9 @@ def validate_command(
     if set(payload) - allowed:
         raise SafetyError("Unbekannte Auftragsparameter")
     if kind == "plan":
+        resources.staging_for(
+            config, control, payload.get("staging_id", "default-staging")
+        )
         if not isinstance(payload.get("source_id"), str) or payload.get(
             "source_id"
         ) not in {s.id for s in config.sources}:
@@ -183,6 +202,13 @@ def execute(
     scheduled: bool = False,
 ) -> Any:
     validate_command(config, control, kind, payload)
+    config = resources.effective(config, control)
+    if kind == "tape-maintenance":
+        return maintenance.execute(config, control, payload)
+    if kind == "hardware-scan":
+        inventory = {"time": time.time(), "drives": discover_drives()}
+        control.set("hardware_inventory", inventory)
+        return inventory
     if kind == "sync":
         with io_lock():
             return push(config, control, due_only=scheduled)
@@ -212,6 +238,20 @@ def execute(
                 s.path for s in config.sources if s.id == payload["source_id"]
             )
             plan = service.plan(source, media, payload.get("target", 75_000_000_000))
+            control.set(
+                "job_storage:" + plan["job_id"],
+                {
+                    "staging_id": payload.get("staging_id", "default-staging"),
+                    "source_id": payload["source_id"],
+                    "staging_path": str(
+                        resources.staging_for(
+                            config,
+                            control,
+                            payload.get("staging_id", "default-staging"),
+                        )
+                    ),
+                },
+            )
             return {
                 k: plan[k]
                 for k in (
@@ -223,17 +263,22 @@ def execute(
                     "available",
                 )
             }
+        if kind in ("stage", "backup"):
+            binding = control.get(
+                "job_storage:" + payload["job_id"], {"staging_id": "default-staging"}
+            )
+            spool = resources.staging_for(config, control, binding["staging_id"])
         if kind == "stage":
             return service.stage(
                 payload["job_id"],
-                config.staging,
+                spool,
                 revalidate_ready=payload.get("revalidate_ready", False),
             )
         if kind == "backup":
             return service.backup(
                 payload["job_id"],
                 payload["confirm"],
-                config.staging,
+                spool,
                 resume=payload.get("resume", False),
                 prepare_all=payload.get("prepare_all", False),
             )
@@ -302,6 +347,28 @@ def run_once(config: WebConfig, control: Control) -> bool:
             ),
         )
     except Exception as error:
+        if command["kind"] == "tape-maintenance":
+            key = "maintenance_progress:" + command["payload"].get(
+                "approval_id", "invalid"
+            )
+            if control.get(key) is None:
+                grant = control.get(
+                    "maintenance_approval:" + command["payload"].get("approval_id", ""),
+                    {},
+                )
+                control.set(
+                    key,
+                    {
+                        "state": "FAILED",
+                        "phase": "NOT_STARTED",
+                        "error": str(error),
+                        "time": time.time(),
+                        "bytes": 0,
+                        "approval_id": grant.get("id"),
+                        "drive": grant.get("drive", {}),
+                        "operation": grant.get("operation"),
+                    },
+                )
         control.complete(command["id"], error=str(error))
     return True
 
@@ -322,6 +389,21 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
     signal.signal(signal.SIGINT, stop)
     with worker_lock(config):
         control.interrupt_running()
+        with control.connect() as db:
+            for row in db.execute(
+                "SELECT key,value FROM settings WHERE key LIKE 'maintenance_progress:%'"
+            ).fetchall():
+                value = json.loads(row["value"])
+                if value.get("state") == "RUNNING":
+                    value.update(
+                        state="INTERRUPTED",
+                        phase="INCOMPLETE",
+                        error="Worker-Neustart: Medium und Position erneut prüfen; neue Freigabe erforderlich",
+                    )
+                    db.execute(
+                        "UPDATE settings SET value=? WHERE key=?",
+                        (json.dumps(value), row["key"]),
+                    )
         heartbeat_stop = threading.Event()
 
         def heartbeat() -> None:
@@ -332,12 +414,19 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
             target=heartbeat, name="otam-heartbeat", daemon=True
         )
         heartbeat_thread.start()
+        next_scan = 0.0
         next_sync = time.monotonic() + 5
         try:
             while not stopping:
                 worked = run_once(config, control)
                 if once:
                     break
+                if time.monotonic() >= next_scan:
+                    control.set(
+                        "hardware_inventory",
+                        {"time": time.time(), "drives": discover_drives()},
+                    )
+                    next_scan = time.monotonic() + 10
                 if time.monotonic() >= next_sync:
                     with control.connect() as db:
                         queued = db.execute(

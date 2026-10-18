@@ -51,6 +51,7 @@ from .targets import (
 )
 from .security import cookie_name, SecurityMiddleware, login, session
 from .worker import mounted, validate_command
+from . import resources, maintenance
 
 STATIC = Path(__file__).parent / "static"
 
@@ -214,12 +215,26 @@ def create_app(config: WebConfig) -> FastAPI:
                 "catalog": True,
                 "archive": config.role == "archive",
                 "physical_tape": False,
+                "physical_maintenance": config.physical_maintenance,
             },
             "snapshot": active,
             "last_push": control.get("last_fanout", control.get("last_push")),
             "worker_heartbeat": control.get("worker_heartbeat", 0),
+            "operation_mode": maintenance.mode(config, control),
+            "staging_locations": (
+                [
+                    r
+                    for r in resources.entries(config, control)
+                    if r["kind"] == "staging"
+                ]
+                if config.role == "archive"
+                else []
+            ),
             "sources": (
-                [{"id": s.id, "label": s.label} for s in config.sources]
+                [
+                    {"id": s.id, "label": s.label, "path": str(s.path)}
+                    for s in resources.effective(config, control).sources
+                ]
                 if config.role == "archive"
                 else []
             ),
@@ -290,7 +305,9 @@ def create_app(config: WebConfig) -> FastAPI:
 
     @api.get("/jobs/{ident}")
     def job(ident: str):
-        return view.job(ident)
+        return view.job(ident) | {
+            "storage_binding": control.get("job_storage:" + ident)
+        }
 
     @api.get("/staging")
     def staging():
@@ -300,6 +317,7 @@ def create_app(config: WebConfig) -> FastAPI:
             while not ancestor.exists() and ancestor != ancestor.parent:
                 ancestor = ancestor.parent
             usage = shutil.disk_usage(ancestor)
+            result["locations"] = resources.overview(config, control)
             result["storage"] = {
                 "total": usage.total,
                 "free": usage.free,
@@ -452,12 +470,60 @@ def create_app(config: WebConfig) -> FastAPI:
             finally:
                 catalog.close()
 
+        @archive.get("/directories")
+        def directories(path: str = Query("", max_length=4096)):
+            return resources.browse(config, control, path)
+
+        @archive.get("/storage-resources")
+        def storage_resources():
+            return {"items": resources.overview(config, control)}
+
+        @archive.put("/storage-resources/{ident}")
+        def save_resource(ident: str, data: dict[str, Any] = Body()):
+            resources.save(config, control, ident, data)
+            return {"state": "REGISTERED"}
+
+        @archive.delete("/storage-resources/{ident}")
+        def remove_resource(ident: str):
+            resources.remove(config, control, ident)
+            return {"state": "REMOVED", "files_deleted": False}
+
+        @archive.put("/operation-mode")
+        def operation_mode(data: dict[str, Any] = Body()):
+            if set(data) != {"mode"}:
+                raise SafetyError("Betriebsart fehlt")
+            maintenance.set_mode(config, control, data["mode"])
+            return {"mode": maintenance.mode(config, control)}
+
+        @archive.post("/maintenance/prepare")
+        def maintenance_prepare(data: dict[str, Any] = Body()):
+            if set(data) != {"drive_id", "operation"} or not isinstance(
+                data["drive_id"], str
+            ):
+                raise SafetyError("Ungültige Wartungsplanung")
+            return maintenance.prepare(
+                config, control, data["drive_id"], data["operation"]
+            )
+
         @archive.get("/hardware")
         def hardware():
+            with control.connect() as db:
+                history = [
+                    json.loads(r[0])
+                    for r in db.execute(
+                        "SELECT value FROM settings WHERE key LIKE 'maintenance_progress:%' ORDER BY rowid DESC LIMIT 30"
+                    )
+                ]
             return {
                 "inventory": discover(),
                 "physical_tape_enabled": False,
-                "message": "Physischer LTO-Betrieb wartet auf freigegebene Testband-Abnahme",
+                "physical_maintenance_enabled": config.physical_maintenance,
+                "mode": maintenance.mode(config, control),
+                "discovery": control.get(
+                    "hardware_inventory", {"time": 0, "drives": []}
+                ),
+                "maintenance": history,
+                "message": "Physischer Wartungsbetrieb mit Einzelfreigaben; reguläre LTO-Archivierung wartet auf Bandformat-Abnahme",
             }
 
         app.include_router(archive)

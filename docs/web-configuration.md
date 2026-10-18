@@ -77,3 +77,21 @@ Der lokale Archive-Node-Katalog ist immer vorhanden und nicht abwählbar. Zusät
 Alle Änderungen nur am Archive Node, authentifiziert und mit CSRF-/Origin-Schutz. Am Empfänger werden dessen Herausgeber-ID und Empfangsschlüssel weiterhin über die geschützte Node-Konfiguration festgelegt. Betriebssystem-Mounts, Dienstrechte und TLS-Termination werden nicht durch die Zielverwaltung eingerichtet.
 
 `peer_url`, `nas_backup`, `allow_http_peer` und `sync_interval` sind abwärtskompatible Startwerte für bestehende Installationen. Nach der ersten Bearbeitung der Zielliste ist diese persistent maßgeblich. `peer_key_file` bleibt unabhängig davon die Empfangskonfiguration des Catalog Node. Die lokale Steuerdatenbank enthält private Zielschlüssel und darf nicht öffentlich geteilt oder in Katalogexporte aufgenommen werden.
+
+## Quellen, Staging und physische Wartung
+
+`directory_roots`: Liste absoluter, administrativ freigegebener Verzeichnisbereiche für den Picker. Standard leer; bestehende Quellen und Standard-Staging bleiben auswählbar. Kein pauschaler Zugriff auf `/`. Verzeichnisse/Mounts müssen vorher vorhanden und für das Dienstkonto zugänglich sein. Zusätzliche schreibbare Staging-Ziele müssen außerdem in den systemd-`ReadWritePaths` beider Dienste freigegeben werden; dies geschieht nicht aus der Webanwendung.
+
+`physical_maintenance`: Standard `false`. Ermöglicht nach administrativer Einrichtung der Worker-Geräterechte den expliziten Wechsel zwischen Simulator und physischem Wartungsbetrieb unter Hardware. Reguläre echte LTO-Archivierung wird dadurch nicht freigeschaltet; `LinuxTape` bleibt bis zur Bandformat-Abnahme gesperrt.
+
+- `GET /api/v1/directories?path=...`: begrenzte Auswahl vorhandener Unterverzeichnisse, keine Dateien oder geheimen Node-Verzeichnisse. Leerer Pfad zeigt freigegebene Bereiche.
+- `GET /api/v1/storage-resources`: Quellen/Staging mit Verfügbarkeit, lokalen Dateisystemwerten und freien Bytes.
+- `PUT /api/v1/storage-resources/{uuid}`: `{kind: "source"|"staging", label, path}`. Unveränderliche Registrierung; Staging lokal/schreibbar, Quellen und Node-Daten getrennt.
+- `DELETE /api/v1/storage-resources/{id}`: nur Abmelden, keine Dateilöschung. Aktive Aufträge und nicht abgeschlossene Jobbindungen verhindern Abmeldung.
+- Archivierungsplanung akzeptiert zusätzlich `staging_id`. Bei älteren Aufträgen bleibt `default-staging` gültig. Auswahl wird je Job gebunden.
+- `PUT /api/v1/operation-mode`: `{mode: "simulator"|"physical"}`. Keine Bandaktion durch den Wechsel.
+- `POST /api/v1/maintenance/prepare`: `{drive_id, operation: "qualify"|"erase-short"|"erase-long"}`. Liefert konkrete Identität, Ablaufzeit und erforderliche Bestätigungsphrase.
+- Workerauftrag `tape-maintenance`: `{approval_id, confirmation, destructive_confirmed: true}`. Transaktional einmalige, fünf Minuten gültige Einzelfreigabe; Identität/Schreibschutz werden vor Hardwarezugriff erneut geprüft.
+- Workerauftrag `hardware-scan`: `{}`. Automatische Erkennung erfolgt daneben etwa alle zehn Sekunden.
+
+Optionale Workerrechte: `packaging/udev/70-otam-tape.rules` und `packaging/systemd/otam-worker-physical.conf`, eigene Gruppe `otam-tape`. Web bleibt mit privaten Geräten abgeschottet. Kein root-Webprozess, keine Disk-Gruppenmitgliedschaft. [Ablauf, Sicherheitsgrenzen und Abnahme](architecture/physical-maintenance.md).

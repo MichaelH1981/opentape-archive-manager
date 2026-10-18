@@ -61,6 +61,8 @@ class WebConfig:
     port: int = 8765
     allowed_hosts: tuple[str, ...] = ("127.0.0.1", "localhost", "[::1]")
     sources: tuple[Resource, ...] = ()
+    directory_roots: tuple[Path, ...] = ()
+    physical_maintenance: bool = False
     peer_url: str = ""
     peer_key_file: Path | None = None
     publisher_id: str = ""
@@ -135,6 +137,10 @@ class WebConfig:
             raise SafetyError("Ungültiges Intervall oder Port")
         if not 1024 <= self.max_snapshot_bytes <= 100 * 1024**3:
             raise SafetyError("Ungültiges Snapshot-Limit")
+        if type(self.physical_maintenance) is not bool or any(
+            not p.is_absolute() for p in self.directory_roots
+        ):
+            raise SafetyError("Ungültige Verzeichnisfreigaben oder Hardwarefreigabe")
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources
@@ -184,6 +190,9 @@ class WebConfig:
         ):
             if data.get(k) is not None:
                 data[k] = Path(data[k])
+        data["directory_roots"] = tuple(
+            Path(p) for p in data.get("directory_roots", [])
+        )
         data["sources"] = tuple(
             Resource(s["id"], s["label"], Path(s["path"]))
             for s in data.get("sources", [])

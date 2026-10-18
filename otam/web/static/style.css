@@ -2134,3 +2134,12 @@ dialog::backdrop {
     height: 18px;
   }
 }
+
+.directory-entry {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+  text-align: left;
+}

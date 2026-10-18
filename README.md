@@ -40,3 +40,5 @@ otam worker --config /srv/otam/node.json
 Standardzugriff: http://127.0.0.1:8765. Eigenes Passwort bei Initialisierung; kein Standardpasswort. [Konfigurationsreferenz](docs/web-configuration.md), [Modularer Betrieb und Einsatzbeispiele](docs/web.md) und Vorlagen für systemd/Container im Verzeichnis `packaging/`.
 
 ![OTAM-Weboberfläche mit synthetischen Vorschaudaten](docs/images/otam-dashboard.jpg)
+
+Quellen und lokale Staging-Verzeichnisse sind in der Weboberfläche registrierbar und bei der Planung auswählbar. Die Hardwareansicht erkennt Laufwerke automatisch und bietet separat bestätigten physischen Wartungsbetrieb für Vollqualifikation sowie Kurz-/Langlöschen. Reguläre physische Archivierung bleibt bis zur Bandformat-Abnahme gesperrt. [Wartungsabläufe und Freigaben](docs/architecture/physical-maintenance.md).

@@ -74,7 +74,7 @@ async function showJob(id) {
     p = j.plan;
   let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.phase] || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
   if (p?.archives) {
-    html += `<h3>Geprüfter Archivplan</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Medium</dt><dd>${esc(mediaName(p.media_id))}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>Bedarf mit Reserve</dt><dd>${bytes(p.required_estimate)}</dd><dt>Verfügbar</dt><dd>${bytes(p.available)}</dd><dt>Plan-SHA-256</dt><dd class="mono">${esc(p.sha256)}</dd></dl><h3>Vorgesehene TAR-Archive</h3>${table(
+    html += `<h3>Geprüfter Archivplan</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Staging</dt><dd>${esc(j.storage_binding?.staging_path || "Bisheriges Standard-Staging")}</dd><dt>Medium</dt><dd>${esc(mediaName(p.media_id))}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>Bedarf mit Reserve</dt><dd>${bytes(p.required_estimate)}</dd><dt>Verfügbar</dt><dd>${bytes(p.available)}</dd><dt>Plan-SHA-256</dt><dd class="mono">${esc(p.sha256)}</dd></dl><h3>Vorgesehene TAR-Archive</h3>${table(
       ["Archiv", "Dateien", "Nutzdaten"],
       p.archives.map(
         (a) =>
@@ -176,6 +176,81 @@ function downloadSelection() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+async function resourceDialog(kind) {
+  let current = "";
+  modal(
+    kind === "source" ? "Quelle hinzufügen" : "Staging hinzufügen",
+    `<p>${kind === "source" ? "Vorhandenes Verzeichnis auf dem Server auswählen. Unterverzeichnisse lassen sich als eigene Quelle hinzufügen. Quelldaten bleiben erhalten." : "Vorhandenes lokales, schreibbares Verzeichnis auswählen. Netzwerk- und RAM-Dateisysteme sind für Staging gesperrt."}</p><form id="resource-form"><label>Bezeichnung<input name="label" required maxlength="100"></label><label style="margin-top:16px">Verzeichnispfad<input name="path" required readonly placeholder="Im Verzeichnisdialog auswählen"></label><div id="directory-list" style="margin-top:16px"></div><div class="form-actions"><button class="button primary" type="submit">Verzeichnis registrieren</button></div></form><p class="hint">Es werden nur administrativ freigegebene Bereiche angezeigt. Weitere Mounts und Dienstrechte werden am Server eingerichtet. Abmelden einer Ressource löscht keine Dateien.</p>`,
+  );
+  async function browsePath(path) {
+    const listing = await api("/directories?path=" + encodeURIComponent(path));
+    current = listing.path;
+    $("[name=path]", $("#resource-form")).value = current;
+    $("#directory-list").innerHTML =
+      `<button type="button" class="button small" data-directory="${esc(listing.parent)}">${listing.path ? "Übergeordnetes Verzeichnis" : "Freigegebene Bereiche"}</button>${listing.items.map((item) => `<button type="button" class="button subtle directory-entry" data-directory="${esc(item.path)}">${icon("folder")}${esc(item.name)}</button>`).join("")}${listing.truncated ? '<p class="hint">Die ersten 500 Verzeichnisse werden angezeigt.</p>' : ""}`;
+    $("#directory-list")
+      .querySelectorAll("[data-directory]")
+      .forEach((button) =>
+        button.addEventListener("click", async () => {
+          try {
+            await browsePath(button.dataset.directory);
+          } catch (error) {
+            toast(error.message, true);
+          }
+        }),
+      );
+  }
+  $("#resource-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(e.target);
+    const button = $("button[type=submit]", e.target);
+    button.disabled = true;
+    try {
+      await api("/storage-resources/" + newId(), {
+        method: "PUT",
+        body: JSON.stringify({ kind, label: d.get("label"), path: current }),
+      });
+      closeModal();
+      await refreshBase();
+      await render();
+      toast("Verzeichnis registriert.");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  await browsePath("");
+}
+async function maintenanceDialog(drive, operation) {
+  const approval = await api("/maintenance/prepare", {
+    method: "POST",
+    body: JSON.stringify({ drive_id: drive, operation }),
+  });
+  modal(
+    operation === "qualify" ? "Band vollständig testen" : "Band löschen",
+    `${note("DESTRUKTIV: Sämtliche vorhandenen Daten auf diesem Medium werden unbrauchbar. Ausschließlich ausdrücklich freigegebene Test- oder Löschmedien verwenden.", "warning")}<dl class="detail-list" style="margin-top:20px"><dt>Laufwerk</dt><dd>${esc(approval.drive.serial)}</dd><dt>Medium</dt><dd>${esc(approval.drive.medium_serial)}</dd><dt>Aktion</dt><dd>${esc(operation)}</dd></dl><p>${operation === "qualify" ? "Rekonstruierbare Testdaten werden bis zum regulären Bandende geschrieben und anschließend vollständig zurückgelesen. Nur identische Datenmenge und SHA-256 ergeben VERIFIED. Der Vorgang kann mehrere Stunden dauern." : "Kurzlöschen setzt das logische Bandende zurück. Langlöschen führt das lange Löschkommando des Laufwerks aus. Beide Verfahren sind keine zertifizierte Datenvernichtung."}</p><p>Zur einmaligen Freigabe innerhalb von fünf Minuten exakt eingeben:</p><p class="mono">${esc(approval.confirmation)}</p><form id="maintenance-form"><label>Bestätigung<input name="confirmation" required autocomplete="off"></label><label class="check-label" style="margin-top:18px"><input name="destructive_confirmed" type="checkbox" required>Ich gebe genau dieses Medium zum vollständigen Überschreiben bzw. Löschen frei.</label><div class="form-actions"><button class="button primary" type="submit">Destruktiven Vorgang freigeben</button></div></form>`,
+  );
+  $("#maintenance-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = new FormData(e.target),
+      button = $("button[type=submit]", e.target);
+    button.disabled = true;
+    try {
+      await enqueue("tape-maintenance", {
+        approval_id: approval.id,
+        confirmation: d.get("confirmation"),
+        destructive_confirmed: d.has("destructive_confirmed"),
+      });
+      closeModal();
+      await render();
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
 async function targetDialog(ident = "") {
   const r = await api("/replication");
   const t = r.targets.find((v) => v.id === ident) || {
@@ -266,11 +341,21 @@ function bindForms(root = $("#content")) {
         }
       });
   };
+  on("#mode-form", async (d) => {
+    await api("/operation-mode", {
+      method: "PUT",
+      body: JSON.stringify({ mode: d.get("mode") }),
+    });
+    await refreshBase();
+    await render();
+    toast("Betriebsart übernommen. Es wurde kein Band verändert.");
+  });
   on("#plan-form", async (d) => {
     await enqueue("plan", {
       source_id: d.get("source_id"),
       media_id: d.get("media_id"),
       target: Math.round(Number(d.get("target")) * 1e9),
+      staging_id: d.get("staging_id"),
     });
     location.hash = "jobs";
   });
@@ -351,7 +436,14 @@ document.addEventListener("click", async (e) => {
   );
   if (!b) return;
   try {
-    if (b.dataset.editTarget) await targetDialog(b.dataset.editTarget);
+    if (b.dataset.maintenanceDrive)
+      await maintenanceDialog(b.dataset.maintenanceDrive, b.dataset.operation);
+    else if (b.dataset.removeResource) {
+      modal(
+        "Verzeichnis abmelden",
+        `<p>Die Ressource wird aus der Auswahl entfernt. Bestehende Dateien bleiben erhalten; gebundene Jobs und unverifizierte Archive verhindern die Abmeldung.</p><button class="button primary" id="remove-resource-confirm" data-resource="${esc(b.dataset.removeResource)}">Ressource abmelden</button>`,
+      );
+    } else if (b.dataset.editTarget) await targetDialog(b.dataset.editTarget);
     else if (b.dataset.deleteTarget) await targetAction(b.dataset.deleteTarget);
     else if (b.dataset.initTarget)
       await targetAction(b.dataset.initTarget, true);
@@ -414,6 +506,24 @@ document.addEventListener("click", async (e) => {
           break;
         case "modal-close":
           closeModal();
+          break;
+        case "new-source":
+          await resourceDialog("source");
+          break;
+        case "new-staging":
+          await resourceDialog("staging");
+          break;
+        case "scan-drives":
+          await enqueue("hardware-scan", {});
+          break;
+        case "remove-resource-confirm":
+          await api("/storage-resources/" + b.dataset.resource, {
+            method: "DELETE",
+            body: "{}",
+          });
+          closeModal();
+          await refreshBase();
+          await render();
           break;
         case "new-target":
           await targetDialog();

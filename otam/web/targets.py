@@ -81,6 +81,17 @@ def save_target(
     allowed = {"label", "kind", "address", "enabled", "interval", "allow_http", "key"}
     if set(data) - allowed:
         raise SafetyError("Unbekannte Zielparameter")
+    from .resources import effective, entries
+
+    config = effective(config, control)
+    if data.get("kind") == "directory" and isinstance(data.get("address"), str):
+        candidate = Path(data["address"]).resolve()
+        for resource in entries(config, control):
+            private = Path(resource["path"]).resolve()
+            if candidate.is_relative_to(private) or private.is_relative_to(candidate):
+                raise SafetyError(
+                    "Snapshot-Ziel überschneidet sich mit einer Quelle oder Staging"
+                )
     current = targets(config, control)
     old = next((t for t in current if t["id"] == ident), {})
     t = {**old, **data, "id": ident, "revision": old.get("revision", 0) + 1}

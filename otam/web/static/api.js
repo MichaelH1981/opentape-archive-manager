@@ -77,7 +77,12 @@ async function refreshBase() {
   const role = n.role === "archive" ? "Archive Node" : "Catalog Node";
   $("#node-role").textContent = role;
   $("#role-pill").innerHTML = `<span class="status-dot"></span>${role}`;
-  $("#footer-mode").textContent = role;
+  $("#footer-mode").textContent =
+    n.role === "archive"
+      ? n.operation_mode === "physical"
+        ? "Physische Bandwartung"
+        : "Simulatorbetrieb"
+      : role;
   $$("[data-archive]").forEach((e) => (e.hidden = n.role !== "archive"));
   const running = state.commands.filter((c) =>
     ["QUEUED", "RUNNING"].includes(c.state),

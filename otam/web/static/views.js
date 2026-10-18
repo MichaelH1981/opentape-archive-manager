@@ -124,9 +124,10 @@ async function planning() {
   return (
     heading(
       "Gut geplant. Sicher archiviert.",
-      "Wähle deine Quelle und prüfe den vollständigen Archivplan.",
+      "Wähle Quelle und Staging für den vollständigen Archivplan.",
+      `<button class="button" id="new-source">${icon("folder")}Quelle hinzufügen</button>`,
     ) +
-    `<div class="split"><section class="panel"><div class="panel-header"><div><h2>Neue Archivierung planen</h2><p>Quelldaten bleiben vollständig erhalten.</p></div><span class="badge neutral">01 / PLANUNG</span></div><div class="panel-body"><form id="plan-form"><div class="form-grid"><label class="full">Datenquelle<select name="source_id" required><option value="">Quelle auswählen</option>${state.node.sources.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join("")}</select><small class="hint">Nur serverseitig freigegebene Verzeichnisse stehen zur Auswahl.</small></label><label>Zielmedium<select name="media_id" required><option value="">Medium auswählen</option>${mediaOptions()}</select></label><label>TAR-Zielgröße in GB<input name="target" type="number" min="0.001" max="10000" step="0.001" value="75" required><small class="hint">Große Einzeldateien bleiben zusammen.</small></label></div><div class="form-actions"><button class="button primary" type="submit">${icon("calendar")}Inventarisieren & planen</button></div></form></div></section><div class="stack"><section class="panel"><div class="panel-header"><h2>Ein Plan, acht sichere Schritte.</h2></div><div class="panel-body">${pipeline("INVENTORY")}<p class="subtle-caption" style="margin-top:22px">OTAM liest Dateiinformationen, berechnet SHA-256 und plant vollständige Archive. Vor dem Schreiben bestätigst du Umfang, Medium und den unveränderten Plan.</p></div></section>${!state.media.length ? note("Für den ersten vollständigen Testzyklus ein Simulatormedium im Bandinventar erstellen.", "info") : ""}${!state.node.sources.length ? note("Noch keine Quelle freigegeben. Das Quellverzeichnis wird in der Node-Konfiguration eingerichtet.", "warning") : ""}</div></div><section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Deine Archivpläne</h2><span class="subtle-caption">${jobs.length} Jobs</span></div>${table(
+    `${state.node.operation_mode === "physical" ? note("Für Simulator-Archivierungen zuerst unter Hardware in den Simulatorbetrieb wechseln. Physische Archivierung wartet auf Bandformat-Abnahme.", "warning") : ""}<div class="split"><section class="panel"><div class="panel-header"><div><h2>Neue Archivierung planen</h2><p>Quelldaten bleiben vollständig erhalten.</p></div><span class="badge neutral">01 / PLANUNG</span></div><div class="panel-body"><form id="plan-form"><div class="form-grid"><label class="full">Datenquelle<select name="source_id" required><option value="">Quelle auswählen</option>${state.node.sources.map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join("")}</select><small class="hint">Nur serverseitig freigegebene Verzeichnisse stehen zur Auswahl.</small></label><label>Staging-Verzeichnis<select name="staging_id" required>${(state.node.staging_locations || []).map((r) => `<option value="${esc(r.id)}">${esc(r.label)} · ${esc(r.path)}</option>`).join("")}</select></label><label>Zielmedium<select name="media_id" required><option value="">Medium auswählen</option>${mediaOptions()}</select></label><label>TAR-Zielgröße in GB<input name="target" type="number" min="0.001" max="10000" step="0.001" value="75" required><small class="hint">Große Einzeldateien bleiben zusammen.</small></label></div><div class="form-actions"><button class="button primary" type="submit">${icon("calendar")}Inventarisieren & planen</button></div></form></div></section><div class="stack"><section class="panel"><div class="panel-header"><h2>Ein Plan, acht sichere Schritte.</h2></div><div class="panel-body">${pipeline("INVENTORY")}<p class="subtle-caption" style="margin-top:22px">OTAM liest Dateiinformationen, berechnet SHA-256 und plant vollständige Archive. Vor dem Schreiben bestätigst du Umfang, Medium und den unveränderten Plan.</p></div></section>${!state.media.length ? note("Für den ersten vollständigen Testzyklus ein Simulatormedium im Bandinventar erstellen.", "info") : ""}${!state.node.sources.length ? note("Noch keine Quelle freigegeben. Über „Quelle hinzufügen“ ein Serververzeichnis auswählen.", "warning") : ""}</div></div><section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Deine Archivpläne</h2><span class="subtle-caption">${jobs.length} Jobs</span></div>${table(
       ["Plan", "Medium", "Erstellt", "Status", ""],
       jobs.map(
         (j) =>
@@ -143,8 +144,9 @@ async function stagingPage() {
     heading(
       "Vorbereitet für den langen Weg.",
       "Vollständige lokale TARs. Erst geprüft, dann zum Band.",
+      `<button class="button primary" id="new-staging">${icon("layers")}Staging hinzufügen</button>`,
     ) +
-    `<div class="dashboard-grid"><div class="main-column">${rows.length ? rows.map((s) => `<section class="panel job-card"><div class="job-top"><div><strong>Archiv ${esc(short(s.archive_id))}</strong><small>Job ${esc(short(s.job_id))} · ${esc(ago(s.updated))}</small></div>${badge(s.state)}</div><div class="progress-meta"><span>${esc(labels[s.phase] || s.phase)}</span><strong>${bytes(s.progress_bytes)} / ${bytes(s.total_bytes)}</strong></div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}${pipeline(s.phase)}${s.error ? `<p class="error-text">${esc(s.error)}</p>` : ""}<div class="button-row"><button class="button small" data-job="${esc(s.job_id)}">Job und Plan ansehen ${icon("arrow")}</button></div></section>`).join("") : `<section class="panel">${empty("Noch keine Archive im Staging", "Erstelle einen Plan und starte die lokale Vorbereitung.", "layers", state.node.role === "archive" ? linkButton("Planung öffnen", "planning", "calendar", true) : "")}</section>`}</div><aside class="side-column">${storageCard(result.storage)}${note("Staging-Archive bleiben bis zur erfolgreichen Rückleseverifikation erhalten. Nur von OTAM verwaltete temporäre Dateien werden danach bereinigt.")}</aside></div>`
+    `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><h2>Staging-Verzeichnisse</h2></div>${resourceTable((result.locations || []).filter((r) => r.kind === "staging"))}</section><div class="dashboard-grid"><div class="main-column">${rows.length ? rows.map((s) => `<section class="panel job-card"><div class="job-top"><div><strong>Archiv ${esc(short(s.archive_id))}</strong><small>Job ${esc(short(s.job_id))} · ${esc(ago(s.updated))}</small></div>${badge(s.state)}</div><div class="progress-meta"><span>${esc(labels[s.phase] || s.phase)}</span><strong>${bytes(s.progress_bytes)} / ${bytes(s.total_bytes)}</strong></div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}${pipeline(s.phase)}${s.error ? `<p class="error-text">${esc(s.error)}</p>` : ""}<div class="button-row"><button class="button small" data-job="${esc(s.job_id)}">Job und Plan ansehen ${icon("arrow")}</button></div></section>`).join("") : `<section class="panel">${empty("Noch keine Archive im Staging", "Erstelle einen Plan und starte die lokale Vorbereitung.", "layers", state.node.role === "archive" ? linkButton("Planung öffnen", "planning", "calendar", true) : "")}</section>`}</div><aside class="side-column">${storageCard(result.storage)}${note("Staging-Archive bleiben bis zur erfolgreichen Rückleseverifikation erhalten. Nur von OTAM verwaltete temporäre Dateien werden danach bereinigt.")}</aside></div>`
   );
 }
 async function jobsPage() {
@@ -322,22 +324,50 @@ async function syncPage() {
     )}</section>`
   );
 }
+function resourceTable(items) {
+  return table(
+    ["Verzeichnis", "Pfad", "Speicher", "Verwaltung"],
+    items.map(
+      (r) =>
+        `<tr><td><strong>${esc(r.label)}</strong><small class="hint">${r.kind === "source" ? "Quelle" : "Staging"}</small></td><td class="mono">${esc(r.path)}</td><td>${r.available ? `${bytes(r.storage?.free)} frei · ${esc(r.storage?.type || "")}` : "Nicht erreichbar"}</td><td><button class="button subtle" data-remove-resource="${esc(r.id)}">Abmelden</button></td></tr>`,
+    ),
+    "Noch keine Verzeichnisse registriert",
+  );
+}
 async function hardwarePage() {
-  const r = await api("/hardware"),
-    h = r.inventory;
+  const r = await api("/hardware");
   return (
     heading(
-      "Deine Hardware im Blick.",
-      "Lesende Erkennung ohne Positionierung oder Änderung von Bandmedien.",
+      "Laufwerke & Bandpflege.",
+      "Automatische Erkennung. Jede schreibende Aktion braucht eine eigene Freigabe.",
+      `<button class="button" id="scan-drives">${icon("sync")}Neu erkennen</button>`,
     ) +
-    note(r.message, "warning") +
-    `<div class="split" style="margin-top:22px"><section class="panel"><div class="panel-header"><h2>Archivierungsserver</h2>${badge("READY")}</div><div class="panel-body"><dl class="detail-list"><dt>Betriebssystem</dt><dd>${esc(h.system)}</dd><dt>Kernel</dt><dd>${esc(h.kernel)}</dd><dt>Architektur</dt><dd>${esc(h.machine)}</dd><dt>Python</dt><dd>${esc(h.python)}</dd><dt>Bandgeräte</dt><dd>${esc(h.devices.join(", ") || "Kein physisches Gerät erkannt")}</dd></dl></div></section><section class="panel"><div class="panel-header"><h2>Linux-Werkzeuge</h2></div>${table(
-      ["Werkzeug", "Verfügbarkeit"],
-      Object.entries(h.tools).map(
-        ([name, path]) =>
-          `<tr><td><strong>${esc(name)}</strong></td><td>${badge(path ? "READY" : "UNKNOWN")}</td></tr>`,
+    `<section class="panel"><div class="panel-header"><h2>Betriebsart</h2><span class="badge neutral">${r.mode === "physical" ? "Physische Bandwartung" : "Simulator"}</span></div><div class="panel-body"><form id="mode-form" class="form-grid"><label>Betriebsart<select name="mode"><option value="simulator" ${r.mode === "simulator" ? "selected" : ""}>Simulator</option><option value="physical" ${r.mode === "physical" ? "selected" : ""} ${r.physical_maintenance_enabled ? "" : "disabled"}>Physischer Wartungsbetrieb</option></select></label><div class="form-actions"><button class="button primary" type="submit">Betriebsart übernehmen</button></div></form>${note(r.message, "warning")}<p class="hint">Der Moduswechsel schreibt kein Band. Volltest und Löschen müssen separat bestätigt werden. Reguläre Archivierung auf physische Bänder wird erst nach Bandformat-Abnahme freigegeben.</p></div></section>` +
+    `<section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Erkannte Bandlaufwerke</h2><span class="subtle-caption">${r.discovery.time ? esc(ago(r.discovery.time)) : "Worker-Erkennung steht aus"}</span></div>${table(
+      ["Laufwerk", "Gerät", "Eingelegtes Medium", "Aktionen"],
+      r.discovery.drives.map(
+        (d) =>
+          `<tr><td><strong>${esc(d.vendor || "")} ${esc(d.model || "")}</strong><small class="hint mono">Seriennummer ${esc(d.serial || "unbekannt")}</small></td><td class="mono">${esc(d.device)}</td><td><span class="mono">${esc(d.medium_serial || "Nicht identifiziert")}</span><small class="hint">${esc(d.error || "Bereit")}</small></td><td>${[
+            ["qualify", "Vollständig testen"],
+            ["erase-short", "Kurz löschen"],
+            ["erase-long", "Lang löschen"],
+          ]
+            .map(
+              ([op, label]) =>
+                `<button class="button subtle" data-maintenance-drive="${esc(d.id)}" data-operation="${op}" ${r.mode !== "physical" || !d.ready || Date.now() / 1000 - r.discovery.time > 30 ? "disabled" : ""}>${label}</button>`,
+            )
+            .join("")}</td></tr>`,
       ),
-    )}</section></div><section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Laufwerksinformationen</h2></div><div class="panel-body">${h.tape_sysfs.length ? `<pre class="code-block">${esc(JSON.stringify(h.tape_sysfs, null, 2))}</pre>` : empty("Kein Laufwerk in sysfs", "Die Anwendung bleibt mit dem Simulator vollständig testbar.", "server", "", true)}</div></section>`
+      "Kein Bandlaufwerk erkannt. Einschalten und Anschluss prüfen; die Erkennung wird automatisch aktualisiert.",
+    )}</section>` +
+    `<section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Bandtests und Löschvorgänge</h2></div>${table(
+      ["Vorgang", "Medium", "Phase", "Fortschritt", "Ergebnis"],
+      r.maintenance.map(
+        (m) =>
+          `<tr><td>${esc(m.operation)}<small class="hint mono">${esc(short(m.approval_id))}</small></td><td class="mono">${esc(m.drive.medium_serial)}</td><td>${esc(labels[m.phase] || m.phase)}</td><td>${bytes(m.bytes)}${m.total_bytes ? " / " + bytes(m.total_bytes) : ""}<small class="hint">${m.bytes_per_second ? bytes(m.bytes_per_second) + "/s" : "Keine belastbare ETA"}</small></td><td>${badge(m.state)}${m.result?.sha256 ? `<small class="hint mono">SHA-256 ${esc(m.result.sha256)}</small>` : ""}${m.error ? `<small class="error-text">${esc(m.error)}</small>` : ""}${m.result?.state === "ERASE_COMMAND_COMPLETED" ? '<small class="hint">Löschkommando abgeschlossen; keine zertifizierte Datenträgerbereinigung.</small>' : ""}</td></tr>`,
+      ),
+      "Noch keine Bandwartung ausgeführt",
+    )}</section>`
   );
 }
 async function logsPage() {
@@ -359,12 +389,17 @@ async function logsPage() {
 }
 async function settingsPage() {
   const n = state.node;
+  const storage =
+    n.role === "archive" ? (await api("/storage-resources")).items : [];
   return (
     heading(
       "Unter deiner Kontrolle.",
       "Node-Rolle, Module und bewusst konfigurierte Ressourcen.",
+      n.role === "archive"
+        ? `<button class="button" id="new-source">Quelle hinzufügen</button><button class="button primary" id="new-staging">Staging hinzufügen</button>`
+        : "",
     ) +
-    `<div class="split"><section class="panel"><div class="panel-header"><h2>Node-Konfiguration</h2><span class="badge neutral">v${esc(n.version)}</span></div><div class="panel-body"><dl class="detail-list"><dt>Name</dt><dd>${esc(n.name)}</dd><dt>Rolle</dt><dd>${n.role === "archive" ? "Archive Node" : "Catalog Node"}</dd><dt>Node-ID</dt><dd class="mono">${esc(n.id)}</dd><dt>Authentifizierung</dt><dd>Passwortgeschützte Sitzung · CSRF-Schutz</dd><dt>Reale Bandzugriffe</dt><dd>Bis zur Hardware-Abnahme gesperrt</dd><dt>Verbindungen</dt><dd>Keine Telemetrie oder CDN-Abhängigkeit</dd></dl><p class="hint" style="margin-top:22px">Optionale Katalogdienste und Snapshot-Ziele verwaltest du unter Synchronisation. Änderungen gelten ohne Neustart. Quellen, lokale Basispfade und Bind-Adresse werden in der geschützten Node-Konfiguration verwaltet.</p></div></section><section class="panel"><div class="panel-header"><h2>Aktive Module</h2></div><div class="panel-body">${n.modules.map((m) => `<div class="node-detail"><div class="node-detail-icon">${icon(m.id === "archive" ? "tape" : m.id === "catalog" ? "search" : "sync")}</div><div><strong>${esc(m.label)}</strong><small>${m.writable ? "Steuerung auf diesem Node" : "Lesender Zugriff"}</small></div><span class="status-dot"></span></div>`).join("")}</div></section><section class="panel"><div class="panel-header"><h2>Freigegebene Quellen</h2></div><div class="panel-body">${n.sources.length ? n.sources.map((s) => `<div class="node-detail"><div class="node-detail-icon">${icon("folder")}</div><div><strong>${esc(s.label)}</strong><small>${esc(s.id)}</small></div></div>`).join("") : empty("Keine lokalen Datenquellen", n.role === "catalog" ? "Der Catalog Node benötigt keine Quelldateisysteme." : "Quellen in der Node-Konfiguration freigeben.", "folder", "", true)}</div></section><section class="panel"><div class="panel-header"><h2>Offen und wiederherstellbar</h2></div><div class="panel-body">${note("PAX-TAR, SHA-256 und selbstbeschreibende Manifeste. Der Katalog lässt sich aus Medieninhalt rekonstruieren.")}<p class="hint" style="margin-top:15px">System-Snapshots, Hardwareverschlüsselung und automatische Medienrotation sind noch nicht freigegeben. Unvollständige Archive bleiben eindeutig gekennzeichnet.</p></div></section></div>`
+    `${n.role === "archive" ? `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><h2>Quellen & Staging</h2></div>${resourceTable(storage)}</section>` : ""}<div class="split"><section class="panel"><div class="panel-header"><h2>Node-Konfiguration</h2><span class="badge neutral">v${esc(n.version)}</span></div><div class="panel-body"><dl class="detail-list"><dt>Name</dt><dd>${esc(n.name)}</dd><dt>Rolle</dt><dd>${n.role === "archive" ? "Archive Node" : "Catalog Node"}</dd><dt>Node-ID</dt><dd class="mono">${esc(n.id)}</dd><dt>Authentifizierung</dt><dd>Passwortgeschützte Sitzung · CSRF-Schutz</dd><dt>Reguläre LTO-Archivierung</dt><dd>Bis zur Bandformat-Abnahme gesperrt</dd><dt>Verbindungen</dt><dd>Keine Telemetrie oder CDN-Abhängigkeit</dd></dl><p class="hint" style="margin-top:22px">Optionale Katalogdienste und Snapshot-Ziele verwaltest du unter Synchronisation. Änderungen gelten ohne Neustart. Quellen und Staging verwaltest du hier. Administrativ freigegebene Verzeichnisbereiche, Dienstrechte und Bind-Adresse bleiben in der geschützten Konfiguration.</p></div></section><section class="panel"><div class="panel-header"><h2>Aktive Module</h2></div><div class="panel-body">${n.modules.map((m) => `<div class="node-detail"><div class="node-detail-icon">${icon(m.id === "archive" ? "tape" : m.id === "catalog" ? "search" : "sync")}</div><div><strong>${esc(m.label)}</strong><small>${m.writable ? "Steuerung auf diesem Node" : "Lesender Zugriff"}</small></div><span class="status-dot"></span></div>`).join("")}</div></section><section class="panel"><div class="panel-header"><h2>Freigegebene Quellen</h2></div><div class="panel-body">${n.sources.length ? n.sources.map((s) => `<div class="node-detail"><div class="node-detail-icon">${icon("folder")}</div><div><strong>${esc(s.label)}</strong><small>${esc(s.id)}</small></div></div>`).join("") : empty("Keine lokalen Datenquellen", n.role === "catalog" ? "Der Catalog Node benötigt keine Quelldateisysteme." : "Quellen in der Node-Konfiguration freigeben.", "folder", "", true)}</div></section><section class="panel"><div class="panel-header"><h2>Offen und wiederherstellbar</h2></div><div class="panel-body">${note("PAX-TAR, SHA-256 und selbstbeschreibende Manifeste. Der Katalog lässt sich aus Medieninhalt rekonstruieren.")}<p class="hint" style="margin-top:15px">System-Snapshots, Hardwareverschlüsselung und automatische Medienrotation sind noch nicht freigegeben. Unvollständige Archive bleiben eindeutig gekennzeichnet.</p></div></section></div>`
   );
 }
 const renderers = {
