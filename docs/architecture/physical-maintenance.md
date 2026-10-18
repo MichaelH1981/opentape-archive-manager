@@ -86,3 +86,18 @@ Sein Präfix-Hash ist ausdrücklich nicht der Hash des ganzen Qualifikationsstro
 Kein Bandschreiben, keine neue Kapazitäts- oder Vollqualifikation. Fortschritt,
 CPU-Zeit, Treiberzähler und Ergebnis werden im neuen privaten Reportverzeichnis
 gesichert. Die reale Leistungsauswirkung muss gesondert gemessen werden.
+
+Mit ausdrücklich gesetztem `--full-stream` liest derselbe Vergleichstest den
+kompletten ursprünglich qualifizierten Datenstrom statt des 32-GiB-Präfixes.
+Zusätzlich müssen Bytezahl und SHA-256 mit dem gespeicherten Originalergebnis
+übereinstimmen und der nächste Read genau die erste Dateimarke liefern. Erst dann
+lautet das Ergebnis READBACK_VERIFIED. Ein ursprünglich begrenzter Qualifikations-
+bereich wird dadurch nicht zur Vollqualifikation des Mediums. Ohne diesen Schalter
+bleibt die sichere Begrenzung des Vergleichstests auf 32 GiB bestehen.
+
+Der rein lesende Vergleichstest besitzt standardmäßig ein Lesezeitbudget von
+45 Minuten (`--read-seconds-limit`). Nach dessen Ablauf wird an einer Recordgrenze
+abgebrochen, ohne Erfolgsmeldung und ohne schreibenden Bandzugriff. Blockierende
+Hardwareaufrufe werden nicht gewaltsam beendet; das ist kein hartes Echtzeitlimit.
+Ein zuvor erfolgreicher Qualifikationsjob wird durch den separaten Abbruch nicht
+als fehlgeschlagen umgeschrieben.

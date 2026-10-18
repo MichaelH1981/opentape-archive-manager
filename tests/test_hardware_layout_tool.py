@@ -150,3 +150,58 @@ class ReadbackProbe(unittest.TestCase):
             tape.records = [test_block(0, seed, data)]
             with self.assertRaises(SafetyError):
                 verify_prefix(tape, 2, seed, 3 * BLOCK_SIZE, lambda **v: None)
+
+    def test_full_readback_requires_original_whole_stream_hash_and_filemark(self):
+        from tools.tape_readback_probe import verify_prefix, confirm_complete_stream
+        from otam.physical import BLOCK_SIZE, pattern, test_block
+        from tests.test_physical import MemoryDrive
+        import hashlib
+
+        seed = "a" * 64
+        with patch("otam.physical.PATTERN_SIZE", 2 * BLOCK_SIZE):
+            data = pattern(seed)
+            tape = MemoryDrive()
+            tape.records = [test_block(i, seed, data) for i in range(4)]
+            checked = verify_prefix(tape, 2, seed, 4 * BLOCK_SIZE, lambda **v: None)
+            source = {
+                "bytes": 4 * BLOCK_SIZE,
+                "sha256": hashlib.sha256(b"".join(tape.records)).hexdigest(),
+            }
+            self.assertEqual(
+                confirm_complete_stream(tape, 2, checked, source)["state"],
+                "READBACK_VERIFIED",
+            )
+            with self.assertRaises(SafetyError):
+                confirm_complete_stream(
+                    tape, 2, checked, {**source, "sha256": "0" * 64}
+                )
+            tape.records.append(b"unexpected")
+            with self.assertRaises(SafetyError):
+                confirm_complete_stream(tape, 2, checked, source)
+
+    def test_read_time_limit_never_becomes_a_verified_result(self):
+        from tools.tape_readback_probe import verify_prefix
+        from otam.physical import BLOCK_SIZE, pattern, test_block
+        from tests.test_physical import MemoryDrive
+        import itertools
+
+        seed = "a" * 64
+        progress = []
+        with patch("otam.physical.PATTERN_SIZE", 2 * BLOCK_SIZE):
+            data = pattern(seed)
+            tape = MemoryDrive()
+            tape.records = [test_block(i, seed, data) for i in range(4)]
+            with patch(
+                "tools.tape_readback_probe.time.monotonic",
+                side_effect=itertools.count(),
+            ):
+                with self.assertRaises(SafetyError):
+                    verify_prefix(
+                        tape,
+                        2,
+                        seed,
+                        4 * BLOCK_SIZE,
+                        lambda **v: progress.append(v),
+                        read_seconds_limit=0.5,
+                    )
+        self.assertEqual(progress[-1]["phase"], "TIME_LIMIT")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only prefix recheck of a completed qualification job; no tape writes.
+"""Read-only recheck of a completed qualification job; no tape writes.
 
 Runs separately with the OTAM worker paused, its user, state and TMPDIR.
 A verified prefix is not a full archive/media verification or capacity test.
@@ -33,15 +33,23 @@ from otam.physical import (
 from otam.storage import io_lock, require_local
 
 MAX_BYTES = 32 * 1024**3
+MAX_CHECK_BYTES = 20_000_000_000_000
 
 
 def verify_prefix(
-    device: Any, fd: int, seed: str, max_bytes: int, progress: Callable[..., None]
+    device: Any,
+    fd: int,
+    seed: str,
+    max_bytes: int,
+    progress: Callable[..., None],
+    *,
+    read_seconds_limit: float | None = None,
 ) -> dict[str, Any]:
     if (
         not re.fullmatch("[0-9a-f]{64}", seed)
-        or not 0 < max_bytes <= MAX_BYTES
+        or not 0 < max_bytes <= MAX_CHECK_BYTES
         or max_bytes % BLOCK_SIZE
+        or (read_seconds_limit is not None and not 0 < read_seconds_limit <= 7200)
     ):
         raise SafetyError("Invalid qualification prefix")
     data = pattern(seed)
@@ -58,6 +66,13 @@ def verify_prefix(
             checksum.update(block)
             count += 1
             now = time.monotonic()
+            if read_seconds_limit is not None and now - started >= read_seconds_limit:
+                progress(
+                    phase="TIME_LIMIT", bytes=count * BLOCK_SIZE, total_bytes=max_bytes
+                )
+                raise SafetyError(
+                    "Read-only comparison reached its time budget; no complete verification"
+                )
             if now - last >= 2:
                 progress(
                     phase="TAPE_READBACK",
@@ -84,6 +99,24 @@ def verify_prefix(
     }
 
 
+def confirm_complete_stream(
+    device: Any, fd: int, checked: dict[str, Any], source: dict[str, Any]
+) -> dict[str, Any]:
+    if checked["bytes"] != source["bytes"] or checked["sha256"] != source["sha256"]:
+        raise SafetyError("Complete original stream checksum or size mismatch")
+    started = time.monotonic()
+    if device.read(fd):
+        raise SafetyError("Unexpected extra record instead of the original filemark")
+    elapsed = checked["read_seconds"] + time.monotonic() - started
+    return {
+        **checked,
+        "state": "READBACK_VERIFIED",
+        "scope": "complete_original_test_stream_not_full_medium_qualification",
+        "read_seconds": elapsed,
+        "bytes_per_second": checked["bytes"] / max(elapsed, 0.001),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-job", required=True)
@@ -91,6 +124,17 @@ def main() -> None:
     parser.add_argument("--medium-serial", required=True)
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--full-stream",
+        action="store_true",
+        help="Read and hash the complete original qualification stream, including its filemark",
+    )
+    parser.add_argument(
+        "--read-seconds-limit",
+        type=int,
+        default=2700,
+        help="Stop at a record boundary after this read-time budget (default 45 minutes)",
+    )
     args = parser.parse_args()
     uuid.UUID(args.source_job)
     if (
@@ -118,9 +162,13 @@ def main() -> None:
             payload, result = json.loads(row[2]), json.loads(row[3])
             if (
                 result.get("state") not in ("SAMPLE_VERIFIED", "VERIFIED")
-                or result.get("bytes", 0) < MAX_BYTES
+                or type(result.get("bytes")) is not int
+                or not 0 < result["bytes"] <= MAX_CHECK_BYTES
+                or result["bytes"] % BLOCK_SIZE
+                or (not args.full_stream and result["bytes"] < MAX_BYTES)
             ):
                 raise SafetyError("Qualification does not cover the requested prefix")
+            limit = result["bytes"] if args.full_stream else MAX_BYTES
             row = db.execute(
                 "SELECT value FROM settings WHERE key=?",
                 ("maintenance_approval:" + payload["approval_id"],),
@@ -177,8 +225,17 @@ def main() -> None:
                     fd = device.reader()
                     try:
                         checked = verify_prefix(
-                            device, fd, result["seed"], MAX_BYTES, progress
+                            device,
+                            fd,
+                            result["seed"],
+                            limit,
+                            progress,
+                            read_seconds_limit=args.read_seconds_limit,
                         )
+                        if args.full_stream:
+                            checked = confirm_complete_stream(
+                                device, fd, checked, result
+                            )
                     finally:
                         device.close(fd)
                     device.check()
