@@ -38,9 +38,12 @@ import {
 } from "./ui.js";
 import { api } from "./api.js";
 async function dashboard() {
-  const [staging, events] = await Promise.all([
+  const [staging, events, driveStatus] = await Promise.all([
     api("/staging"),
     api("/events?limit=60"),
+    state.node.role === "archive"
+      ? api("/hardware/status")
+      : Promise.resolve(null),
   ]);
   const o = state.overview,
     n = state.node,
@@ -116,7 +119,7 @@ async function dashboard() {
         ? linkButton("Dateikatalog öffnen", "catalog", "search", true)
         : linkButton("Archivierung planen", "planning", "plus", true),
     ) +
-    `<div class="stats">${stats.map(([ic, title, value, foot]) => `<section class="stat"><div class="stat-top"><span class="stat-title">${esc(title)}</span><span class="stat-icon">${icon(ic)}</span></div><div class="stat-value">${esc(value)}</div><div class="stat-foot ${ic === "shield" ? "positive" : ""}">${ic === "shield" ? icon("check") : ""}${esc(foot)}</div></section>`).join("")}</div><div class="dashboard-grid"><div class="main-column"><section class="panel"><div class="panel-header"><div><h2>Archivierungsablauf</h2><p>Vom lokalen Staging bis zur geprüften Kopie</p></div>${active ? `<button class="button subtle" data-job="${esc(active.job_id)}">Job ansehen ${icon("arrow")}</button>` : badge("READY")}</div>${activeHtml}</section><section class="panel"><div class="panel-header"><h2>Zuletzt archiviert</h2><a class="button subtle" href="#archives">Alle Archive ${icon("arrow")}</a></div>${table(["Archiv", "Medium", "Größe", "Status"], recentRows, "Dein erstes Archiv wartet")}<div class="panel-bottom"><span>${num(o.archive_count)} Archive im Katalog</span><span>SHA-256 · Offenes TAR-Format</span></div></section><section class="panel"><div class="panel-header"><h2>Letzte Aktivitäten</h2><a class="button subtle" href="#logs">Alle Protokolle ${icon("arrow")}</a></div>${activities ? `<div class="activity-list">${activities}</div>` : empty("Noch keine Aktivitäten", "Abgeschlossene und fehlgeschlagene Schritte werden dauerhaft protokolliert.", "activity", "", true)}</section></div><aside class="side-column">${storageCard(staging.storage)}<section class="panel info-card"><h2>Dein Archivsystem</h2><div class="node-detail"><div class="node-detail-icon">${icon("server")}</div><div><strong>${esc(n.name)}</strong><small>${replica ? "Eigenständiger Katalogdienst" : "Archive Node · Simulatorbetrieb"}</small></div><span class="status-dot"></span></div>${!replica ? `<div class="node-detail"><div class="node-detail-icon">${icon("activity")}</div><div><strong>Auftragsworker</strong><small>${Date.now() / 1000 - n.worker_heartbeat < 20 ? "Verbunden · " + esc(ago(n.worker_heartbeat)) : "Kein aktuelles Lebenszeichen"}</small></div><span class="status-dot ${Date.now() / 1000 - n.worker_heartbeat < 20 ? "" : "off"}"></span></div>` : ""}<div class="node-detail"><div class="node-detail-icon">${icon("sync")}</div><div><strong>${replica ? "Letzter empfangener Stand" : "Katalog-Synchronisation"}</strong><small>${replica ? (n.snapshot ? esc(ago(n.snapshot.created)) : "Noch nicht empfangen") : n.last_push ? esc(ago(n.last_push.time)) : "Noch nicht synchronisiert"}</small></div></div><div class="node-detail"><div class="node-detail-icon">${icon("shield")}</div><div><strong>Verifikation vor Erfolg</strong><small>Vollständiges Rücklesen · SHA-256</small></div></div></section>${note(replica ? "Dieser Katalog zeigt den letzten empfangenen Stand. Änderungen am ausgeschalteten Bandserver sind hier noch nicht enthalten." : "Simulatorbetrieb: Der Archivierungsablauf ist nutzbar. Reale LTO-Schreibzugriffe warten auf die Testband-Abnahme.", "info")}</aside></div>`
+    `<div class="stats">${stats.map(([ic, title, value, foot]) => `<section class="stat"><div class="stat-top"><span class="stat-title">${esc(title)}</span><span class="stat-icon">${icon(ic)}</span></div><div class="stat-value">${esc(value)}</div><div class="stat-foot ${ic === "shield" ? "positive" : ""}">${ic === "shield" ? icon("check") : ""}${esc(foot)}</div></section>`).join("")}</div>${driveStatus ? driveStatusPanel(driveStatus) : ""}<div class="dashboard-grid"><div class="main-column"><section class="panel"><div class="panel-header"><div><h2>Archivierungsablauf</h2><p>Vom lokalen Staging bis zur geprüften Kopie</p></div>${active ? `<button class="button subtle" data-job="${esc(active.job_id)}">Job ansehen ${icon("arrow")}</button>` : badge("READY")}</div>${activeHtml}</section><section class="panel"><div class="panel-header"><h2>Zuletzt archiviert</h2><a class="button subtle" href="#archives">Alle Archive ${icon("arrow")}</a></div>${table(["Archiv", "Medium", "Größe", "Status"], recentRows, "Dein erstes Archiv wartet")}<div class="panel-bottom"><span>${num(o.archive_count)} Archive im Katalog</span><span>SHA-256 · Offenes TAR-Format</span></div></section><section class="panel"><div class="panel-header"><h2>Letzte Aktivitäten</h2><a class="button subtle" href="#logs">Alle Protokolle ${icon("arrow")}</a></div>${activities ? `<div class="activity-list">${activities}</div>` : empty("Noch keine Aktivitäten", "Abgeschlossene und fehlgeschlagene Schritte werden dauerhaft protokolliert.", "activity", "", true)}</section></div><aside class="side-column">${storageCard(staging.storage)}<section class="panel info-card"><h2>Dein Archivsystem</h2><div class="node-detail"><div class="node-detail-icon">${icon("server")}</div><div><strong>${esc(n.name)}</strong><small>${replica ? "Eigenständiger Katalogdienst" : n.operation_mode === "physical" ? "Archive Node · physische Wartung" : "Archive Node · Simulatorbetrieb"}</small></div><span class="status-dot"></span></div>${!replica ? `<div class="node-detail"><div class="node-detail-icon">${icon("activity")}</div><div><strong>Auftragsworker</strong><small>${Date.now() / 1000 - n.worker_heartbeat < 20 ? "Verbunden · " + esc(ago(n.worker_heartbeat)) : "Kein aktuelles Lebenszeichen"}</small></div><span class="status-dot ${Date.now() / 1000 - n.worker_heartbeat < 20 ? "" : "off"}"></span></div>` : ""}<div class="node-detail"><div class="node-detail-icon">${icon("sync")}</div><div><strong>${replica ? "Letzter empfangener Stand" : "Katalog-Synchronisation"}</strong><small>${replica ? (n.snapshot ? esc(ago(n.snapshot.created)) : "Noch nicht empfangen") : n.last_push ? esc(ago(n.last_push.time)) : "Noch nicht synchronisiert"}</small></div></div><div class="node-detail"><div class="node-detail-icon">${icon("shield")}</div><div><strong>Verifikation vor Erfolg</strong><small>Vollständiges Rücklesen · SHA-256</small></div></div></section>${note(replica ? "Dieser Katalog zeigt den letzten empfangenen Stand. Änderungen am ausgeschalteten Bandserver sind hier noch nicht enthalten." : n.operation_mode === "physical" ? "Physischer Wartungsbetrieb. Reguläre Archivierung auf echte Bänder wartet auf die Bandformat-Abnahme." : "Simulatorbetrieb: Der Archivierungsablauf ist nutzbar. Reale LTO-Schreibzugriffe warten auf die Testband-Abnahme.", "info")}</aside></div>`
   );
 }
 async function planning() {
@@ -324,6 +327,83 @@ async function syncPage() {
     )}</section>`
   );
 }
+function exactCounter(value) {
+  try {
+    return BigInt(value).toLocaleString("de-DE");
+  } catch {
+    return "Nicht verfügbar";
+  }
+}
+function driveStatusPanel(status) {
+  const cards = status.drives.map((d) => {
+    const current = d.contact_state === "CURRENT",
+      st = d.status || {},
+      diag = d.diagnostics,
+      sample = diag.sample;
+    const stateLabel = !current
+      ? d.contact_state === "OFFLINE"
+        ? "Nicht erreichbar"
+        : "Status veraltet"
+      : d.busy
+        ? "Laufwerk belegt"
+        : st.online
+          ? !d.medium_serial
+            ? "Medium nicht identifiziert"
+            : st.write_protected
+              ? "Schreibgeschützt"
+              : "Medium bereit"
+          : st.door_open
+            ? "Kein Medium"
+            : "Nicht bereit / unbekannt";
+    const alerts = sample?.pages?.["2e"];
+    return `<article class="drive-status-card"><div class="job-top"><div><strong>${esc([d.vendor, d.model].filter(Boolean).join(" ") || d.device)}</strong><small class="mono">${esc(d.device)} · SN ${esc(d.serial || "nicht ermittelt")}</small></div><span class="badge neutral">${esc(stateLabel)}</span></div><dl class="detail-list"><dt>${current ? "Medium zuletzt erkannt" : "Zuletzt erkanntes Medium"}</dt><dd class="mono">${esc(d.medium_serial || (current && st.door_open ? "Keines" : "Nicht identifiziert"))}</dd><dt>Schreibschutz</dt><dd>${typeof st.write_protected === "boolean" ? (st.write_protected ? "Ja" : "Nein") : "Nicht ermittelt"}${current ? "" : " · letzter Stand"}</dd><dt>Firmware</dt><dd>${esc(d.rev || "Nicht ermittelt")}</dd><dt>Statusabfrage</dt><dd>${esc(date(d.last_seen))}</dd><dt>Diagnoseabfrage</dt><dd>${sample ? esc(date(sample.time)) : "Noch keine Messung"}${diag.stale ? " · veraltet / nicht verfügbar" : ""}</dd></dl><p class="hint">${alerts?.state === "AVAILABLE" ? `TapeAlert bei letzter Abfrage: ${alerts.decoded.active_flags.length} ${alerts.decoded.active_flags.length === 1 ? "gemeldetes Flag" : "gemeldete Flags"}.` : "TapeAlert: nicht auswertbar oder noch nicht abgefragt."}</p>${diag.warning_history.length ? `<p class="diagnostic-warning">${num(diag.warning_history.length)} ${diag.warning_history.length === 1 ? "TapeAlert-Hinweis" : "TapeAlert-Hinweise"} gespeichert. Verlauf unter Diagnosedaten.</p>` : ""}${d.error && current ? `<p class="hint">${esc(d.error)}</p>` : ""}</article>`;
+  });
+  return `<section class="panel drive-overview"><div class="panel-header"><div><h2>Laufwerk & eingelegtes Medium</h2><p>Physische Geräte · unabhängig vom Simulatorbetrieb</p></div><a class="button subtle" href="#hardware">Diagnosedaten ${icon("arrow")}</a></div>${status.busy ? `<div class="panel-body">${note("Worker beschäftigt: zusätzliche Status- und Diagnoseabfragen pausieren während des Jobs. Angezeigt werden die letzten Messwerte.", "info")}</div>` : ""}${cards.length ? `<div class="drive-status-list">${cards.join("")}</div>` : `<div class="panel-body">${note(status.fresh ? "Kein Bandlaufwerk erreichbar. Es ist möglicherweise ausgeschaltet oder nicht verbunden." : "Noch kein aktueller Laufwerksstatus. Worker und Verbindung prüfen.", "info")}<p class="hint">Letzte Erkennung: ${esc(date(status.last_scan))} · Worker ${status.worker_online ? "verbunden" : "ohne aktuelles Lebenszeichen"}. Der Status wird automatisch aktualisiert.</p></div>`}</section>`;
+}
+function diagnosticDetails(status) {
+  return `<section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Diagnosedaten</h2></div><div class="panel-body">${note("Nur lesende SCSI-Abfragen. TapeAlert kann beim Lesen quittiert werden; gemeldete Hinweise bleiben deshalb in OTAM gespeichert. Werte sind keine Vorhersage der verbleibenden Lebensdauer.", "info")}${
+    !status.drives.length
+      ? '<p class="hint">Keine Messwerte verfügbar, solange kein Laufwerk erreichbar ist.</p>'
+      : status.drives
+          .map((d) => {
+            const sample = d.diagnostics.sample,
+              pages = sample?.pages || {};
+            const temperature =
+              pages["0d"]?.state === "AVAILABLE"
+                ? pages["0d"].decoded.current_celsius
+                : null;
+            return `<article class="diagnostic-detail"><h3>${esc([d.vendor, d.model].filter(Boolean).join(" ") || d.device)} · ${esc(d.device)}</h3><p class="hint">${sample ? `Abfrage ${esc(date(sample.time))} · Zuletzt beobachtetes Medium bei Abfrage: ${esc(sample.medium_serial || "unbekannt")}` : "Noch keine Diagnosemessung vorhanden."}${d.diagnostics.stale ? " · Messwerte sind veraltet oder nicht aktuell erreichbar." : ""}</p><dl class="detail-list"><dt>Temperatur</dt><dd>${temperature === null || temperature === undefined ? "Nicht verfügbar" : `${num(temperature)} °C`}</dd><dt>Referenztemperatur</dt><dd>${pages["0d"]?.decoded?.reference_celsius == null ? "Nicht verfügbar" : num(pages["0d"].decoded.reference_celsius) + " °C"}</dd><dt>Bandposition (letzter Status)</dt><dd>${d.status?.file_number >= 0 ? "Banddatei " + num(d.status.file_number) : "Dateiposition unbekannt"} · ${d.status?.block_number >= 0 ? "Block " + num(d.status.block_number) : "Blockposition unbekannt"}</dd></dl>${[
+              ["02", "Schreibfehlerzähler"],
+              ["03", "Lesefehlerzähler"],
+            ]
+              .map(
+                ([key, label]) =>
+                  `<h3>${label}</h3>${
+                    pages[key]?.state === "AVAILABLE"
+                      ? table(
+                          ["Messwert", "Vom Laufwerk gemeldeter Wert"],
+                          pages[key].decoded.counters.map(
+                            (c) =>
+                              `<tr><td>${esc(c.label)}</td><td class="mono">${esc(exactCounter(c.value))}${c.unit === "bytes" ? " Bytes" : ""}</td></tr>`,
+                          ),
+                        )
+                      : `<p class="hint">Nicht verfügbar${pages[key]?.error ? ": " + esc(pages[key].error) : ""}</p>`
+                  }`,
+              )
+              .join(
+                "",
+              )}<p class="hint">Laufwerkszähler sind nicht automatisch diesem Band zuzuordnen und können beim Einschalten zurückgesetzt werden. Fehlende Werte sind keine Nullwerte.</p><h3>Gespeicherte TapeAlert-Hinweise</h3>${table(
+              ["Flag", "Erstmals", "Zuletzt", "Zuletzt beobachtetes Medium"],
+              d.diagnostics.warning_history.map(
+                (a) =>
+                  `<tr><td>TapeAlert ${a.code}</td><td>${esc(date(a.first_seen))}</td><td>${esc(date(a.last_seen))}</td><td class="mono">${esc(a.medium_serial || "Unbekannt")}</td></tr>`,
+              ),
+              "Bisher keine auswertbaren TapeAlert-Hinweise gespeichert",
+            )}<details class="diagnostic-raw"><summary>Rohdaten, Quellen und Linux-Treiberzähler anzeigen</summary><pre class="code-block">${esc(JSON.stringify(d.diagnostics, null, 2))}</pre></details></article>`;
+          })
+          .join("")
+  }</div></section>`;
+}
 function resourceTable(items) {
   return table(
     ["Verzeichnis", "Pfad", "Speicher", "Verwaltung"],
@@ -340,8 +420,9 @@ async function hardwarePage() {
     heading(
       "Laufwerke & Bandpflege.",
       "Automatische Erkennung. Jede schreibende Aktion braucht eine eigene Freigabe.",
-      `<button class="button" id="scan-drives">${icon("sync")}Neu erkennen</button>`,
+      `<button class="button" id="scan-drives">${icon("sync")}Status & Diagnose aktualisieren</button>`,
     ) +
+    driveStatusPanel(r.status) +
     `<section class="panel"><div class="panel-header"><h2>Betriebsart</h2><span class="badge neutral">${r.mode === "physical" ? "Physische Bandwartung" : "Simulator"}</span></div><div class="panel-body"><form id="mode-form" class="form-grid"><label>Betriebsart<select name="mode"><option value="simulator" ${r.mode === "simulator" ? "selected" : ""}>Simulator</option><option value="physical" ${r.mode === "physical" ? "selected" : ""} ${r.physical_maintenance_enabled ? "" : "disabled"}>Physischer Wartungsbetrieb</option></select></label><div class="form-actions"><button class="button primary" type="submit">Betriebsart übernehmen</button></div></form>${note(r.message, "warning")}<p class="hint">Der Moduswechsel schreibt kein Band. Volltest und Löschen müssen separat bestätigt werden. Reguläre Archivierung auf physische Bänder wird erst nach Bandformat-Abnahme freigegeben.</p></div></section>` +
     `<section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Erkannte Bandlaufwerke</h2><span class="subtle-caption">${r.discovery.time ? esc(ago(r.discovery.time)) : "Worker-Erkennung steht aus"}</span></div>${table(
       ["Laufwerk", "Gerät", "Eingelegtes Medium", "Aktionen"],
@@ -360,6 +441,7 @@ async function hardwarePage() {
       ),
       "Kein Bandlaufwerk erkannt. Einschalten und Anschluss prüfen; die Erkennung wird automatisch aktualisiert.",
     )}</section>` +
+    diagnosticDetails(r.status) +
     `<section class="panel" style="margin-top:22px"><div class="panel-header"><h2>Bandtests und Löschvorgänge</h2></div>${table(
       ["Vorgang", "Medium", "Phase", "Fortschritt", "Ergebnis"],
       r.maintenance.map(

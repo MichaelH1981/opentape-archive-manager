@@ -146,6 +146,9 @@ def execute(
 
     try:
         device = LinuxMaintenance(grant["drive"], config.state / "drive-locks")
+        from .diagnostics import save_sample
+
+        device.diagnostic_sink = lambda value: save_sample(control, value)
         with io_lock(), device.locked():
             progress(phase="STARTING", state="RUNNING", seed=grant["seed"])
             result = (

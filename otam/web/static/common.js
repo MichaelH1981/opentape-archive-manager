@@ -105,7 +105,7 @@ const kindLabel = (k) =>
     rebuild: "Katalog rekonstruieren",
     recover: "Abbruchzustand prüfen",
     sync: "Katalog synchronisieren",
-    "hardware-scan": "Laufwerke erkennen",
+    "hardware-scan": "Status und Diagnose abfragen",
     "tape-maintenance": "Bandwartung",
     "create-medium": "Testmedium erstellen",
   })[k] || k;

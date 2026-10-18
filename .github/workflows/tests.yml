@@ -47,3 +47,5 @@ jobs:
           tests.test_web.WebAcceptance.test_resource_picker_and_persistent_source_registration
           tests.test_web.WebAcceptance.test_physical_mode_and_one_use_approval_require_fresh_identified_media
           tests.test_web.WebAcceptance.test_storage_and_maintenance_api_keep_authentication_and_catalog_role_boundaries
+          tests.test_diagnostics
+          tests.test_web.WebAcceptance.test_hardware_status_and_diagnostics_are_authenticated_cached_and_role_bound

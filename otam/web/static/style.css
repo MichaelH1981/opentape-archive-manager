@@ -2148,3 +2148,50 @@ dialog::backdrop {
   margin-top: 6px;
   text-align: left;
 }
+
+.drive-overview {
+  margin-bottom: 22px;
+}
+.drive-status-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 16px;
+  padding: 20px;
+}
+.drive-status-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px;
+}
+.drive-status-card .detail-list {
+  margin-top: 18px;
+  grid-template-columns: minmax(100px, 0.8fr) minmax(0, 1.2fr);
+}
+.drive-status-card .mono,
+.drive-status-card dd {
+  overflow-wrap: anywhere;
+}
+.drive-status-card .job-top {
+  flex-wrap: wrap;
+}
+.diagnostic-warning {
+  margin-top: 12px;
+  color: #8d641c;
+  font-size: 12px;
+}
+.diagnostic-detail {
+  border-top: 1px solid var(--line);
+  margin-top: 22px;
+  padding-top: 20px;
+}
+.diagnostic-detail h3 {
+  margin: 18px 0 12px;
+}
+.diagnostic-raw {
+  margin-top: 18px;
+}
+.diagnostic-raw summary {
+  cursor: pointer;
+  padding: 12px 0;
+}

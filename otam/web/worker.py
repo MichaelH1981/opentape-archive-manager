@@ -24,7 +24,7 @@ from .control import Control
 from .replication import push
 from .targets import enabled_targets
 from . import resources, maintenance
-from ..physical import discover_drives
+from . import diagnostics
 
 COMMANDS = {
     "create-medium",
@@ -206,9 +206,7 @@ def execute(
     if kind == "tape-maintenance":
         return maintenance.execute(config, control, payload)
     if kind == "hardware-scan":
-        inventory = {"time": time.time(), "drives": discover_drives()}
-        control.set("hardware_inventory", inventory)
-        return inventory
+        return diagnostics.scan(control, force=True)
     if kind == "sync":
         with io_lock():
             return push(config, control, due_only=scheduled)
@@ -422,10 +420,7 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
                 if once:
                     break
                 if time.monotonic() >= next_scan:
-                    control.set(
-                        "hardware_inventory",
-                        {"time": time.time(), "drives": discover_drives()},
-                    )
+                    diagnostics.scan(control)
                     next_scan = time.monotonic() + 10
                 if time.monotonic() >= next_sync:
                     with control.connect() as db:

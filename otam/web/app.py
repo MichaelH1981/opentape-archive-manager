@@ -52,6 +52,7 @@ from .targets import (
 from .security import cookie_name, SecurityMiddleware, login, session
 from .worker import mounted, validate_command
 from . import resources, maintenance
+from . import diagnostics
 
 STATIC = Path(__file__).parent / "static"
 
@@ -505,6 +506,23 @@ def create_app(config: WebConfig) -> FastAPI:
                 config, control, data["drive_id"], data["operation"]
             )
 
+        @archive.get("/hardware/status")
+        def hardware_status():
+            return diagnostics.overview(control)
+
+        @archive.get("/hardware/diagnostics/{ident}")
+        def hardware_diagnostics(ident: str):
+            import re
+
+            if not re.fullmatch("[0-9a-f]{32}", ident):
+                raise HTTPException(400, "Ungültige Laufwerks-ID")
+            result = diagnostics.detail(control, ident)
+            if result["sample"] is None:
+                raise HTTPException(
+                    404, "Noch keine Diagnosedaten dieses Laufwerks vorhanden"
+                )
+            return result
+
         @archive.get("/hardware")
         def hardware():
             with control.connect() as db:
@@ -523,6 +541,7 @@ def create_app(config: WebConfig) -> FastAPI:
                     "hardware_inventory", {"time": 0, "drives": []}
                 ),
                 "maintenance": history,
+                "status": diagnostics.overview(control),
                 "message": "Physischer Wartungsbetrieb mit Einzelfreigaben; reguläre LTO-Archivierung wartet auf Bandformat-Abnahme",
             }
 

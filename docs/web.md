@@ -103,3 +103,7 @@ Unter **Einstellungen** lassen sich bestehende Quell- und Staging-Verzeichnisse 
 Unter **Hardware** werden angeschlossene Laufwerke automatisch erkannt und Simulator bzw. physischer Wartungsbetrieb gewählt. Der Moduswechsel allein verändert kein Band. Vollqualifikation und Kurz-/Langlöschen brauchen jeweils eine frische Einzelfreigabe mit Laufwerks- und Medienseriennummer. Die Vollqualifikation schreibt rekonstruierbare Daten bis zur regulären Early-Warning-Grenze und liest alles vollständig zurück. Nur vollständige Integritätsgleichheit gilt als VERIFIED. Löschen wird als abgeschlossenes Kommando, nicht als zertifizierte Vernichtung gemeldet.
 
 Reguläre physische Archivierung bleibt bis zur Bandformat-Abnahme gesperrt. Kein Laufwerk, unbekannte Identität, Schreibschutz, alte oder bereits verbrauchte Freigabe führen zu keiner destruktiven Ausführung. [Details und Abnahmegrenzen](architecture/physical-maintenance.md).
+
+## Laufwerk und Medium auf der Übersicht
+
+Die Übersicht zeigt unter **Laufwerk & eingelegtes Medium** Modell, Seriennummer, Firmware, zuletzt erkanntes Medium, Schreibschutz und Abfragezeitpunkte. Fehlender Kontakt und alte Messwerte sind ausdrücklich gekennzeichnet. Unter **Hardware → Diagnosedaten** stehen verfügbare Temperatur-/Fehlerzähler, dauerhaft gespeicherte TapeAlert-Hinweise und ausklappbare Rohdaten. **Status & Diagnose aktualisieren** stellt einen lesenden Auftrag in die Workerwarteschlange. Details: [Diagnosearchitektur und Datenbedeutung](architecture/drive-diagnostics.md).

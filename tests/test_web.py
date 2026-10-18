@@ -1028,6 +1028,46 @@ class WebAcceptance(unittest.TestCase):
         finally:
             client.close()
 
+    def test_hardware_status_and_diagnostics_are_authenticated_cached_and_role_bound(
+        self,
+    ):
+        status = self.client.get("/api/v1/hardware/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["drives"], [])
+        ident = "a" * 32
+        self.assertEqual(
+            self.client.get("/api/v1/hardware/diagnostics/" + ident).status_code, 404
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/hardware/diagnostics/invalid").status_code, 400
+        )
+        self.control.set(
+            "drive_diagnostics:" + ident, {"time": time.time(), "pages": {}}
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/hardware/diagnostics/" + ident).status_code, 200
+        )
+        from unittest.mock import patch
+
+        with patch(
+            "otam.web.diagnostics.discover_drives",
+            side_effect=AssertionError("HTTP must not probe devices"),
+        ):
+            self.assertEqual(
+                self.client.get("/api/v1/hardware/status").status_code, 200
+            )
+            self.assertEqual(self.client.get("/api/v1/hardware").status_code, 200)
+        cfg, app, client = self.replica()
+        try:
+            client.post(
+                "/api/v1/login", json={"username": "admin", "password": PASSWORD}
+            )
+            self.assertEqual(client.get("/api/v1/hardware/status").status_code, 404)
+        finally:
+            client.close()
+        self.client.post("/api/v1/logout", json={}, headers={"X-CSRF-Token": self.csrf})
+        self.assertEqual(self.client.get("/api/v1/hardware/status").status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

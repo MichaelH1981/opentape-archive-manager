@@ -90,6 +90,10 @@ def status(device: str) -> dict[str, Any]:
     flags = fields[3]
     return {
         "online": bool(flags & 0x01000000),
+        "door_open": bool(flags & 0x00040000),
+        "eod": bool(flags & 0x08000000),
+        "block_size": fields[2] & 0xFFFFFF,
+        "density_code": (fields[2] >> 24) & 0xFF,
         "write_protected": bool(flags & 0x04000000),
         "eot": bool(flags & 0x20000000),
         "bot": bool(flags & 0x40000000),
@@ -140,9 +144,9 @@ def discover_drives() -> list[dict[str, Any]]:
             (item["sysfs"] + "|" + str(item["serial"])).encode()
         ).hexdigest()[:32]
         try:
-            item["status"] = status(item["device"])
             sg = next((base / "scsi_generic").glob("sg[0-9]*"))
             item["sg"] = "/dev/" + sg.name
+            item["status"] = status(item["device"])
             if not item["serial"]:
                 raise SafetyError("Laufwerksseriennummer nicht lesbar")
             if not item["status"]["online"]:
@@ -161,6 +165,7 @@ def discover_drives() -> list[dict[str, Any]]:
             subprocess.TimeoutExpired,
         ) as error:
             item["error"] = str(error) or type(error).__name__
+            item["busy"] = isinstance(error, OSError) and error.errno == errno.EBUSY
         result.append(item)
     return result
 
@@ -171,6 +176,7 @@ def verify_identity(expected: dict[str, Any]) -> dict[str, Any]:
         drive is None
         or not drive["ready"]
         or drive["device"] != expected["device"]
+        or drive.get("sg") != expected.get("sg")
         or drive["serial"] != expected["serial"]
         or drive["medium_serial"] != expected["medium_serial"]
     ):
@@ -240,15 +246,13 @@ class LinuxMaintenance:
         os.close(fd)
 
     def alerts(self) -> dict[str, Any]:
-        result = {}
-        for page in ("0x2e", "0x02", "0x03"):
-            try:
-                result[page] = run(
-                    ["sg_logs", "--readonly", "--page=" + page, self.expected["sg"]]
-                ).decode(errors="replace")[:65536]
-            except (OSError, SafetyError, subprocess.TimeoutExpired) as error:
-                result[page] = {"unavailable": str(error)}
-        return result
+        from .diagnostics import collect
+
+        sink = getattr(self, "diagnostic_sink", None)
+        # All web maintenance jobs supply durable persistence before TapeAlert reads.
+        if sink is None:
+            return {"unavailable": "Kein dauerhafter Diagnosespeicher konfiguriert"}
+        return collect(self.expected, sink)
 
 
 def pattern(seed: str) -> bytes:
