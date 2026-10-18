@@ -66,3 +66,23 @@ EPERM. OTAM verwendet daher `sg_read_attr --raw --first=0x401` ohne `--readonly`
 Das ausgeführte SCSI-Kommando bleibt READ ATTRIBUTE; WRITE ATTRIBUTE wird nicht
 verwendet. Die Tape-only-Gerätegruppe reicht aus, zusätzliche Root-Capabilities
 sind nicht erforderlich. Auf dem IBM-Laufwerk mit Debian 13 überprüft.
+
+## Überlappende Rückleseverifikation
+
+Ein einzelner Hintergrund-Leseaufruf kann mit SHA-256 und Blockvergleich des
+vorherigen Records überlappen. Der Vorlauf bleibt auf einen Record begrenzt,
+liest nie über die erste Dateimarke und wiederholt keine Fehler. Beim Abbruch
+eines Vergleichs wartet der Kontext auf den noch laufenden Leseaufruf, bevor der
+Dateideskriptor geschlossen wird. Damit gibt es weder unbeschränkten RAM-Verbrauch
+noch einen Reader auf einem bereits geschlossenen oder wiederverwendeten fd.
+Positionierung ist eine eigene Phase ohne übernommene Transfergeschwindigkeit.
+
+`tools/tape_readback_probe.py` ist ein separater **rein lesender** Vergleichstest
+für die ersten 32 GiB eines bereits vollständig rückgelesenen Qualifikationsjobs.
+Er verwendet dessen unveränderten Seed und gebundene Laufwerks-/Medienidentität,
+hält dieselben Sperren und setzt einen pausierten Worker voraus. Jeder Record
+wird rekonstruiert und verglichen; PREFIX_VERIFIED gilt nur für diesen Präfix.
+Sein Präfix-Hash ist ausdrücklich nicht der Hash des ganzen Qualifikationsstroms.
+Kein Bandschreiben, keine neue Kapazitäts- oder Vollqualifikation. Fortschritt,
+CPU-Zeit, Treiberzähler und Ergebnis werden im neuen privaten Reportverzeichnis
+gesichert. Die reale Leistungsauswirkung muss gesondert gemessen werden.

@@ -155,6 +155,63 @@ class PhysicalBoundary(unittest.TestCase):
         self.assertEqual(result["bytes"], 2 * BLOCK_SIZE)
         self.assertFalse(result["eom"])
 
+    def test_prefetch_never_crosses_filemark_or_declared_read_limit(self):
+        from otam.physical import prefetched_records
+
+        calls = []
+
+        class Reader:
+            def read(self, fd):
+                calls.append(fd)
+                if len(calls) > 3:
+                    raise AssertionError("Read beyond first filemark")
+                return b"record" if len(calls) < 3 else b""
+
+        with prefetched_records(Reader(), 7) as records:
+            self.assertEqual(list(records), [b"record", b"record"])
+        self.assertEqual(len(calls), 3)
+        calls.clear()
+        with prefetched_records(Reader(), 7, max_records=1) as records:
+            self.assertEqual(list(records), [b"record"])
+        self.assertEqual(len(calls), 1)
+        with self.assertRaises(SafetyError):
+            with prefetched_records(Reader(), 7, max_records=0):
+                pass
+
+    def test_prefetch_waits_for_outstanding_read_before_descriptor_can_close(self):
+        from otam.physical import prefetched_records
+        import threading
+
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        class Reader:
+            calls = 0
+
+            def read(self, fd):
+                self.calls += 1
+                if self.calls == 1:
+                    return b"first"
+                entered.set()
+                if not release.wait(2):
+                    raise AssertionError("Reader was not released")
+                finished.set()
+                return b"second"
+
+        timer = threading.Timer(0.02, release.set)
+        timer.start()
+        try:
+            with self.assertRaisesRegex(SafetyError, "consumer failed"):
+                with prefetched_records(Reader(), 7) as records:
+                    self.assertEqual(next(records), b"first")
+                    self.assertTrue(entered.wait(2))
+                    raise SafetyError("consumer failed")
+            self.assertTrue(finished.is_set())
+        finally:
+            release.set()
+            timer.join()
+
     def test_vpd_serial_matches_direct_scsi_response(self):
         from otam.physical import inquiry_serial
 

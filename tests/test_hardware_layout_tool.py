@@ -126,3 +126,27 @@ class LayoutHarness(unittest.TestCase):
                         acceptance.execute(archives)
                 self.assertEqual(acceptance.report["state"], "FAILED_INCOMPLETE")
                 self.assertLess(tape.write_count, 4)
+
+
+class ReadbackProbe(unittest.TestCase):
+    def test_prefix_recheck_checks_every_record_and_rejects_early_filemark(self):
+        from tools.tape_readback_probe import verify_prefix
+        from otam.physical import BLOCK_SIZE, pattern, test_block
+        from tests.test_physical import MemoryDrive
+
+        seed = "a" * 64
+        with patch("otam.physical.PATTERN_SIZE", 2 * BLOCK_SIZE):
+            data = pattern(seed)
+            tape = MemoryDrive()
+            tape.records = [test_block(i, seed, data) for i in range(4)]
+            result = verify_prefix(tape, 2, seed, 3 * BLOCK_SIZE, lambda **v: None)
+            self.assertEqual(result["state"], "PREFIX_VERIFIED")
+            self.assertEqual(tape.cursor, 3)
+            tape.cursor = 0
+            tape.records[1] = b"damaged"
+            with self.assertRaises(SafetyError):
+                verify_prefix(tape, 2, seed, 3 * BLOCK_SIZE, lambda **v: None)
+            tape.cursor = 0
+            tape.records = [test_block(0, seed, data)]
+            with self.assertRaises(SafetyError):
+                verify_prefix(tape, 2, seed, 3 * BLOCK_SIZE, lambda **v: None)

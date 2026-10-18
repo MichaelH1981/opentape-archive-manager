@@ -15,8 +15,9 @@ import struct
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 
 from .common import SafetyError
 
@@ -286,6 +287,40 @@ def test_block(index: int, seed: str, data: bytes) -> bytes:
     return struct.pack(">Q", index) + data[offset + 8 : offset + BLOCK_SIZE]
 
 
+@contextmanager
+def prefetched_records(
+    device: Any, fd: int, *, max_records: int | None = None
+) -> Iterator[Iterator[bytes]]:
+    """Overlap one read with hashing; wait for any read before the caller closes fd.
+
+    At most two records are resident. Never read beyond the first filemark, retry
+    an error, or close a descriptor while a background read still uses it.
+    """
+    if max_records is not None and (type(max_records) is not int or max_records < 1):
+        raise SafetyError("Invalid bounded read record count")
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="otam-readback") as pool:
+
+        def records() -> Iterator[bytes]:
+            remaining = max_records
+            pending = pool.submit(device.read, fd)
+            while True:
+                block = pending.result()
+                if not block:
+                    return
+                if remaining is not None:
+                    remaining -= 1
+                pending = (
+                    pool.submit(device.read, fd)
+                    if remaining is None or remaining > 0
+                    else None
+                )
+                yield block
+                if pending is None:
+                    return
+
+        yield records()
+
+
 def qualify(
     device: Any,
     seed: str,
@@ -379,20 +414,23 @@ def qualify(
     started = time.monotonic()
     last = started
     try:
-        while block := device.read(fd):
-            if count >= accepted or block != test_block(count, seed, data):
-                raise SafetyError("Testdaten fehlen, sind vertauscht oder beschädigt")
-            actual.update(block)
-            count += 1
-            now = time.monotonic()
-            if now - last >= 2:
-                progress(
-                    phase="TAPE_READBACK",
-                    bytes=count * BLOCK_SIZE,
-                    total_bytes=accepted * BLOCK_SIZE,
-                    bytes_per_second=count * BLOCK_SIZE / max(now - started, 0.001),
-                )
-                last = now
+        with prefetched_records(device, fd) as records:
+            for block in records:
+                if count >= accepted or block != test_block(count, seed, data):
+                    raise SafetyError(
+                        "Testdaten fehlen, sind vertauscht oder beschädigt"
+                    )
+                actual.update(block)
+                count += 1
+                now = time.monotonic()
+                if now - last >= 2:
+                    progress(
+                        phase="TAPE_READBACK",
+                        bytes=count * BLOCK_SIZE,
+                        total_bytes=accepted * BLOCK_SIZE,
+                        bytes_per_second=count * BLOCK_SIZE / max(now - started, 0.001),
+                    )
+                    last = now
     finally:
         device.close(fd)
     if count != accepted or actual.hexdigest() != expected.hexdigest():
