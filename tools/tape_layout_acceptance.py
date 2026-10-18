@@ -44,7 +44,7 @@ def fixtures(root: Path, payload_mib: int = 16) -> list[Path]:
             "format": FORMAT,
             "media_id": media,
             "label": "DESTRUCTIVE HARDWARE ACCEPTANCE ONLY",
-            "class": "rotating",
+            "class": "rotation",
             "capacity": 800_000_000_000,
             "created": time.time(),
             "backend": "hardware-test",

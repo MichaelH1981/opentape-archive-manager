@@ -75,6 +75,10 @@ class LayoutHarness(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             archives = fixtures(root / "staged", payload_mib=1)
+            self.assertEqual(
+                read_metadata(archives[0], "media.json", recovery=True)["class"],
+                "rotation",
+            )
             self.assertIsNone(read_metadata(archives[2], "receipt.json")["verified_at"])
             tape = RecordTape()
             acceptance = Acceptance(tape, root)
