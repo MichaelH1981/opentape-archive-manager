@@ -612,6 +612,14 @@ function bindForms(root = $("#content")) {
     form.reset();
     toast("Passwort geändert. Andere Sitzungen wurden beendet.");
   });
+  on("#poweroff-form", async (d) => {
+    await api("/system/poweroff", {
+      method: "POST",
+      body: JSON.stringify({ confirmation: d.get("confirmation") }),
+    });
+    closeModal();
+    toast("Herunterfahren angefordert. Die Verbindung wird gleich getrennt.");
+  });
   const languageSelect = $("#language-select", root);
   if (languageSelect) languageSelect.addEventListener("change", async () => {
     const previous = getLanguage();
@@ -636,6 +644,10 @@ document.addEventListener("click", async (e) => {
   try {
     if (b.dataset.maintenanceDrive)
       await maintenanceDialog(b.dataset.maintenanceDrive, b.dataset.operation);
+    else if (b.id === "request-poweroff") {
+      modal("Server herunterfahren", `<p>Der Archive Node <strong>${esc(state.node.name)}</strong> wird nach einer letzten Prüfung kontrolliert heruntergefahren. Laufende oder wartende OTAM-Aufträge verhindern den Vorgang.</p><form id="poweroff-form"><label>Node-Name zur Bestätigung<input name="confirmation" autocomplete="off" required></label><div class="form-actions"><button class="button primary" type="submit">Server herunterfahren</button></div></form>`);
+      bindForms($("#modal"));
+    }
     else if (b.dataset.editUser) await editUser(b.dataset.editUser);
     else if (b.dataset.passwordUser) await editUser(b.dataset.passwordUser, true);
     else if (b.dataset.removeResource) {

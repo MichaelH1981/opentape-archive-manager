@@ -903,6 +903,120 @@ class WebAcceptance(unittest.TestCase):
         self.assertIsNone(self.control.get("last_fanout"))
         self.assertTrue(schedule_sync_if_due(config, self.control))
 
+    def test_admin_poweroff_requires_confirmation_and_rechecks_io_before_systemctl(self):
+        import fcntl
+        from fastapi.testclient import TestClient
+        from otam.web.app import create_app
+        from otam.web import power
+
+        config = replace(self.config, allow_host_shutdown=True)
+        with TestClient(create_app(config)) as web:
+            signed = web.post("/api/v1/login", json={"username": "admin", "password": PASSWORD})
+            headers = {"X-CSRF-Token": signed.json()["csrf"]}
+            path = power.marker(config)
+            with patch("otam.web.power.unit_active", return_value=True):
+                self.assertEqual(web.post("/api/v1/system/poweroff",
+                    json={"confirmation": "wrong"}, headers=headers).status_code, 409)
+                self.assertFalse(path.exists())
+                self.control.enqueue("plan", {}, str(uuid.uuid4()))
+                self.assertEqual(web.post("/api/v1/system/poweroff",
+                    json={"confirmation": config.name}, headers=headers).status_code, 409)
+                self.assertFalse(path.exists())
+                with self.control.connect() as db:
+                    db.execute("UPDATE commands SET state='SUCCEEDED' WHERE state='QUEUED'")
+                accepted = web.post("/api/v1/system/poweroff",
+                    json={"confirmation": config.name}, headers=headers)
+                self.assertEqual(accepted.status_code, 202, accepted.text)
+                status = web.get("/api/v1/system/poweroff").json()
+                self.assertTrue(status["service_active"])
+                self.assertTrue(status["pending"])
+                self.assertTrue(path.is_file())
+                self.assertTrue(self.control.shutdown_pending())
+                with self.assertRaises(SafetyError):
+                    self.control.enqueue("plan", {}, str(uuid.uuid4()))
+                self.assertIsNone(self.control.claim())
+
+            lock = self.root / f"otam-io-{os.getuid()}.lock"
+            with lock.open("a+b") as stream, patch.dict(os.environ, {"TMPDIR": str(self.root)}), \
+                    patch("otam.web.power.os.geteuid", return_value=0), \
+                    patch("otam.web.power.subprocess.run") as systemctl:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with self.assertRaises(SafetyError):
+                    power.execute(config, self.control)
+                systemctl.assert_not_called()
+            self.assertFalse(path.exists())
+            self.assertFalse(self.control.shutdown_pending())
+            self.assertEqual(self.control.get("shutdown_status")["state"], "FAILED")
+
+    def test_poweroff_helper_only_calls_fixed_systemctl_actions(self):
+        from fastapi.testclient import TestClient
+        from otam.web.app import create_app
+        from otam.web import power
+
+        config = replace(self.config, allow_host_shutdown=True)
+        with TestClient(create_app(config)) as web, patch("otam.web.power.unit_active", return_value=True):
+            signed = web.post("/api/v1/login", json={"username": "admin", "password": PASSWORD})
+            response = web.post("/api/v1/system/poweroff", json={"confirmation": config.name},
+                headers={"X-CSRF-Token": signed.json()["csrf"]})
+            self.assertEqual(response.status_code, 202, response.text)
+        with patch.dict(os.environ, {"TMPDIR": str(self.root)}), \
+                patch("otam.web.power.os.geteuid", return_value=0), \
+                patch("otam.web.power.subprocess.run") as systemctl:
+            power.execute(config, self.control)
+        self.assertEqual([call.args[0] for call in systemctl.call_args_list], [
+            ["/usr/bin/systemctl", "stop", "otam-worker.service"],
+            ["/usr/bin/systemctl", "poweroff", "--no-wall"],
+        ])
+        self.assertFalse(power.marker(config).exists())
+        self.assertEqual(self.control.get("shutdown_status")["state"], "POWERING_OFF")
+
+    def test_poweroff_failure_clears_request_and_restarts_worker(self):
+        import subprocess
+        from fastapi.testclient import TestClient
+        from otam.web.app import create_app
+        from otam.web import power
+
+        config = replace(self.config, allow_host_shutdown=True)
+        with TestClient(create_app(config)) as web, patch("otam.web.power.unit_active", return_value=True):
+            signed = web.post("/api/v1/login", json={"username": "admin", "password": PASSWORD})
+            response = web.post("/api/v1/system/poweroff", json={"confirmation": config.name},
+                headers={"X-CSRF-Token": signed.json()["csrf"]})
+            self.assertEqual(response.status_code, 202, response.text)
+        failure = subprocess.CalledProcessError(1, ["/usr/bin/systemctl", "poweroff"])
+        with patch.dict(os.environ, {"TMPDIR": str(self.root)}), \
+                patch("otam.web.power.os.geteuid", return_value=0), \
+                patch("otam.web.power.subprocess.run", side_effect=[None, failure, None]) as systemctl:
+            with self.assertRaises(subprocess.CalledProcessError):
+                power.execute(config, self.control)
+        self.assertEqual(systemctl.call_args_list[-1].args[0],
+                         ["/usr/bin/systemctl", "start", "otam-worker.service"])
+        self.assertFalse(power.marker(config).exists())
+        self.assertFalse(self.control.shutdown_pending())
+        self.assertEqual(self.control.get("shutdown_status")["state"], "FAILED")
+
+    def test_non_admin_cannot_request_poweroff(self):
+        from fastapi.testclient import TestClient
+        from otam.web.app import create_app
+
+        config = replace(self.config, allow_host_shutdown=True)
+        self.client.post("/api/v1/users", json={"username": "power.viewer",
+            "password": "viewer-password-1234", "role": "viewer"},
+            headers={"X-CSRF-Token": self.csrf})
+        self.client.post("/api/v1/users", json={"username": "power.operator",
+            "password": "operator-password-1234", "role": "operator"},
+            headers={"X-CSRF-Token": self.csrf})
+        with TestClient(create_app(config)) as web:
+            signed = web.post("/api/v1/login", json={"username": "power.viewer",
+                "password": "viewer-password-1234"})
+            response = web.post("/api/v1/system/poweroff", json={"confirmation": config.name},
+                headers={"X-CSRF-Token": signed.json()["csrf"]})
+            self.assertEqual(response.status_code, 403)
+            signed = web.post("/api/v1/login", json={"username": "power.operator",
+                "password": "operator-password-1234"})
+            response = web.post("/api/v1/system/poweroff", json={"confirmation": config.name},
+                headers={"X-CSRF-Token": signed.json()["csrf"]})
+            self.assertEqual(response.status_code, 403)
+
     def target(self, kind="catalog", address="https://catalog.example", **overrides):
         return dict(
             label="Optional destination",

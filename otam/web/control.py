@@ -13,6 +13,18 @@ from typing import Any, Iterator
 
 from ..common import SafetyError
 
+
+def boot_id() -> str:
+    path = Path("/proc/sys/kernel/random/boot_id")
+    return path.read_text().strip() if path.is_file() else "non-linux-test-boot"
+
+
+def current_shutdown(value: dict[str, Any]) -> bool:
+    stamp = value.get("time")
+    return (value.get("boot_id") == boot_id()
+            and type(stamp) in (int, float)
+            and 0 <= time.time() - stamp <= 120)
+
 CONTROL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS commands(
  id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL,
@@ -106,12 +118,45 @@ class Control:
             )
             return n
 
+    def shutdown_pending(self) -> bool:
+        return current_shutdown(self.get("shutdown_pending", {}))
+
+    def begin_shutdown(self, user_id: str) -> dict[str, Any]:
+        request = {"id": str(uuid.uuid4()), "boot_id": boot_id(),
+                   "user_id": user_id, "time": time.time()}
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT value FROM settings WHERE key='shutdown_pending'").fetchone()
+            if row and current_shutdown(json.loads(row[0])):
+                raise SafetyError("Herunterfahren wurde bereits angefordert")
+            busy = db.execute("""SELECT 1 FROM commands WHERE state='RUNNING'
+                OR (state='QUEUED' AND COALESCE(idempotency,'') NOT LIKE 'scheduled-%')
+                LIMIT 1""").fetchone()
+            if busy:
+                raise SafetyError("Ein OTAM-Auftrag läuft oder wartet; Herunterfahren gesperrt")
+            db.execute(
+                """INSERT INTO settings VALUES('shutdown_pending',?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+                (json.dumps(request),),
+            )
+        return request
+
+    def clear_shutdown(self, request_id: str) -> None:
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT value FROM settings WHERE key='shutdown_pending'").fetchone()
+            if row and json.loads(row[0]).get("id") == request_id:
+                db.execute("DELETE FROM settings WHERE key='shutdown_pending'")
+
     def enqueue(self, kind: str, payload: dict[str, Any], key: str) -> dict[str, Any]:
         if not 8 <= len(key) <= 128:
             raise SafetyError("Idempotency-Key muss 8–128 Zeichen enthalten")
         serialized = json.dumps(payload, sort_keys=True)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            pending = db.execute("SELECT value FROM settings WHERE key='shutdown_pending'").fetchone()
+            if pending and current_shutdown(json.loads(pending[0])):
+                raise SafetyError("Herunterfahren läuft; neue Aufträge sind gesperrt")
             old = db.execute(
                 "SELECT * FROM commands WHERE idempotency=?", (key,)
             ).fetchone()
@@ -155,6 +200,9 @@ class Control:
     def claim(self) -> dict[str, Any] | None:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            pending = db.execute("SELECT value FROM settings WHERE key='shutdown_pending'").fetchone()
+            if pending and current_shutdown(json.loads(pending[0])):
+                return None
             row = db.execute(
                 "SELECT * FROM commands WHERE state='QUEUED' ORDER BY created,id LIMIT 1"
             ).fetchone()

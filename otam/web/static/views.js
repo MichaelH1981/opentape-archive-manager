@@ -14,7 +14,7 @@ import {
 } from "./common.js";
 import { icon } from "./icons.js";
 import { state } from "./state.js";
-import { getLanguage, localeTag } from "./i18n.js";
+import { getLanguage, localeTag, translate } from "./i18n.js";
 import {
   paintIcons,
   toast,
@@ -547,6 +547,8 @@ async function settingsPage() {
   const storage =
     n.role === "archive" ? (await api("/storage-resources")).items : [];
   const users = state.account?.role === "admin" ? (await api("/users")).items : [];
+  const power = n.shutdown_enabled && state.account?.role === "admin"
+    ? await api("/system/poweroff") : null;
   return (
     heading(
       "Unter deiner Kontrolle.",
@@ -556,6 +558,7 @@ async function settingsPage() {
         : "",
     ) +
     accountSettings(users) +
+    `${power ? `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><div><h2>Server herunterfahren</h2><p>Nur Administratoren. Laufende Archiv-, Staging-, Prüf- oder Bandvorgänge sperren den Shutdown.</p></div><button class="button" id="request-poweroff" ${!power.service_active || power.pending ? "disabled" : ""}>Herunterfahren …</button></div>${!power.service_active ? `<div class="panel-body">${note("Der geschützte Shutdown-Dienst ist nicht aktiv.", "warning")}</div>` : power.pending ? `<div class="panel-body">${note("Herunterfahren wird vorbereitet.", "info")}</div>` : power.last?.state === "FAILED" ? `<div class="panel-body">${note(`${translate("Letzter Shutdown-Versuch fehlgeschlagen:")} ${power.last.error || translate("Unbekannter Fehler")}`, "warning")}</div>` : ""}</section>` : ""}` +
     `${n.role === "archive" ? `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><h2>Quellen & Staging</h2></div>${resourceTable(storage)}</section>` : ""}<div class="split"><section class="panel"><div class="panel-header"><h2>Node-Konfiguration</h2><span class="badge neutral">v${esc(n.version)}</span></div><div class="panel-body"><dl class="detail-list"><dt>Name</dt><dd>${esc(n.name)}</dd><dt>Rolle</dt><dd>${n.role === "archive" ? "Archive Node" : "Catalog Node"}</dd><dt>Node-ID</dt><dd class="mono">${esc(n.id)}</dd><dt>Authentifizierung</dt><dd>Passwortgeschützte Sitzung · CSRF-Schutz</dd><dt>Reguläre LTO-Archivierung</dt><dd>Bis zur Bandformat-Abnahme gesperrt</dd><dt>Verbindungen</dt><dd>Keine Telemetrie oder CDN-Abhängigkeit</dd></dl><p class="hint" style="margin-top:22px">Optionale Katalogdienste und Snapshot-Ziele verwaltest du unter Synchronisation. Änderungen gelten ohne Neustart. Quellen und Staging verwaltest du hier. Administrativ freigegebene Verzeichnisbereiche, Dienstrechte und Bind-Adresse bleiben in der geschützten Konfiguration.</p></div></section><section class="panel"><div class="panel-header"><h2>Aktive Module</h2></div><div class="panel-body">${n.modules.map((m) => `<div class="node-detail"><div class="node-detail-icon">${icon(m.id === "archive" ? "tape" : m.id === "catalog" ? "search" : "sync")}</div><div><strong>${esc(m.label)}</strong><small>${m.writable ? "Steuerung auf diesem Node" : "Lesender Zugriff"}</small></div><span class="status-dot"></span></div>`).join("")}</div></section><section class="panel"><div class="panel-header"><h2>Freigegebene Quellen</h2></div><div class="panel-body">${n.sources.length ? n.sources.map((s) => `<div class="node-detail"><div class="node-detail-icon">${icon("folder")}</div><div><strong>${esc(s.label)}</strong><small>${esc(s.id)}</small></div></div>`).join("") : empty("Keine lokalen Datenquellen", n.role === "catalog" ? "Der Catalog Node benötigt keine Quelldateisysteme." : "Quellen in der Node-Konfiguration freigeben.", "folder", "", true)}</div></section><section class="panel"><div class="panel-header"><h2>Offen und wiederherstellbar</h2></div><div class="panel-body">${note("PAX-TAR, SHA-256 und selbstbeschreibende Manifeste. Der Katalog lässt sich aus Medieninhalt rekonstruieren.")}<p class="hint" style="margin-top:15px">System-Snapshots, Hardwareverschlüsselung und automatische Medienrotation sind noch nicht freigegeben. Unvollständige Archive bleiben eindeutig gekennzeichnet.</p></div></section></div>`
   );
 }

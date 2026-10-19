@@ -468,6 +468,8 @@ def run_once(config: WebConfig, control: Control) -> bool:
 
 def schedule_sync_if_due(config: WebConfig, control: Control) -> bool:
     """Queue an automatic sync only when a target is due and I/O is idle."""
+    if control.shutdown_pending():
+        return False
     with control.connect() as db:
         queued = db.execute(
             "SELECT 1 FROM commands WHERE kind='sync' AND state IN ('QUEUED','RUNNING')"

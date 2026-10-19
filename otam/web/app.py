@@ -36,6 +36,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.concurrency import run_in_threadpool
 
 from ..catalog import Catalog
+from .. import __version__
 from ..common import SafetyError
 from ..hardware import discover
 from ..transfer import drive_speed_profiles, selected_speed_profile
@@ -54,7 +55,7 @@ from .security import cookie_name, SecurityMiddleware, login, session, require_a
 from .worker import mounted, validate_command
 from . import resources, maintenance
 from . import diagnostics
-from . import accounts
+from . import accounts, power
 
 STATIC = Path(__file__).parent / "static"
 
@@ -95,6 +96,11 @@ class PasswordRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     current_password: str = Field(min_length=1, max_length=1024)
     new_password: str = Field(min_length=12, max_length=1024)
+
+
+class PoweroffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmation: str = Field(min_length=1, max_length=200)
 
 
 class CommandRequest(BaseModel):
@@ -150,7 +156,7 @@ def create_app(config: WebConfig) -> FastAPI:
         modules.append(Module("archive", "Archivierung und Staging", True))
     app = FastAPI(
         title="OpenTape Archive Manager",
-        version="0.5.0",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -239,6 +245,16 @@ def create_app(config: WebConfig) -> FastAPI:
     def users():
         return {"items": accounts.list_users(control)}
 
+    @api.post("/system/poweroff", dependencies=[Depends(require_admin)], status_code=202)
+    def poweroff(data: PoweroffRequest, request: Request):
+        return power.request(config, control, session(request)["user_id"], data.confirmation)
+
+    @api.get("/system/poweroff", dependencies=[Depends(require_admin)])
+    def poweroff_status():
+        enabled = config.role == "archive" and config.allow_host_shutdown
+        return {"enabled": enabled, "service_active": power.unit_active() if enabled else False,
+                "pending": control.shutdown_pending(), "last": control.get("shutdown_status")}
+
     @api.post("/users", dependencies=[Depends(require_admin)], status_code=201)
     def new_user(data: NewUserRequest):
         return accounts.create_user(control, data.username, data.password, data.role)
@@ -299,6 +315,7 @@ def create_app(config: WebConfig) -> FastAPI:
             ),
             "sync_configured": bool(enabled_targets(config, control)),
             "sync_interval": config.sync_interval,
+            "shutdown_enabled": config.role == "archive" and config.allow_host_shutdown,
             "publisher_id": config.publisher_id,
             "snapshot_age_seconds": (
                 max(0, time.time() - active["created"]) if active else None

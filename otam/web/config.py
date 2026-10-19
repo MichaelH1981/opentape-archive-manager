@@ -73,6 +73,7 @@ class WebConfig:
     session_seconds: int = 8 * 3600
     secure_cookie: bool = False
     trusted_proxy_ips: tuple[str, ...] = ()
+    allow_host_shutdown: bool = False
 
     def validate(self) -> None:
         uuid.UUID(self.node_id)
@@ -141,6 +142,8 @@ class WebConfig:
             not p.is_absolute() for p in self.directory_roots
         ):
             raise SafetyError("Ungültige Verzeichnisfreigaben oder Hardwarefreigabe")
+        if type(self.allow_host_shutdown) is not bool:
+            raise SafetyError("Ungültige Shutdown-Freigabe")
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources
