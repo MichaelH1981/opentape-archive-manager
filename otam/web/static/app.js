@@ -505,6 +505,7 @@ function bindForms(root = $("#content")) {
       await api("/staging/transfer-settings/" + encodeURIComponent(form.dataset.staging), {
         method: "PUT",
         body: JSON.stringify({
+          drive_id: data.get("drive_id"),
           write_rate_bytes_per_second: rate * 1_000_000,
           buffer_bytes: buffer * 1048576,
         }),
@@ -516,6 +517,17 @@ function bindForms(root = $("#content")) {
       button.disabled = false;
     }
   }));
+  $$(".transfer-form [name=drive_id]", root).forEach((driveSelect) =>
+    driveSelect.addEventListener("change", () => {
+      const profile = state.transferProfiles.find((item) => item.drive_id === driveSelect.value);
+      const rateSelect = $("[name=rate_mbps]", driveSelect.closest("form"));
+      rateSelect.replaceChildren();
+      for (const rate of profile?.speed_steps_bytes_per_second || []) {
+        const mbps = rate / 1_000_000;
+        rateSelect.add(new Option(`${mbps} MB/s`, String(mbps)));
+      }
+    }),
+  );
   const sourceSelect = $("#plan-form [name=source_id]", root);
   if (sourceSelect) sourceSelect.addEventListener("change", () => {
     state.sourceSelection = { sourceId: sourceSelect.value, paths: [] };

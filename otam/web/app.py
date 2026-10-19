@@ -38,6 +38,7 @@ from starlette.concurrency import run_in_threadpool
 from ..catalog import Catalog
 from ..common import SafetyError
 from ..hardware import discover
+from ..transfer import drive_speed_profiles, selected_speed_profile
 from .config import WebConfig
 from .control import Control
 from .query import CatalogView
@@ -541,6 +542,7 @@ def create_app(config: WebConfig) -> FastAPI:
                     r["id"]: control.get("transfer_settings:" + r["id"])
                     for r in resources.entries(config, control) if r["kind"] == "staging"
                 },
+                "drive_profiles": drive_speed_profiles(control.get("hardware_inventory")),
             }
 
         @archive.put("/staging/transfer-settings/{ident}", dependencies=[Depends(require_admin)])
@@ -548,19 +550,27 @@ def create_app(config: WebConfig) -> FastAPI:
             staging = resources.staging_for(config, control, ident)
             from ..storage import require_local
             storage = require_local(staging)
-            if set(data) != {"write_rate_bytes_per_second", "buffer_bytes"}:
-                raise SafetyError("Schreibrate und Puffergröße erforderlich")
+            if set(data) != {"drive_id", "write_rate_bytes_per_second", "buffer_bytes"}:
+                raise SafetyError("Laufwerk, Schreibrate und Puffergröße erforderlich")
+            if not isinstance(data["drive_id"], str):
+                raise SafetyError("Ungültige Laufwerks-ID")
+            profile = selected_speed_profile(control.get("hardware_inventory"), data["drive_id"])
+            if profile is None:
+                raise SafetyError("Kein aktuell erkanntes Laufwerk mit bestätigtem Geschwindigkeitsprofil")
             rate, buffer = data["write_rate_bytes_per_second"], data["buffer_bytes"]
             if (type(rate) is not int or type(buffer) is not int
-                    or not 1_000_000 <= rate <= 1_000_000_000
+                    or rate not in profile["speed_steps_bytes_per_second"]
                     or not 256 * 1024 ** 2 <= buffer <= 4 * 1024 ** 3
                     or buffer % (64 * 1024 ** 2)):
-                raise SafetyError("Ungültige Schreibrate oder Puffergröße")
+                raise SafetyError("Schreibrate wird vom erkannten Laufwerksprofil nicht unterstützt oder Puffergröße ist ungültig")
             with control.connect() as db:
                 if db.execute("SELECT 1 FROM commands WHERE kind IN ('backup','backup-set') AND state='RUNNING'").fetchone():
                     raise SafetyError("Transferwerte während eines Archivjobs nicht ändern")
             value = {"write_rate_bytes_per_second": rate, "buffer_bytes": buffer,
                      "updated": time.time(), "effective": False,
+                     "drive_id": profile["drive_id"], "drive_serial": profile["drive_serial"],
+                     "profile_id": profile["profile_id"],
+                     "medium_density_code": profile["medium_density_code"],
                      "storage": {key: storage[key] for key in ("mount", "source", "device", "type")}}
             control.set("transfer_settings:" + ident, value)
             control.sync_event("config", "UPDATED", None,

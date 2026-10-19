@@ -9,6 +9,7 @@ export const state = {
   files: [],
   selection: new Map(),
   sourceSelection: { sourceId: "", paths: [] },
+  transferProfiles: [],
   offset: 0,
   filters: {},
   advanced: false,

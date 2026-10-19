@@ -137,22 +137,38 @@ class WebAcceptance(unittest.TestCase):
         from fastapi.testclient import TestClient
 
         self.config.staging.mkdir(parents=True, exist_ok=True)
+        self.control.set("hardware_inventory", {"time": time.time(), "drives": [{
+            "id": "drive-test", "vendor": "IBM", "model": "ULT3580-HH4",
+            "serial": "DRIVE-TEST", "medium_serial": "TAPE-TEST",
+            "status": {"online": True, "density_code": 0x46},
+        }]})
         path = "/api/v1/staging/transfer-settings/default-staging"
-        value = {"write_rate_bytes_per_second": 85_000_000,
+        value = {"drive_id": "drive-test", "write_rate_bytes_per_second": 84_000_000,
                  "buffer_bytes": 1024 * 1024 ** 2}
         self.assertEqual(self.client.put(path, json=value).status_code, 403)
         invalid = {**value, "buffer_bytes": 1000}
         self.assertEqual(self.client.put(path, json=invalid,
+                                         headers={"X-CSRF-Token": self.csrf}).status_code, 409)
+        unsupported = {**value, "write_rate_bytes_per_second": 85_000_000}
+        self.assertEqual(self.client.put(path, json=unsupported,
                                          headers={"X-CSRF-Token": self.csrf}).status_code, 409)
         saved = self.client.put(path, json=value,
                                 headers={"X-CSRF-Token": self.csrf})
         self.assertEqual(saved.status_code, 200, saved.text)
         self.assertFalse(saved.json()["effective"])
         self.assertEqual(set(saved.json()["storage"]), {"mount", "source", "device", "type"})
+        self.assertEqual(saved.json()["drive_serial"], "DRIVE-TEST")
         speedtests = self.client.get("/api/v1/staging/speedtests").json()
+        self.assertEqual(speedtests["drive_profiles"][0]["speed_steps_bytes_per_second"],
+                         [rate * 1_000_000 for rate in (30, 48, 66, 84, 103, 120)])
         self.assertEqual(speedtests["settings"]["default-staging"]["buffer_bytes"],
                          value["buffer_bytes"])
         self.assertEqual(speedtests["items"], [])
+        self.control.set("hardware_inventory", {"time": time.time() - 121,
+                                                "drives": self.control.get("hardware_inventory")["drives"]})
+        self.assertEqual(self.client.get("/api/v1/staging/speedtests").json()["drive_profiles"], [])
+        self.assertEqual(self.client.put(path, json=value,
+                                         headers={"X-CSRF-Token": self.csrf}).status_code, 409)
         with self.assertRaises(SafetyError):
             validate_command(self.config, self.control, "staging-speedtest",
                              {"staging_id": "default-staging", "seconds": 0})

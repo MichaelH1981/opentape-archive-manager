@@ -149,6 +149,8 @@ async function stagingPage() {
   ]);
   const rows = result.items;
   const locations = (result.locations || []).filter((r) => r.kind === "staging");
+  const profiles = speed.drive_profiles || [];
+  state.transferProfiles = profiles;
   const speedRows = speed.items.slice(0, 6).map((r) =>
     `<tr><td>${esc(r.time ? date(r.time) : "—")}</td><td>${esc(r.storage?.path || "—")}</td><td>${r.average_rate ? bytes(r.average_rate) + "/s" : "—"}</td><td>${r.minimum_sample_rate ? bytes(r.minimum_sample_rate) + "/s" : "—"}</td><td>${r.average_system_cpu_percent === undefined ? "—" : r.average_system_cpu_percent.toFixed(1) + "%"}</td><td>${r.peak_io_wait_percent === undefined ? "—" : r.peak_io_wait_percent.toFixed(1) + "%"}</td><td>${r.qualified ? badge("VERIFIED") : "Nicht qualifiziert"}</td></tr>`,
   );
@@ -159,10 +161,23 @@ async function stagingPage() {
     const measured = speed.items.find((r) => r.storage?.path === location.path && sameStorage(r.storage, location.storage) && r.transfer_recommendation);
     const suggestion = measured?.transfer_recommendation;
     const savedValue = speed.settings?.[location.id];
-    const saved = sameStorage(savedValue?.storage, location.storage) ? savedValue : null;
-    const rate = saved?.write_rate_bytes_per_second || suggestion?.write_rate_bytes_per_second || 0;
+    const profile = profiles.find((p) => p.drive_id === savedValue?.drive_id && p.profile_id === savedValue?.profile_id) || profiles[0];
+    const saved = sameStorage(savedValue?.storage, location.storage) && savedValue?.drive_id === profile?.drive_id && savedValue?.profile_id === profile?.profile_id ? savedValue : null;
+    const steps = profile?.speed_steps_bytes_per_second || [];
+    const suitable = steps.filter((value) => value <= (suggestion?.write_rate_bytes_per_second || 0));
+    const recommendedRate = suitable[suitable.length - 1] || steps[0] || 0;
+    const rate = saved?.write_rate_bytes_per_second || recommendedRate;
     const buffer = saved?.buffer_bytes || suggestion?.buffer_bytes || 0;
-    return `<form class="transfer-form" data-staging="${esc(location.id)}"><h3>${esc(location.label)}</h3><p class="hint">${savedValue && !saved ? "<span>Gespeicherte Werte gehören zu einem anderen Dateisystem und müssen neu geprüft werden.</span> " : ""}${suggestion ? `Messvorschlag: ${bytes(suggestion.write_rate_bytes_per_second)}/s · ${bytes(suggestion.buffer_bytes)} Puffer${measured.qualified ? "" : " · Messung nicht qualifiziert"}` : "Noch kein Messvorschlag für dieses Staging."}</p><div class="form-grid"><label>Band-Schreibrate (MB/s)<input name="rate_mbps" type="number" min="1" max="1000" step="1" value="${rate ? Math.round(rate / 1e6) : ""}" required></label><label>mbuffer-Größe (MiB)<input name="buffer_mib" type="number" min="256" max="4096" step="64" value="${buffer ? Math.round(buffer / 1048576) : ""}" required></label></div><div class="form-actions"><button class="button" type="submit">Transferwerte speichern</button></div></form>`;
+    return `<form class="transfer-form" data-staging="${esc(location.id)}"><h3>${esc(location.label)}</h3>
+      <p class="hint">${savedValue && !saved ? "<span>Gespeicherte Werte müssen für dieses Laufwerk und Dateisystem neu geprüft werden.</span> " : ""}${suggestion ? `Messvorschlag: ${bytes(suggestion.write_rate_bytes_per_second)}/s · ${bytes(suggestion.buffer_bytes)} Puffer${measured.qualified ? "" : " · Messung nicht qualifiziert"}` : "Noch kein Messvorschlag für dieses Staging."}</p>
+      ${!profile ? "<p class=\"hint\">Kein aktuell erkanntes Laufwerk mit bestätigtem Geschwindigkeitsprofil. Hardwarestatus aktualisieren.</p>" : ""}
+      ${suggestion && steps.length && suggestion.write_rate_bytes_per_second < steps[0] ? "<p class=\"error-text\">Der Messvorschlag liegt unter der niedrigsten Laufwerksstufe.</p>" : ""}
+      <div class="form-grid">
+        <label>Bandlaufwerk<select name="drive_id" ${profile ? "" : "disabled"} required>${profiles.map((p) => `<option value="${esc(p.drive_id)}" ${p.drive_id === profile?.drive_id ? "selected" : ""}>${esc(p.vendor)} ${esc(p.model)} · ${esc(p.drive_serial)}</option>`).join("")}</select></label>
+        <label>Ziel-Datenrate zum Band (MB/s)<select name="rate_mbps" ${profile ? "" : "disabled"} required>${steps.map((value) => `<option value="${value / 1e6}" ${value === rate ? "selected" : ""}>${value / 1e6} MB/s</option>`).join("")}</select></label>
+        <label>mbuffer-Größe (MiB)<input name="buffer_mib" type="number" min="256" max="4096" step="64" value="${buffer ? Math.round(buffer / 1048576) : ""}" required></label>
+      </div><p class="hint">Das Laufwerk wählt seine Bandgeschwindigkeit selbst. Die Auswahl ist ein geplanter Grenzwert für den Host-Datenstrom.</p>
+      <div class="form-actions"><button class="button" type="submit" ${profile ? "" : "disabled"}>Transferwerte speichern</button></div></form>`;
   }).join("");
   const speedtestPanel = state.node.role === "archive" ? `
     <section class="panel" style="margin-bottom:22px">

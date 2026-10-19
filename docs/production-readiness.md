@@ -1,10 +1,10 @@
 # Produktionsfreigabe: Stand 19.10.2026
 
-**Status: NICHT FREIGEGEBEN.** Version 0.5.1 ist für Simulatorbetrieb, Katalogsuche und ausdrücklich bestätigte physische Wartung geeignet. Der reguläre Archivdienst sperrt physische Bandzugriffe in `LinuxTape` weiterhin absichtlich. Ein bestandener Wartungstest darf diese Sperre nicht umgehen.
+**Status: NICHT FREIGEGEBEN.** Version 0.5.2 ist für Simulatorbetrieb, Katalogsuche und ausdrücklich bestätigte physische Wartung geeignet. Der reguläre Archivdienst sperrt physische Bandzugriffe in `LinuxTape` weiterhin absichtlich. Ein bestandener Wartungstest darf diese Sperre nicht umgehen.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests auf Debian-Bandserver | 118 Tests bestanden; temporäre Testdaten auf `/var/tmp` | Bestanden |
+| Automatisierte Softwaretests auf Debian-Bandserver | 120 Tests bestanden; temporäre Testdaten auf `/var/tmp` | Bestanden |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
@@ -16,7 +16,7 @@
 | Eigenständiger Katalog auf Proxmox | Debian-LXC mit eigenem `otam`-Dienstkonto und Catalog-Node-Webdienst installiert. Lokaler `/healthz`, Anmeldung, geschützte Dateisuche und gesperrte Archivierungsroute geprüft. Der SSH-Tunnel blieb aktiv; der signierte Katalog-Snapshot (Sequenz 1, 98.304 Byte) wurde nach dem Bandauftrag übernommen. Bei gestopptem Bandserver-Webdienst antworteten die unabhängige Medienansicht und Dateisuche weiterhin; anschließend liefen Webdienst und Worker wieder | Bestanden für vorhandenen Katalogstand |
 | NAS-Katalogsicherung | Noch kein gemounteter Backup-Pfad mit Zielmarker konfiguriert | Offen für verteilten Betrieb |
 | Staging-HDD | USB-HDD bisher mit 10-Minuten-Zonentests und Transport-Resets; interner SATA-Einbau und 30-Minuten-O_DIRECT-Test am endgültigen Staging-Dateisystem stehen aus. Gemäß Nutzerwunsch als letzter Hardware-Schritt | Sperrend |
-| Verwalteter Staging-Speedtest und Transferempfehlung | Web-Workflow mit eigener 12-GiB-Testdatei, O_DIRECT-Lesefenstern, CPU-/I/O-Wait-Messung sowie editierbaren Vorschlägen für Schreibrate und Puffer implementiert. Endgültiger Langzeittest und Anwendung der Werte im noch fehlenden physischen Schreibpfad stehen aus | Software vorhanden; Hardware-Abnahme offen |
+| Verwalteter Staging-Speedtest und Transferempfehlung | Web-Workflow mit eigener 12-GiB-Testdatei, O_DIRECT-Lesefenstern und CPU-/I/O-Wait-Messung. Der Host-Datenstrom-Grenzwert wird aus den dokumentierten Stufen des aktuell erkannten IBM-HH4/LTO-4-Profils gewählt; der Puffer bleibt editierbar. Endgültiger Langzeittest und Anwendung im noch fehlenden physischen Schreibpfad stehen aus | Software vorhanden; Hardware-Abnahme offen |
 
 Der erste **60-Sekunden-Funktionstest** auf dem bisherigen SSD-Staging `/var/lib/otam/staging` erzeugte und entfernte seine eigene 12-GiB-Datei vollständig. Gemessen wurden 457,75 MB/s im Durchschnitt, aber nur 55,09 MB/s im schwächsten Fenster; gegen Ende lagen mehrere volle Fenster um 69–71 MB/s. Die mittlere systemweite CPU-Beschäftigung lag bei 3,4 %, die höchste I/O-Wartezeit bei 61,7 %. OTAM meldete folgerichtig `qualified=false` und schlug unter Lastwarnung lediglich 38 MB/s Schreibrate mit 512 MiB Puffer als unverbindliche Werte vor. Diese SSD ist damit nicht als dauerhafte 120-MB/s-Quelle nachgewiesen. Der kurze Lauf ersetzt ausdrücklich nicht die spätere 30-Minuten-Prüfung der eingebauten HDD.
 
