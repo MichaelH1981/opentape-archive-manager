@@ -20,7 +20,7 @@ from ..common import SafetyError, safe_path
 from ..service import ArchiveService
 from ..sets import backup_set_step, next_child, plan_set
 from ..tape import SimulatedTape
-from ..storage import io_lock
+from ..storage import IOBusyError, io_lock
 from .config import WebConfig
 from .control import Control
 from .replication import push
@@ -431,6 +431,15 @@ def run_once(config: WebConfig, control: Control) -> bool:
             ),
         )
     except Exception as error:
+        if (
+            isinstance(error, IOBusyError)
+            and command["kind"] == "sync"
+            and command["idempotency"].startswith("scheduled-")
+        ):
+            # The next scheduler pass retries after the active I/O job. This is
+            # expected contention, not a failed catalog publication.
+            control.complete(command["id"], {"state": "DEFERRED", "reason": "IO_BUSY"})
+            return True
         if command["kind"] == "tape-maintenance":
             key = "maintenance_progress:" + command["payload"].get(
                 "approval_id", "invalid"
@@ -454,6 +463,30 @@ def run_once(config: WebConfig, control: Control) -> bool:
                     },
                 )
         control.complete(command["id"], error=str(error))
+    return True
+
+
+def schedule_sync_if_due(config: WebConfig, control: Control) -> bool:
+    """Queue an automatic sync only when a target is due and I/O is idle."""
+    with control.connect() as db:
+        queued = db.execute(
+            "SELECT 1 FROM commands WHERE kind='sync' AND state IN ('QUEUED','RUNNING')"
+        ).fetchone()
+    if queued:
+        return False
+    now = time.time()
+    if not any(
+        (last := control.get("target_status:" + target["id"], {})).get("revision")
+        != target["revision"]
+        or now - last.get("time", 0) >= target["interval"]
+        for target in enabled_targets(config, control)
+    ):
+        return False
+    try:
+        with io_lock():
+            control.enqueue("sync", {}, "scheduled-" + str(uuid.uuid4()))
+    except IOBusyError:
+        return False
     return True
 
 
@@ -518,21 +551,7 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
                     diagnostics.scan(control)
                     next_scan = time.monotonic() + 10
                 if time.monotonic() >= next_sync:
-                    with control.connect() as db:
-                        queued = db.execute(
-                            "SELECT 1 FROM commands WHERE kind='sync' AND state IN ('QUEUED','RUNNING')"
-                        ).fetchone()
-                    due = False
-                    for target in enabled_targets(config, control):
-                        last = control.get("target_status:" + target["id"], {})
-                        if (
-                            last.get("revision") != target["revision"]
-                            or time.time() - last.get("time", 0) >= target["interval"]
-                        ):
-                            due = True
-                            break
-                    if due and not queued:
-                        control.enqueue("sync", {}, "scheduled-" + str(uuid.uuid4()))
+                    schedule_sync_if_due(config, control)
                     next_sync = time.monotonic() + 5
                 if not worked:
                     time.sleep(1)

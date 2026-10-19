@@ -27,7 +27,7 @@ from otam.web.replication import (
     metadata_header,
     sign,
 )
-from otam.web.worker import execute, run_once, validate_command, worker_lock
+from otam.web.worker import execute, run_once, schedule_sync_if_due, validate_command, worker_lock
 
 WEB_AVAILABLE = (
     importlib.util.find_spec("fastapi") is not None
@@ -876,6 +876,32 @@ class WebAcceptance(unittest.TestCase):
                 "FAILED",
             )
         self.assertIsNone(self.control.get("last_push"))
+
+    def test_scheduled_sync_waits_for_heavy_io_without_error_or_queue_spam(self):
+        from contextlib import contextmanager
+        from otam.storage import IOBusyError
+
+        config = replace(self.config, peer_url="https://catalog.invalid")
+
+        @contextmanager
+        def busy_io():
+            raise IOBusyError("heavy I/O active")
+            yield
+
+        with patch("otam.web.worker.io_lock", busy_io):
+            for _ in range(3):
+                self.assertFalse(schedule_sync_if_due(config, self.control))
+        self.assertEqual(self.control.commands(), [])
+
+        self.assertTrue(schedule_sync_if_due(config, self.control))
+        with patch("otam.web.worker.io_lock", busy_io):
+            self.assertTrue(run_once(config, self.control))
+        command = self.control.commands()[0]
+        self.assertEqual(command["state"], "SUCCEEDED")
+        self.assertEqual(command["result"], {"state": "DEFERRED", "reason": "IO_BUSY"})
+        self.assertIsNone(command["error"])
+        self.assertIsNone(self.control.get("last_fanout"))
+        self.assertTrue(schedule_sync_if_due(config, self.control))
 
     def target(self, kind="catalog", address="https://catalog.example", **overrides):
         return dict(
