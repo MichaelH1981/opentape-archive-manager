@@ -468,7 +468,7 @@ function resourceTable(items) {
     ["Verzeichnis", "Pfad", "Speicher", "Verwaltung"],
     items.map(
       (r) =>
-        `<tr><td><strong>${esc(r.label)}</strong><small class="hint">${r.kind === "source" ? "Quelle" : "Staging"}</small></td><td class="mono">${esc(r.path)}</td><td>${r.kind === "source" ? "Wird beim Zugriff geprüft" : r.available ? `${bytes(r.storage?.free)} frei · ${esc(r.storage?.type || "")}` : "Nicht erreichbar"}</td><td><button class="button subtle" data-remove-resource="${esc(r.id)}">Abmelden</button></td></tr>`,
+        `<tr><td><strong>${esc(r.label)}</strong><small class="hint">${r.kind === "source" ? "Quelle" : "Staging"}</small></td><td class="mono">${esc(r.path)}</td><td>${r.kind === "source" ? "Wird beim Zugriff geprüft" : r.available ? `${bytes(r.storage?.free)} <span>frei von</span> ${bytes(r.storage?.total)} · ${esc(r.storage?.type || "")}` : "Nicht erreichbar"}</td><td><button class="button subtle" data-remove-resource="${esc(r.id)}">Abmelden</button></td></tr>`,
     ),
     "Noch keine Verzeichnisse registriert",
   );

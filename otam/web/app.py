@@ -389,16 +389,9 @@ def create_app(config: WebConfig) -> FastAPI:
     def staging():
         result: dict[str, Any] = {"items": view.staging(), "storage": None}
         if config.role == "archive":
-            ancestor = config.staging
-            while not ancestor.exists() and ancestor != ancestor.parent:
-                ancestor = ancestor.parent
-            usage = shutil.disk_usage(ancestor)
-            result["locations"] = resources.overview(config, control)
-            result["storage"] = {
-                "total": usage.total,
-                "free": usage.free,
-                "used": usage.used,
-            }
+            locations = resources.overview(config, control)
+            result["locations"] = locations
+            result["storage"] = resources.staging_capacity(locations)
         return result
 
     @api.get("/events")

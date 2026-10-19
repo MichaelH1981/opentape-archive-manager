@@ -327,6 +327,8 @@ def overview(config: WebConfig, control: Control) -> list[dict[str, Any]]:
             continue
         try:
             path = Path(r["path"])
+            if "device" in r and path.stat().st_dev != r["device"]:
+                raise SafetyError("Staging-Mount oder Verzeichnis wurde ausgetauscht")
             entry["storage"] = filesystem(path)
             entry["available"] = path.is_dir() and os.access(path, os.R_OK | os.X_OK)
             entry["writable"] = os.access(path, os.W_OK)
@@ -334,3 +336,33 @@ def overview(config: WebConfig, control: Control) -> list[dict[str, Any]]:
             entry.update(available=False, storage=None, writable=False)
         result.append(entry)
     return result
+
+
+def default_staging_id(config: WebConfig, control: Control) -> str:
+    """Resolve the configured primary path without assuming a legacy resource ID."""
+    staging = [r for r in entries(config, control) if r["kind"] == "staging"]
+    primary = [r for r in staging if Path(r["path"]) == config.staging]
+    if len(primary) == 1:
+        return primary[0]["id"]
+    if len(staging) == 1:
+        return staging[0]["id"]
+    raise SafetyError("Primäres Staging-Verzeichnis ist nicht eindeutig konfiguriert")
+
+
+def staging_capacity(locations: list[dict[str, Any]]) -> dict[str, int]:
+    """Sum each available filesystem once even when several paths refer to it."""
+    summary = {"total": 0, "used": 0, "free": 0, "volumes": 0}
+    seen: set[str] = set()
+    for item in locations:
+        storage = item.get("storage")
+        if item.get("kind") != "staging" or not item.get("available") or not storage:
+            continue
+        key = str(storage.get("device") or
+                  (storage.get("block_device"), storage.get("mount")))
+        if key in seen:
+            continue
+        seen.add(key)
+        for field in ("total", "used", "free"):
+            summary[field] += int(storage[field])
+        summary["volumes"] += 1
+    return summary

@@ -65,6 +65,12 @@ def require_uuid(payload: dict[str, Any], field: str) -> str:
     return value
 
 
+def selected_staging_id(config: WebConfig, control: Control,
+                        payload: dict[str, Any]) -> str:
+    return (payload["staging_id"] if "staging_id" in payload
+            else resources.default_staging_id(config, control))
+
+
 def validate_command(
     config: WebConfig, control: Control, kind: str, payload: dict[str, Any]
 ) -> None:
@@ -143,7 +149,7 @@ def validate_command(
             for path in selected:
                 safe_path(path)
         resources.staging_for(
-            config, control, payload.get("staging_id", "default-staging")
+            config, control, selected_staging_id(config, control, payload)
         )
         if not isinstance(payload.get("source_id"), str) or payload.get(
             "source_id"
@@ -327,13 +333,13 @@ def execute(
             control.set(
                 "job_storage:" + plan["job_id"],
                 {
-                    "staging_id": payload.get("staging_id", "default-staging"),
+                    "staging_id": selected_staging_id(config, control, payload),
                     "source_id": payload["source_id"],
                     "staging_path": str(
                         resources.staging_for(
                             config,
                             control,
-                            payload.get("staging_id", "default-staging"),
+                            selected_staging_id(config, control, payload),
                         )
                     ),
                 },
@@ -344,9 +350,9 @@ def execute(
                 "job_id", "sha256", "file_count", "payload_bytes"
             )} | {k: plan[k] for k in ("required_estimate", "available", "media_ids") if k in plan}
         if kind in ("stage", "backup", "backup-set"):
-            binding = control.get(
-                "job_storage:" + payload["job_id"], {"staging_id": "default-staging"}
-            )
+            binding = control.get("job_storage:" + payload["job_id"])
+            if binding is None:
+                binding = {"staging_id": resources.default_staging_id(config, control)}
             spool = resources.staging_for(config, control, binding["staging_id"])
         if kind == "stage":
             return service.stage(

@@ -115,6 +115,35 @@ class WebAcceptance(unittest.TestCase):
         self.client.close()
         self.temp.cleanup()
 
+    def test_staging_capacity_counts_filesystems_once_and_rejects_stale_mount(self):
+        from dataclasses import replace
+        from otam.web import resources
+
+        self.config.staging.mkdir(parents=True, exist_ok=True)
+        second = self.root / "second-staging"
+        second.mkdir()
+        device = self.config.staging.stat().st_dev
+        self.control.set("storage_resources", [
+            {"id": "default-staging", "kind": "staging", "label": "Primary",
+             "path": str(self.config.staging), "device": device},
+            {"id": str(uuid.uuid4()), "kind": "staging", "label": "Same disk",
+             "path": str(second), "device": device},
+        ])
+        response = self.client.get("/api/v1/staging")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["storage"]["volumes"], 1)
+        self.assertEqual(payload["storage"]["total"], payload["locations"][0]["storage"]["total"])
+
+        items = self.control.get("storage_resources")
+        items[0]["device"] = device + 1
+        self.control.set("storage_resources", items)
+        payload = self.client.get("/api/v1/staging").json()
+        self.assertFalse(payload["locations"][0]["available"])
+        self.assertEqual(payload["storage"]["volumes"], 1)
+        self.assertEqual(resources.default_staging_id(replace(self.config, staging=second), self.control),
+                         items[1]["id"])
+
     def command(self, kind, payload, key=None):
         response = self.client.post(
             "/api/v1/commands",

@@ -89,9 +89,9 @@ function pipeline(phase) {
 function storageCard(storage) {
   if (!storage)
     return `<section class="panel storage-card"><h2>Katalog-Replikat</h2><p>Eigenständig verfügbar, auch ohne laufenden Bandserver.</p><div class="node-detail">${icon("sync")}<div><strong>${state.node.snapshot ? ago(state.node.snapshot.created) : "Noch kein Katalog empfangen"}</strong><small>Stand des Primärkatalogs</small></div></div></section>`;
-  const percent = Math.round((storage.used / storage.total) * 100),
+  const percent = storage.total ? Math.min(100, Math.round((storage.used / storage.total) * 100)) : 0,
     circ = 326.7;
-  return `<section class="panel storage-card"><h2>Lokaler Staging-Speicher</h2><p>Vorbereiten. Prüfen. Sicher schreiben.</p><div class="storage-ring"><svg viewBox="0 0 127 127" aria-hidden="true"><circle class="track" cx="63.5" cy="63.5" r="52"/><circle class="fill" cx="63.5" cy="63.5" r="52" stroke-dasharray="${(circ * percent) / 100} ${circ}"/></svg><div class="ring-text"><strong>${percent}<small>%</small></strong><small>belegt</small></div></div><div class="legend-row"><span class="legend-dot"></span>Belegt<strong>${bytes(storage.used)}</strong></div><div class="legend-row"><span class="legend-dot light"></span>Verfügbar<strong>${bytes(storage.free)}</strong></div></section>`;
+  return `<section class="panel storage-card"><h2>Lokaler Staging-Speicher</h2><p>Vorbereiten. Prüfen. Sicher schreiben.</p><div class="storage-ring"><svg viewBox="0 0 127 127" aria-hidden="true"><circle class="track" cx="63.5" cy="63.5" r="52"/><circle class="fill" cx="63.5" cy="63.5" r="52" stroke-dasharray="${(circ * percent) / 100} ${circ}"/></svg><div class="ring-text"><strong>${percent}<small>%</small></strong><small>belegt</small></div></div><div class="legend-row"><span class="legend-dot"></span>Gesamtkapazität<strong>${bytes(storage.total)}</strong></div><div class="legend-row"><span class="legend-dot"></span>Belegt<strong>${bytes(storage.used)}</strong></div><div class="legend-row"><span class="legend-dot light"></span>Verfügbar<strong>${bytes(storage.free)}</strong></div></section>`;
 }
 function sparkline(samples) {
   const vals = samples
