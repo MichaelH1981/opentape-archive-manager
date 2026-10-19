@@ -358,14 +358,14 @@ class TransferRecommendation(unittest.TestCase):
             {'bytes': 200_000_000, 'seconds': 1, 'bytes_per_second': 200_000_000,
              'system_cpu_percent': 20, 'io_wait_percent': 2},
         ]
-        result = transfer_recommendation(samples, memory_bytes=4 * 1024 ** 3)
+        result = transfer_recommendation(samples, memory_bytes=8 * 1024 ** 3)
         self.assertEqual(result['write_rate_bytes_per_second'], 120_000_000)
         self.assertEqual(result['buffer_bytes'] % (64 * 1024 ** 2), 0)
-        self.assertLessEqual(result['buffer_bytes'], 2 * 1024 ** 3)
+        self.assertLessEqual(result['buffer_bytes'], 4 * 1024 ** 3)
         self.assertTrue(result['advisory_only'])
         self.assertTrue(buffer_analysis(samples, 120_000_000, result['buffer_bytes'])['qualified'])
         samples[1]['io_wait_percent'] = 35
-        stressed = transfer_recommendation(samples, memory_bytes=4 * 1024 ** 3)
+        stressed = transfer_recommendation(samples, memory_bytes=8 * 1024 ** 3)
         self.assertEqual(stressed['write_rate_bytes_per_second'], 120_000_000)
         self.assertTrue(stressed['system_load_warning'])
 
@@ -392,7 +392,7 @@ class TransferRecommendation(unittest.TestCase):
             samples = [{'bytes': 160_000_000, 'seconds': 1, 'bytes_per_second': 160_000_000},
                        {'bytes': 100_000_000, 'seconds': 1, 'bytes_per_second': 100_000_000},
                        {'bytes': 160_000_000, 'seconds': 1, 'bytes_per_second': 160_000_000}]
-            model = buffer_analysis(samples, 120_000_000, 1024 ** 3)
+            model = buffer_analysis(samples, 120_000_000, 4 * 1024 ** 3)
             self.assertTrue(model['qualified'])
             report = {'qualified': True, 'direct_io': True, 'seconds': 1800,
                       'required_rate': 120_000_000, 'file_bytes': 12 * 1024 ** 3,

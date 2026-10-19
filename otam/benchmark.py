@@ -22,7 +22,8 @@ MIN_DURATION = 1800
 MIN_FILE = 10 * 1024 ** 3
 CHUNK = 4 * 1024 ** 2
 TEST_FILE_BYTES = 12 * 1024 ** 3
-BUFFER_RESERVE_SECONDS = 5
+BUFFER_RESERVE_SECONDS = 15
+RECOVERY_SECONDS = 5
 BUFFER_USABLE_FRACTION = 0.75
 AVERAGE_HEADROOM = 1.05
 QUALIFICATION_VERSION = 2
@@ -53,6 +54,7 @@ def buffer_analysis(samples: list[dict[str, Any]], rate: int, buffer_bytes: int)
         peak = max(peak, backlog)
     average = total_bytes / total_seconds
     reserve = rate * BUFFER_RESERVE_SECONDS
+    recovery_allowance = rate * RECOVERY_SECONDS
     usable = buffer_bytes * BUFFER_USABLE_FRACTION
     return {
         'rate_bytes_per_second': rate,
@@ -62,12 +64,13 @@ def buffer_analysis(samples: list[dict[str, Any]], rate: int, buffer_bytes: int)
         'maximum_buffer_deficit_bytes': peak,
         'final_buffer_deficit_bytes': backlog,
         'reserve_bytes': reserve,
+        'recovery_allowance_bytes': recovery_allowance,
         'usable_buffer_bytes': usable,
         'average_sufficient': average >= rate * AVERAGE_HEADROOM,
         'buffer_sufficient': peak + reserve <= usable,
-        'recovered': backlog <= reserve,
+        'recovered': backlog <= recovery_allowance,
         'qualified': (average >= rate * AVERAGE_HEADROOM
-                      and peak + reserve <= usable and backlog <= reserve),
+                      and peak + reserve <= usable and backlog <= recovery_allowance),
     }
 
 
@@ -107,7 +110,7 @@ def transfer_recommendation(samples: list[dict[str, Any]], *, memory_bytes: int,
         'system_load_warning': stressed,
         'memory_warning': memory_bytes < 1024 ** 3,
         'buffer_model': model,
-        'basis': '5% average headroom; measured peak FIFO deficit plus 5 s reserve; 75% usable buffer',
+        'basis': '5% average headroom; measured peak FIFO deficit plus 15 s reserve; 75% usable buffer',
         'advisory_only': True,
     }
 
@@ -237,7 +240,7 @@ def run_benchmark(catalog: Catalog, root: Path, source: Path, *, seconds: float 
                               peak_load1=max(s['load1'] for s in samples),
                               load_warning=any(s['system_cpu_percent'] >= 85 or s['io_wait_percent'] >= 30 for s in samples),
                               transfer_recommendation=recommendation,
-                              qualification_note="Requires >=1800s, >=10GiB input, >=5% average headroom, measured deficits fitting the buffer with 5s reserve, and recovery by test end; no throughput guarantee outside measured conditions")
+                              qualification_note="Requires >=1800s, >=10GiB input, >=5% average headroom, measured deficits fitting the buffer with 15s reserve, and recovery within 5s output by test end; no throughput guarantee outside measured conditions")
                 catalog.finish(job, "VERIFIED" if qualified else "FAILED",
                                None if qualified else "Benchmark did not meet production qualification requirements", report)
                 return report
