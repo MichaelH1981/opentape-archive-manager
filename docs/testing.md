@@ -1,5 +1,7 @@
 # Softwaretests und physische Abnahme
 
+Der aktuelle, ausdrücklich **nicht freigegebene** Produktionsstand und die noch offenen Freigabeschritte stehen in [Produktionsfreigabe](production-readiness.md).
+
 ## Version 0.5 – Simulatorabnahme
 
 Die Softwaretests prüfen die Auswahl einzelner Dateien und rekursiver Ordner im freigegebenen Quellbereich, gesperrte Pfad-Traversal-/Symlink-Zugriffe, einen übergeordneten Auftrag auf zwei Simulatormedien, falsche Medienreihenfolge, `WAITING_MEDIA` und Abschluss nach dem zweiten Medium. Der Modus für verzögerte Rücklesung wird mit vollständigem Medien-Scan, tatsächlichem Rücklesefehler nach dem Schreiben, Staging-Erhalt, Katalogverlust und Wiederaufnahme nach Abbruch während der Bereinigung getestet. Die kleinen synthetischen Medien stehen für einen Ordner über der Kapazität eines einzelnen LTO-4-Bandes; ein 800-GB-Hardwaretest wurde damit nicht ersetzt.
