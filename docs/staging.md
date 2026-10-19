@@ -6,9 +6,9 @@ Alle regulären Archivjobs erstellen ihre TARs vollständig auf lokaler Platte/S
 
 `INVENTORY → STAGING → VALIDATION → READY → TAPE_WRITE → TAPE_READBACK → VERIFIED → STAGING_CLEANUP`
 
-SQLite-Schema 2 speichert pro Archiv Phase, Zustand, Fortschritt, Zeit, Fehler, Staging-Pfad, vollständigen SHA-256, Bytezahl und Dateiidentität. `jobs.phase` zeigt die aktuelle Jobphase; events protokollieren die Übergänge. COMPLETE in READY bedeutet nur fertig vorbereitet, nicht gesichert. Erst nach tatsächlichem vollständigem Rücklesen einschließlich TAR-Padding und erfolgreichem Vergleich zum ursprünglichen lokalen TAR-Hash wird das Archiv VERIFIED. Auch der anschließende Band-Receipt muss erfolgreich geschrieben und zurückgelesen sein.
+SQLite-Schema 2 speichert pro Archiv Phase, Zustand, Fortschritt, Zeit, Fehler, Staging-Pfad, vollständigen SHA-256, Bytezahl und Dateiidentität. `jobs.phase` zeigt die aktuelle Jobphase; events protokollieren die Übergänge. COMPLETE in READY bedeutet nur fertig vorbereitet, nicht gesichert. Erst nach tatsächlichem vollständigem Rücklesen einschließlich TAR-Padding und erfolgreichem Vergleich zum ursprünglichen lokalen TAR-Hash wird das Archiv VERIFIED. Im archivweisen Standardmodus muss auch der anschließende Receipt erfolgreich geschrieben und zurückgelesen sein. Im optionalen Medienmodus trägt der Receipt zunächst `pending_readback`; VERIFIED folgt erst nach vollständigem Medien-Scan und Abgleich mit den lokalen TAR-Hashes.
 
-Das TAR bleibt **bis nach VERIFIED** auf SSD erhalten. Die Rücklesung läuft durch einen begrenzten Stream-Parser und SHA-256-Zähler, ohne zweite große lokale TAR-Datei. Datei-Manifeste werden im selben Rücklesedurchgang geprüft; der Rest bis EOF/Filemark wird ebenfalls gehasht. Erfolgreiches Schreiben oder gleiche Bytezahl allein genügen nicht.
+Das TAR bleibt **bis nach VERIFIED** auf SSD erhalten. Bei gebündelter Rücklesung müssen alle TARs eines Mediums gleichzeitig in das lokale Staging passen; bei kleinerer Platte ist die archivweise Rücklesung zu verwenden. Die Rücklesung läuft durch einen begrenzten Stream-Parser und SHA-256-Zähler, ohne zweite große lokale TAR-Datei. Datei-Manifeste werden im selben Rücklesedurchgang geprüft; der Rest bis EOF/Filemark wird ebenfalls gehasht. Erfolgreiches Schreiben oder gleiche Bytezahl allein genügen nicht.
 
 ## Staging-Verzeichnis und Platz
 

@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..catalog import Catalog
-from ..common import SafetyError
+from ..common import SafetyError, safe_path
 from ..service import ArchiveService
+from ..sets import backup_set_step, next_child, plan_set
 from ..tape import SimulatedTape
 from ..storage import io_lock
 from .config import WebConfig
@@ -31,6 +32,7 @@ COMMANDS = {
     "plan",
     "stage",
     "backup",
+    "backup-set",
     "verify",
     "restore",
     "recover",
@@ -105,9 +107,10 @@ def validate_command(
             raise SafetyError("Ungültige Medienklasse")
         return
     allowed = {
-        "plan": {"media_id", "source_id", "target", "staging_id"},
+        "plan": {"media_id", "media_ids", "source_id", "target", "staging_id", "selected_paths", "verify_mode"},
         "stage": {"job_id", "revalidate_ready", "confirm"},
         "backup": {"job_id", "confirm", "plan_hash", "resume", "prepare_all"},
+        "backup-set": {"job_id", "confirm", "plan_hash", "media_id", "resume"},
         "verify": {"media_id"},
         "restore": {"media_id", "paths", "archive_id", "target_name"},
         "recover": {"media_id"},
@@ -116,6 +119,15 @@ def validate_command(
     if set(payload) - allowed:
         raise SafetyError("Unbekannte Auftragsparameter")
     if kind == "plan":
+        if payload.get("verify_mode", "archive") not in ("archive", "media"):
+            raise SafetyError("Ungültiger Verifikationsmodus")
+        if "selected_paths" in payload:
+            selected = payload["selected_paths"]
+            if (not isinstance(selected, list) or not 1 <= len(selected) <= 10000
+                    or any(not isinstance(path, str) or len(path) > 4096 for path in selected)):
+                raise SafetyError("Ungültige Dateiauswahl")
+            for path in selected:
+                safe_path(path)
         resources.staging_for(
             config, control, payload.get("staging_id", "default-staging")
         )
@@ -123,12 +135,44 @@ def validate_command(
             "source_id"
         ) not in {s.id for s in config.sources}:
             raise SafetyError("Quelle ist nicht freigegeben")
+        if "media_ids" in payload:
+            ids = payload["media_ids"]
+            if (not isinstance(ids, list) or not 2 <= len(ids) <= 32
+                    or any(not isinstance(ident, str) for ident in ids)
+                    or len(set(ids)) != len(ids)):
+                raise SafetyError("Zwei bis 32 verschiedene Medien erforderlich")
+            for media_id in ids:
+                require_uuid({"media_id": media_id}, "media_id")
+                mounted(config, control, media_id)
+            if "media_id" in payload:
+                raise SafetyError("Einzel- und Mehrbandziel nicht mischen")
+        else:
+            require_uuid(payload, "media_id")
+            mounted(config, control, payload["media_id"])
         if (
             type(payload.get("target", 75_000_000_000)) is not int
             or not 10240 <= payload.get("target", 75_000_000_000) <= 10_000_000_000_000
         ):
             raise SafetyError("Ungültige TAR-Zielgröße")
-    if kind in ("stage", "backup"):
+    if kind == "backup-set":
+        require_uuid(payload, "job_id")
+        require_uuid(payload, "media_id")
+        if payload.get("confirm") != payload["job_id"] or not isinstance(payload.get("plan_hash"), str):
+            raise SafetyError("Geprüften Mehrbandplan ausdrücklich bestätigen")
+        if type(payload.get("resume", False)) is not bool:
+            raise SafetyError("Ungültige Wiederaufnahmeoption")
+        catalog = Catalog(config.catalog)
+        try:
+            row, child = next_child(catalog, payload["job_id"])
+            plan = json.loads(row["plan_json"])
+            if payload["plan_hash"] != plan["sha256"] or child["media_id"] != payload["media_id"]:
+                raise SafetyError("Falsches Medium oder geänderter Mehrbandplan")
+            if Path(plan["source"]).resolve() not in {s.path.resolve() for s in config.sources}:
+                raise SafetyError("Planquelle ist nicht mehr freigegeben")
+            mounted(config, control, payload["media_id"])
+        finally:
+            catalog.close()
+    elif kind in ("stage", "backup"):
         require_uuid(payload, "job_id")
         catalog = Catalog(config.catalog)
         try:
@@ -170,7 +214,7 @@ def validate_command(
                         raise SafetyError("Ungültige Archivierungsoption")
         finally:
             catalog.close()
-    else:
+    elif kind != "plan":
         require_uuid(payload, "media_id")
         mounted(config, control, payload["media_id"])
     if kind == "restore":
@@ -223,19 +267,26 @@ def execute(
             header = ArchiveService(catalog, tape).register()
             control.register(header["media_id"], tape.path)
             return header
-        if kind in ("stage", "backup"):
+        if kind in ("stage", "backup", "backup-set"):
             row = catalog.db.execute(
                 "SELECT plan_json FROM jobs WHERE id=?", (payload["job_id"],)
             ).fetchone()
-            media = json.loads(row[0])["media_id"]
+            media = payload["media_id"] if kind == "backup-set" else json.loads(row[0])["media_id"]
         else:
-            media = payload["media_id"]
+            media = payload.get("media_id") or payload.get("media_ids", [None])[0]
         service = ArchiveService(catalog, mounted(config, control, media))
         if kind == "plan":
             source = next(
                 s.path for s in config.sources if s.id == payload["source_id"]
             )
-            plan = service.plan(source, media, payload.get("target", 75_000_000_000))
+            if "media_ids" in payload:
+                plan = plan_set(catalog, source,
+                    [(ident, mounted(config, control, ident)) for ident in payload["media_ids"]],
+                    payload.get("target", 75_000_000_000), payload.get("selected_paths"),
+                    payload.get("verify_mode", "archive"))
+            else:
+                plan = service.plan(source, media, payload.get("target", 75_000_000_000),
+                                    payload.get("selected_paths"), payload.get("verify_mode", "archive"))
             control.set(
                 "job_storage:" + plan["job_id"],
                 {
@@ -250,18 +301,12 @@ def execute(
                     ),
                 },
             )
-            return {
-                k: plan[k]
-                for k in (
-                    "job_id",
-                    "sha256",
-                    "file_count",
-                    "payload_bytes",
-                    "required_estimate",
-                    "available",
-                )
-            }
-        if kind in ("stage", "backup"):
+            for child in plan.get("children", []):
+                control.set("job_storage:" + child["job_id"], control.get("job_storage:" + plan["job_id"]))
+            return {k: plan[k] for k in (
+                "job_id", "sha256", "file_count", "payload_bytes"
+            )} | {k: plan[k] for k in ("required_estimate", "available", "media_ids") if k in plan}
+        if kind in ("stage", "backup", "backup-set"):
             binding = control.get(
                 "job_storage:" + payload["job_id"], {"staging_id": "default-staging"}
             )
@@ -280,6 +325,10 @@ def execute(
                 resume=payload.get("resume", False),
                 prepare_all=payload.get("prepare_all", False),
             )
+        if kind == "backup-set":
+            return backup_set_step(catalog, payload["job_id"], payload["confirm"],
+                                   payload["plan_hash"], payload["media_id"], service.tape,
+                                   spool, resume=payload.get("resume", False))
         if kind == "verify":
             return service.verify(media)
         if kind == "restore":

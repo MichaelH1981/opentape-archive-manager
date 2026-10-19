@@ -34,7 +34,7 @@ Authentifizierung über passwortgeschützte Sessions (PBKDF2-SHA-256, HttpOnly, 
 
 ## Abnahmegrenzen
 
-Simulatorjobs können vollständig geplant, vorbereitet, bestätigt, archiviert, verifiziert und wiederhergestellt werden. Physische LTO-Aktionen werden als nicht verfügbar angezeigt und bleiben serverseitig blockiert. System-Snapshots, Verschlüsselung, automatische Medienrotation und echte Mehrbandwechsel werden nicht als vorhandene Funktionen dargestellt.
+Simulatorjobs können vollständig geplant, vorbereitet, bestätigt, archiviert, verifiziert und wiederhergestellt werden. Physische LTO-Aktionen werden als nicht verfügbar angezeigt und bleiben serverseitig blockiert. System-Snapshots, Verschlüsselung, automatische Medienrotation und echte physische Mehrbandwechsel werden nicht als vorhandene Funktionen dargestellt. Mehrbandplanung und bestätigter Medienwechsel sind im Simulator implementiert.
 
 Softwareabnahme: authentifizierter HTTP-Zyklus, CSRF/Host/Origin, Worker-Neustart, Pfadgrenzen, Katalogfilter/Pagination/Kopien, eigenständige Suche nach Primärserver-Ausfall, korruptes/unterbrochenes Snapshot-Upload, Replay, falsche Herausgeber, NAS-Export, Desktop-/Mobilbrowser. Hardwareabnahme und reale Proxmox-/NAS-Installation bleiben eigenständige Schritte.
 

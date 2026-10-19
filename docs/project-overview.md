@@ -1,16 +1,16 @@
 # Was OTAM derzeit kann
 
-Stand: Version 0.3.0. OTAM umfasst einen Python-Archivierungskern mit CLI und persistentem Bandsimulator, eine responsive Weboberfläche, eine REST-API, einen separaten Worker und einen eigenständigen Katalogdienst. Eine produktive physische LTO-Abnahme steht aus.
+Stand: Version 0.5.0. OTAM umfasst einen Python-Archivierungskern mit CLI und persistentem Bandsimulator, eine responsive Weboberfläche, eine REST-API, einen separaten Worker und einen eigenständigen Katalogdienst. Eine produktive physische LTO-Abnahme steht aus.
 
 ## Implementiert und automatisiert geprüft
 
 | Bestandteil | Aktueller Umfang |
 |---|---|
-| Quelleninventar | Reguläre Dateien, relative Pfade, Größe, mtime, SHA-256; Ablehnung spezieller Dateitypen |
-| Archivplanung | Zielgröße standardmäßig 75 GB, größere Einzeldateien separat, konservative Kapazitätsreserve, ausdrückliche Planbestätigung |
+| Quelleninventar | Reguläre Dateien, relative Pfade, Größe, mtime, SHA-256; Dateibrowser für Dateien und rekursive Ordner; Ablehnung spezieller Dateitypen |
+| Archivplanung | Zielgröße standardmäßig 75 GB, größere Einzeldateien separat, konservative Kapazitätsreserve, Mehrbandplanung und Bestätigung vor jedem Medium im Simulator |
 | Lokales Staging | Vollständige PAX-TARs, Manifeste und Hashes; lokale persistente Dateisysteme prüfen; Platzprüfung; READY erst nach Validierung |
 | Archivierungsablauf | Persistente Phasen, Medien-ID-Abgleich, Prozesssperren, sequenzielles Append im Simulator |
-| Verifikation | Vollständiges Rücklesen des simulierten Mediums, TAR- und Datei-Prüfsummen; VERIFIED erst nach Erfolg; kein zweites großes Rücklese-TAR nötig |
+| Verifikation | Je TAR oder nach allen TARs eines Mediums; vollständiges Rücklesen, TAR- und Datei-Prüfsummen; VERIFIED erst nach Erfolg; kein zweites großes Rücklese-TAR nötig |
 | Katalog | SQLite, versioniertes Schema/Migration, Medien, Archive, Dateien, Jobs, Ereignisse und Wiederherstellungen |
 | Suche und Export | Textsuche in Dateinamen/Pfaden, SHA-256-Suche und Kopien, JSON-/CSV-Export |
 | Wiederherstellung | Ausgewählte Dateien, Pfade oder alle Dateien eines Mediums; vorheriger Restore-Plan; SHA-256-Prüfung; kein Überschreiben vorhandener Dateien |
@@ -37,7 +37,7 @@ SQLite protokolliert den Ablauf dauerhaft. Quelldateien bleiben erhalten. Ein Fe
 ## Noch ausstehend
 
 - Realer LTO-Schreib-/Leseadapter mit mt-st und mbuffer; sichere Positionierung, Filemarks, EOD/EOM und physischer Testband-Zyklus.
-- Geführte Mehrbandplanung und Medienwechsel, umfassende Suchfilter und Medienverwaltung.
+- Physischer Mehrbandwechsel und Kapazitätskalibrierung mit echten LTO-Medien; große Kataloge profilieren.
 - Tatsächliche Installation und Betriebsabnahme auf Bandserver und Proxmox-/NAS-Zielumgebung. Webdashboard, REST-API, Worker und Servicevorlagen sind implementiert.
 - TapeAlert/Gesundheitsansichten, Rotation mit Aufbewahrungsregeln, vollständige System-Snapshots und Verschlüsselung.
 - ACLs, xattrs, Links, leere Verzeichnisse und vollständige Linux-Systemmetadaten gehören noch nicht zum Dateiarchivierungsumfang.

@@ -191,18 +191,19 @@ class CatalogView:
 
     def jobs(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.connect() as db:
-            return (
-                []
-                if db is None
-                else [
-                    dict(r)
-                    for r in db.execute(
-                        """SELECT j.id,j.kind,j.state,j.media_id,j.created,j.updated,j.phase,j.error,m.label
-                FROM jobs j LEFT JOIN media m ON m.id=j.media_id ORDER BY j.created DESC LIMIT ?""",
-                        (limit,),
-                    )
-                ]
-            )
+            if db is None:
+                return []
+            rows = []
+            for row in db.execute(
+                """SELECT j.id,j.kind,j.state,j.media_id,j.created,j.updated,j.phase,j.error,
+                          j.plan_json,m.label FROM jobs j LEFT JOIN media m ON m.id=j.media_id
+                   ORDER BY j.created DESC LIMIT ?""", (limit,)
+            ):
+                item = dict(row)
+                plan = json.loads(item.pop("plan_json") or "null")
+                item["parent_job"] = plan.get("parent_job") if isinstance(plan, dict) else None
+                rows.append(item)
+            return rows
 
     def job(self, ident: str) -> dict[str, Any]:
         with self.connect() as db:
@@ -227,6 +228,13 @@ class CatalogView:
                         for a in plan["archives"]
                     ],
                 }
+            if isinstance(plan, dict) and "children" in plan:
+                plan = {**plan, "children": [
+                    {**child, "state": (db.execute(
+                        "SELECT state FROM jobs WHERE id=?", (child["job_id"],)
+                    ).fetchone() or {"state": "MISSING"})["state"]}
+                    for child in plan["children"]
+                ]}
             result["plan"] = plan
             result["report"] = json.loads(result.pop("report_json") or "null")
             result["tape_attempted"] = (

@@ -83,33 +83,69 @@ def source_fd(root: Path, name: str) -> int:
         os.close(fd)
 
 
-def inventory(root: Path) -> list[dict[str, Any]]:
+def inventory(root: Path, selected: list[str] | None = None) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     if not root.is_dir():
         raise SafetyError("Source must be a directory")
+    if selected is not None:
+        if not selected or len(selected) > 10000 or any(not isinstance(p, str) or len(p) > 4096 for p in selected):
+            raise SafetyError("Invalid source selection")
+        chosen = sorted({safe_path(p) for p in selected})
+        # Do not resolve links: every selected path component must be a real
+        # directory, and source_fd checks the final regular file with O_NOFOLLOW.
+        selected_files: set[str] = set()
+        selected_dirs: set[str] = set()
+        for name in chosen:
+            parts = name.split("/")
+            current = root
+            for part in parts[:-1]:
+                current = current / part
+                if current.is_symlink() or not current.is_dir():
+                    raise SafetyError("Selected source path is not a real directory")
+            path = current / parts[-1]
+            if path.is_symlink():
+                raise SafetyError("Selected source symlinks are unsupported")
+            if path.is_dir():
+                selected_dirs.add(name)
+            elif path.is_file():
+                selected_files.add(name)
+            else:
+                raise SafetyError("Selected source path is missing or unsupported")
+    else:
+        selected_files, selected_dirs = set(), set()
     def walk_error(error: OSError) -> None:
         raise error
-    for base, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
-        dirs.sort()
-        for directory in dirs:
-            if (Path(base) / directory).is_symlink():
-                raise SafetyError("Source directory symlinks are unsupported")
-        for filename in sorted(files):
-            name = (Path(base) / filename).relative_to(root).as_posix()
-            fd = source_fd(root, name)
-            with os.fdopen(fd, "rb") as stream:
-                before = os.fstat(stream.fileno())
-                checksum = digest(stream)
-                after = os.fstat(stream.fileno())
-            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-                raise SafetyError(f"Source changed while hashing: {name}")
-            entries.append({"path": safe_path(name), "size": before.st_size,
-                            "mtime_ns": before.st_mtime_ns, "sha256": checksum,
-                            "type": Path(name).suffix.lower() or "(none)"})
+    walks = [root / p for p in sorted(selected_dirs)] if selected is not None else [root]
+    seen: set[str] = set()
+    def add_file(name: str) -> None:
+        if name in seen:
+            return
+        fd = source_fd(root, name)
+        with os.fdopen(fd, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            checksum = digest(stream)
+            after = os.fstat(stream.fileno())
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise SafetyError(f"Source changed while hashing: {name}")
+        seen.add(name)
+        entries.append({"path": safe_path(name), "size": before.st_size,
+                        "mtime_ns": before.st_mtime_ns, "sha256": checksum,
+                        "type": Path(name).suffix.lower() or "(none)"})
+    for name in sorted(selected_files):
+        add_file(name)
+    for walk_root in walks:
+        for base, dirs, files in os.walk(walk_root, followlinks=False, onerror=walk_error):
+            dirs.sort()
+            for directory in dirs:
+                if (Path(base) / directory).is_symlink():
+                    raise SafetyError("Source directory symlinks are unsupported")
+            for filename in sorted(files):
+                name = (Path(base) / filename).relative_to(root).as_posix()
+                add_file(name)
     if not entries:
         raise SafetyError("Source contains no regular files")
-    return entries
+    return sorted(entries, key=lambda entry: entry["path"])
 
 
 def estimate(entries: list[dict[str, Any]]) -> int:

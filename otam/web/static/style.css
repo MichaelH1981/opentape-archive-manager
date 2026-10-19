@@ -2220,3 +2220,12 @@ dialog::backdrop {
 @media (max-width: 900px) {
   .settings-account-grid { grid-template-columns: 1fr; }
 }
+.source-picker-nav{display:flex;align-items:center;gap:12px;margin:18px 0 10px;min-width:0}
+.source-picker-nav .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.source-picker-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line,#e4e8df)}
+.source-picker-row label{display:flex;align-items:center;gap:9px;min-width:0;cursor:pointer;overflow-wrap:anywhere}
+.source-picker-row label svg{width:18px;height:18px;flex:none}
+.source-picker-row .button{flex:none}
+.media-choice-list{display:grid;gap:7px;margin:8px 0}
+.media-choice-list label{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid var(--line,#e4e8df);border-radius:9px;cursor:pointer}
+.media-choice-list input{flex:none}

@@ -65,7 +65,10 @@ class ArchiveService:
             raise SafetyError("Media identity is unknown or differs from catalog")
         return dict(row)
 
-    def plan(self, source: Path, media: str, target: int = 75_000_000_000) -> dict[str, Any]:
+    def plan(self, source: Path, media: str, target: int = 75_000_000_000,
+             selected: list[str] | None = None, verify_mode: str = "archive") -> dict[str, Any]:
+        if verify_mode not in ("archive", "media"):
+            raise SafetyError("Unknown verification mode")
         root = source.resolve()
         if self.catalog.path.is_relative_to(root):
             raise SafetyError("Catalog must be outside source tree")
@@ -82,7 +85,7 @@ class ArchiveService:
                 self.catalog.db.execute("UPDATE jobs SET phase='INVENTORY' WHERE id=?", (job,))
             self.catalog.event(job, "job_phase", phase="INVENTORY")
             try:
-                entries = inventory(root)
+                entries = inventory(root, selected)
                 manifests = plan_archives(entries, media, target)
                 if any(len(encode(m)) > MAX_META for m in manifests):
                     raise SafetyError("Manifest exceeds limit; reduce archive target size")
@@ -94,6 +97,9 @@ class ArchiveService:
                         "required_estimate": required, "available": available,
                         "payload_bytes": sum(e["size"] for e in entries), "file_count": len(entries),
                         "expected_tape_files": len(self.tape.positions())}
+                if selected is not None:
+                    plan["selected_paths"] = sorted(set(selected))
+                plan["verify_mode"] = verify_mode
                 plan_hash = hashlib.sha256(encode(plan)).hexdigest()
                 plan["sha256"] = plan_hash
                 with self.catalog.db:
@@ -213,6 +219,9 @@ class ArchiveService:
             if self.tape.header().get("backend") != "simulator":
                 require_qualification(self.catalog, store.root)
             todo = plan["archives"][len(committed):]
+            if plan.get("verify_mode", "archive") == "media":
+                return self._backup_media_batch(job, plan, store, committed, todo,
+                                                media, record, initial)
             needed = [estimate(m["files"]) + 10240 for m in todo
                       if not (Path(store.row(job, m["archive_id"])["path"] or "").is_file()
                               and store.row(job, m["archive_id"])["sha256"])]
@@ -306,6 +315,134 @@ class ArchiveService:
                 self.catalog.finish(job, "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "FAILED",
                                     str(error), {"verified_archives": completed, "staging_retained": True})
                 raise
+
+    def _backup_media_batch(self, job: str, plan: dict[str, Any], store: StagingStore,
+                            committed: list[dict[str, Any]], todo: list[dict[str, Any]],
+                            media: str, record: dict[str, Any], initial: int) -> dict[str, Any]:
+        """Write a complete medium segment, then read it all before any success claim.
+
+        Receipts carry expected checksums but no verified_at until an independent
+        full scan has established integrity. A crash leaves no falsely VERIFIED DB
+        rows; recovery scans and hashes the physical sequence before promotion.
+        """
+        missing = []
+        for manifest in todo:
+            row = store.row(job, manifest["archive_id"])
+            if not (row["sha256"] and row["fingerprint_json"]
+                    and Path(row["path"] or "").is_file()):
+                missing.append(estimate(manifest["files"]) + 10240)
+        store.require_space(sum(missing))
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE jobs SET state='RUNNING',phase='STAGING',updated=? WHERE id=?",
+                                    (time.time(), job))
+        self.catalog.event(job, "confirmed", verification="media", staging=str(store.root))
+        attempted = False
+        current: str | None = None
+        try:
+            for manifest in todo:
+                current = manifest["archive_id"]
+                store.prepare(job, Path(plan["source"]), manifest)
+            for manifest in todo:
+                current = manifest["archive_id"]
+                archive = current
+                data = store.validate_ready(job, manifest)
+                ready = store.row(job, archive)
+                data_hash, size = ready["sha256"], ready["bytes"]
+                if self.tape.used() + size + 10240 > record["capacity"] * 95 // 100:
+                    raise SafetyError("Insufficient remaining capacity for complete archive and receipt")
+                position = len(self.tape.positions())
+                previous = sha256(self.tape.read(position - 1))
+                self.catalog.record_archive(manifest, job, position, "WRITING", size, data_hash)
+                store.phase(job, archive, "TAPE_WRITE", progress_bytes=0, total_bytes=size)
+                with self.catalog.db:
+                    self.catalog.db.execute("UPDATE media SET state='IN_USE',first_use=coalesce(first_use,?),last_use=? WHERE id=?",
+                                            (time.time(), time.time(), media))
+                attempted = True
+                self.tape.set_monitor(self._progress(job, archive, "TAPE_WRITE", size))
+                try:
+                    if self.tape.append(data, media) != position:
+                        raise SafetyError("Tape position changed unexpectedly")
+                finally:
+                    self.tape.set_monitor(None)
+                receipt = {"format": FORMAT, "media_id": media, "archive_id": archive,
+                           "tape_file": position, "bytes": size, "sha256": data_hash,
+                           "previous": previous, "verification": "pending_readback",
+                           "written_at": time.time()}
+                receipt_path = store.metadata_path(job, archive)
+                metadata_tar(receipt_path, "receipt.json", receipt)
+                if self.tape.append(receipt_path, media) != position + 1:
+                    raise SafetyError("Receipt position changed unexpectedly")
+                store.phase(job, archive, "TAPE_READBACK", "PENDING", progress_bytes=0,
+                            total_bytes=size)
+            # This is the only point where deferred archives become eligible for
+            # VERIFIED. scan() reads every byte and validates the checksum chain.
+            found = [item for item in scan(self.tape, media) if item["position"] >= initial]
+            if len(found) != len(plan["archives"]):
+                raise SafetyError("Media batch has incomplete archive sequence")
+            for item, manifest in zip(found, plan["archives"]):
+                if item["manifest"] != manifest:
+                    raise SafetyError("Media batch manifest mismatch")
+                row = store.row(job, manifest["archive_id"])
+                if item["receipt"]["sha256"] != row["sha256"]:
+                    raise SafetyError("Media batch differs from staged TAR")
+                archived = self.catalog.db.execute(
+                    "SELECT state,sha256 FROM archives WHERE id=? AND job_id=?",
+                    (manifest["archive_id"], job),
+                ).fetchone()
+                if Path(row["path"] or "").is_file():
+                    store.validate_ready(job, manifest)
+                elif (archived is None or archived["state"] != "VERIFIED"
+                      or archived["sha256"] != row["sha256"]):
+                    raise SafetyError("Verified staging artifact is missing")
+            completed = []
+            newly_verified = 0
+            for item in found:
+                manifest, receipt = item["manifest"], item["receipt"]
+                current = manifest["archive_id"]
+                prior = self.catalog.db.execute(
+                    "SELECT state,sha256 FROM archives WHERE id=? AND job_id=?",
+                    (current, job),
+                ).fetchone()
+                if prior is not None and prior["state"] == "VERIFIED":
+                    if prior["sha256"] != receipt["sha256"]:
+                        raise SafetyError("Previously verified archive changed")
+                    stage_row = store.row(job, current)
+                    if (stage_row["phase"] != "STAGING_CLEANUP"
+                            or stage_row["state"] != "COMPLETE"):
+                        store.cleanup(job, current)
+                    completed.append(current)
+                    continue
+                self.catalog.record_archive(manifest, job, item["position"], "VERIFIED",
+                                            receipt["bytes"], receipt["sha256"])
+                with self.catalog.db:
+                    self.catalog.db.execute("INSERT INTO verifications VALUES(?,?,?,?,?,?)",
+                        (str(uuid.uuid4()), job, current, time.time(), "VERIFIED", None))
+                store.phase(job, current, "VERIFIED", "COMPLETE")
+                store.cleanup(job, current)
+                completed.append(current)
+                newly_verified += 1
+            with self.catalog.db:
+                self.catalog.db.execute("UPDATE media SET state='IN_USE',used=?,last_verified=?,writes=writes+? WHERE id=?",
+                                        (self.tape.used(), time.time(), newly_verified, media))
+            report = {"job_id": job, "state": "VERIFIED", "archives": completed,
+                      "files": plan["file_count"], "payload_bytes": plan["payload_bytes"],
+                      "verification": "media"}
+            self.catalog.finish(job, "VERIFIED", report=report)
+            return report
+        except BaseException as error:
+            with self.catalog.db:
+                self.catalog.db.execute("UPDATE archives SET state='INCOMPLETE' WHERE job_id=? AND state='WRITING'", (job,))
+                if attempted:
+                    self.catalog.db.execute("UPDATE media SET state='SUSPECT',used=? WHERE id=?",
+                                            (self.tape.used(), media))
+            if current:
+                row = store.row(job, current)
+                store.phase(job, current, row["phase"],
+                            "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "FAILED",
+                            str(error))
+            self.catalog.finish(job, "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "FAILED",
+                                str(error), {"staging_retained": True, "verification": "media"})
+            raise
 
     def verify(self, media: str) -> dict[str, Any]:
         with io_lock(), self.tape.locked():

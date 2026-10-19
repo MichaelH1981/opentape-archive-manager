@@ -1,6 +1,6 @@
 # OpenTape Archive Manager (OTAM)
 
-Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.4 mit deutscher/englischer Weboberfläche, lokaler Benutzerverwaltung, separatem Worker und eigenständigem Katalogdienst.** Der Archivierungskern arbeitet mit einem persistenten Bandsimulator; reguläre physische Dateiarchivierung bleibt bis zur Bandformat-Abnahme gesperrt. Separat freigegebene physische Wartung ist verfügbar.
+Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.5 mit Dateibrowser, Mehrbandplanung und wahlweiser Rücklesung je TAR oder nach allen TARs eines Mediums.** Dazu kommen deutsche/englische Weboberfläche, lokale Benutzerverwaltung, separater Worker und eigenständiger Katalogdienst. Der Archivierungskern arbeitet mit einem persistenten Bandsimulator; reguläre physische Dateiarchivierung bleibt bis zur Bandformat-Abnahme gesperrt. Separat freigegebene physische Wartung ist verfügbar.
 
 [Projektübersicht und Funktionsstand](docs/project-overview.md) · [Weboberfläche und Installation](docs/web.md) · [Modulare Architektur](docs/architecture/modular-web.md)
 
@@ -25,6 +25,8 @@ Die vorhandenen Server-Skripte wurden über SSH ausschließlich gelesen und blei
 Staging-TARs werden erst nach vollständiger Rückleseverifikation entfernt. `stage`, `staging-status` und `staging-benchmark` ergänzen die CLI; ein bestandener Simulatorjob ist weder Hardware- noch 120-MB/s-Leistungsfreigabe.
 
 ## Web und eigenständiger Katalog
+
+Im Simulator können Quellen größer als ein LTO-4-Band als Folge vollständiger TAR-Archive auf mehrere Medien verteilt werden. Vor jedem weiteren Medium ist eine neue Bestätigung nötig. Optional liest OTAM erst nach allen TARs eines Mediums zurück; dafür müssen alle TARs dieses Mediums bis zur Verifikation lokal im Staging bleiben. Bei kleinerem Staging den archivweisen Modus wählen. Die tatsächliche LTO-Positionierung und ein physischer Medienwechsel sind noch nicht freigegeben.
 
 Planung, Staging, bestätigte Archivierung, Dateisuche, selektiver Restore, Medienübersicht, Integritätsprüfungen und Protokolle sind über eine responsive deutsche Oberfläche bedienbar. Lange Aufgaben laufen dauerhaft protokolliert in einem separaten Worker. Jeder Archive Node besitzt zwingend seinen lokalen Katalog. Zusätzliche Catalog Nodes mit eigener Suchoberfläche und Snapshot-Verzeichnisse sind optional und unter **Synchronisation** frei konfigurierbar, auch mehrfach. Signierte, versionierte Snapshots synchronisieren diese Ziele unabhängig voneinander. Ein Catalog Node bleibt bei ausgeschaltetem Bandserver durchsuchbar; er kann auf einem beliebigen geeigneten Linux-Rechner, einer VM oder einem Container laufen. Proxmox und NAS sind lediglich mögliche Einsatzbeispiele. Keine SQLite-Datei gemeinsam über NFS öffnen.
 

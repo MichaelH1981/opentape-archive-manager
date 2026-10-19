@@ -67,6 +67,7 @@ const labels = {
   PARTIAL: "Teilweise fehlgeschlagen",
   PLANNED: "Geplant",
   STAGED: "Vorbereitet",
+  WAITING_MEDIA: "Medienwechsel erforderlich",
   RUNNING: "In Bearbeitung",
   PLANNING: "Inventarisierung",
   FAILED: "Fehlgeschlagen",
@@ -95,13 +96,15 @@ const labels = {
   STAGING_CLEANUP: "Bereinigt",
 };
 const badge = (s) =>
-  `<span class="badge ${["VERIFIED", "SUCCEEDED", "READY", "COMPLETE"].includes(s) ? "good" : ["RUNNING", "PLANNING", "WRITING", "IN_USE"].includes(s) ? "running" : ["FAILED", "INTERRUPTED", "INCOMPLETE", "SUSPECT"].includes(s) ? "bad" : ["PLANNED", "STAGED", "QUEUED"].includes(s) ? "blue" : "neutral"}">${esc(labels[s] || s || "Unbekannt")}</span>`;
+  `<span class="badge ${["VERIFIED", "SUCCEEDED", "READY", "COMPLETE"].includes(s) ? "good" : ["RUNNING", "PLANNING", "WRITING", "IN_USE"].includes(s) ? "running" : ["FAILED", "INTERRUPTED", "INCOMPLETE", "SUSPECT"].includes(s) ? "bad" : ["PLANNED", "STAGED", "QUEUED", "WAITING_MEDIA"].includes(s) ? "blue" : "neutral"}">${esc(labels[s] || s || "Unbekannt")}</span>`;
 const kindLabel = (k) =>
   ({
     archive: "Archivierung",
+    "archive-set": "Mehrbandarchivierung",
     plan: "Archiv planen",
     stage: "Staging vorbereiten",
     backup: "Archivieren",
+    "backup-set": "Nächstes Medium archivieren",
     verify: "Integritätsprüfung",
     restore: "Wiederherstellung",
     rebuild: "Katalog rekonstruieren",

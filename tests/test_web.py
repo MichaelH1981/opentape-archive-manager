@@ -207,6 +207,63 @@ class WebAcceptance(unittest.TestCase):
         self.assertEqual(self.control.commands()[0]["state"], "FAILED")
         self.assertTrue((self.source / "photo.jpg").exists())
 
+    def test_source_browser_and_guided_two_medium_archive_set(self):
+        album = self.source / "album"
+        album.mkdir()
+        (album / "a.raw").write_bytes(b"a" * 60_000)
+        (album / "b.raw").write_bytes(b"b" * 60_000)
+        (album / "link").symlink_to(self.source / "photo.jpg")
+        listing = self.client.get("/api/v1/source-tree", params={"source_id": "source-1"})
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertIn("album", [item["path"] for item in listing.json()["items"]])
+        nested = self.client.get("/api/v1/source-tree", params={"source_id": "source-1", "path": "album"})
+        self.assertEqual({item["path"] for item in nested.json()["items"]},
+                         {"album/a.raw", "album/b.raw"})
+        (album / "link").unlink()
+        traversal = self.client.get("/api/v1/source-tree", params={"source_id": "source-1", "path": "../"})
+        self.assertEqual(traversal.status_code, 409)
+
+        first = execute(self.config, self.control, "create-medium",
+                        {"label": "SET-1", "capacity": 125_000})["media_id"]
+        second = execute(self.config, self.control, "create-medium",
+                         {"label": "SET-2", "capacity": 125_000})["media_id"]
+        plan = execute(self.config, self.control, "plan", {
+            "media_ids": [first, second], "source_id": "source-1", "target": 70_000,
+            "selected_paths": ["album"], "verify_mode": "media",
+        })
+        self.assertEqual(plan["file_count"], 2)
+        self.assertEqual(plan["media_ids"], [first, second])
+        with self.assertRaises(SafetyError):
+            execute(self.config, self.control, "backup-set", {
+                "job_id": plan["job_id"], "confirm": plan["job_id"],
+                "plan_hash": plan["sha256"], "media_id": second,
+            })
+        payload = {"job_id": plan["job_id"], "confirm": plan["job_id"],
+                   "plan_hash": plan["sha256"]}
+        first_result = execute(self.config, self.control, "backup-set",
+                               {**payload, "media_id": first})
+        self.assertEqual(first_result["state"], "WAITING_MEDIA")
+        self.assertEqual(first_result["next_media_id"], second)
+        detail = self.client.get("/api/v1/jobs/" + plan["job_id"]).json()
+        self.assertEqual([child["state"] for child in detail["plan"]["children"]],
+                         ["VERIFIED", "PLANNED"])
+        second_result = execute(self.config, self.control, "backup-set",
+                                {**payload, "media_id": second})
+        self.assertEqual(second_result["state"], "VERIFIED")
+        files = self.client.get("/api/v1/files").json()["items"]
+        self.assertEqual({row["path"] for row in files}, {"album/a.raw", "album/b.raw"})
+        self.assertEqual({row["media_id"] for row in files}, {first, second})
+        self.assertEqual((album / "a.raw").read_bytes(), b"a" * 60_000)
+        self.assertEqual((album / "b.raw").read_bytes(), b"b" * 60_000)
+
+    def test_unhashable_media_selection_returns_client_error(self):
+        response = self.client.post("/api/v1/commands", json={
+            "kind": "plan", "payload": {"source_id": "source-1",
+                                      "media_ids": [{"wrong": "type"}, "another"],
+                                      "target": 70_000}},
+            headers={"X-CSRF-Token": self.csrf, "Idempotency-Key": str(uuid.uuid4())})
+        self.assertEqual(response.status_code, 409, response.text)
+
     def test_authentication_csrf_origin_and_host(self):
         from fastapi.testclient import TestClient
 

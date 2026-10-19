@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from ..common import SafetyError
+from ..common import SafetyError, safe_path
 from ..storage import require_local, filesystem
 from .config import Resource, WebConfig
 from .control import Control
@@ -121,6 +121,36 @@ def browse(config: WebConfig, control: Control, value: str = "") -> dict[str, An
         "items": sorted(items, key=lambda r: r["name"].casefold()),
         "truncated": truncated,
     }
+
+
+def source_tree(config: WebConfig, control: Control, source_id: str,
+                relative: str = "", offset: int = 0) -> dict[str, Any]:
+    """List selectable source entries without following links or leaving the source."""
+    source = next((s.path for s in effective(config, control).sources if s.id == source_id), None)
+    if source is None or not source.is_dir() or offset < 0 or offset > 1_000_000:
+        raise SafetyError("Ungültige Quellenauswahl")
+    path = source
+    if relative:
+        for part in safe_path(relative).split("/"):
+            path = path / part
+            if path.is_symlink() or not path.is_dir():
+                raise SafetyError("Quellpfad ist kein echtes Verzeichnis")
+    items: list[dict[str, Any]] = []
+    with os.scandir(path) as children:
+        for child in children:
+            if child.is_symlink():
+                continue
+            if child.is_dir(follow_symlinks=False):
+                kind = "directory"
+            elif child.is_file(follow_symlinks=False):
+                kind = "file"
+            else:
+                continue
+            name = (path / child.name).relative_to(source).as_posix()
+            items.append({"name": child.name, "path": name, "kind": kind})
+    items.sort(key=lambda item: (item["kind"] != "directory", item["name"].casefold()))
+    return {"source_id": source_id, "path": relative, "parent": relative.rpartition("/")[0],
+            "items": items[offset:offset + 200], "next_offset": offset + 200 if len(items) > offset + 200 else None}
 
 
 def save(config: WebConfig, control: Control, ident: str, data: dict[str, Any]) -> None:

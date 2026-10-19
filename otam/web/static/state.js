@@ -8,6 +8,7 @@ export const state = {
   page: "dashboard",
   files: [],
   selection: new Map(),
+  sourceSelection: { sourceId: "", paths: [] },
   offset: 0,
   filters: {},
   advanced: false,

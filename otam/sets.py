@@ -1,0 +1,166 @@
+"""Guided multi-medium archive sets using independent, self-describing media.
+
+Only simulator media are admitted by the web worker until the physical tape
+format and exchange workflow have passed a separate hardware acceptance.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+from .archive import MAX_META, estimate, inventory, plan_archives
+from .catalog import Catalog
+from .common import SafetyError, encode
+from .service import ArchiveService, scan
+from .storage import io_lock
+from .tape import Tape
+
+
+def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape]],
+             target: int, selected: list[str] | None = None,
+             verify_mode: str = "archive") -> dict[str, Any]:
+    if not 2 <= len(media_tapes) <= 32 or len({m for m, _ in media_tapes}) != len(media_tapes):
+        raise SafetyError("Choose two to 32 distinct media in order")
+    if verify_mode not in ("archive", "media") or target <= 0:
+        raise SafetyError("Invalid archive planning options")
+    root = source.resolve()
+    if catalog.path.is_relative_to(root):
+        raise SafetyError("Catalog must be outside source tree")
+    with io_lock():
+        entries = inventory(root, selected)
+        manifests = plan_archives(entries, media_tapes[0][0], target)
+        if any(len(encode(m)) > MAX_META for m in manifests):
+            raise SafetyError("Manifest exceeds limit; reduce archive target size")
+        available: dict[str, int] = {}
+        positions: dict[str, int] = {}
+        for media, tape in media_tapes:
+            tape_path = getattr(tape, "path", None)
+            if tape_path is not None and (tape_path.is_relative_to(root) or root.is_relative_to(tape_path)):
+                raise SafetyError("Source and simulator medium must be separate")
+            with tape.locked():
+                record = ArchiveService(catalog, tape)._identity(media)
+                if record["state"] not in ("READY", "IN_USE"):
+                    raise SafetyError("Medium is not writable")
+                scan(tape, media)
+                positions[media] = len(tape.positions())
+                available[media] = record["capacity"] * 95 // 100 - tape.used()
+        assignments: dict[str, list[dict[str, Any]]] = {media: [] for media, _ in media_tapes}
+        remaining = available.copy()
+        index = 0
+        for manifest in manifests:
+            required = estimate(manifest["files"]) + 10240
+            while index < len(media_tapes) and required > remaining[media_tapes[index][0]]:
+                index += 1
+            if index == len(media_tapes):
+                raise SafetyError("Selected media cannot hold every complete TAR; no medium was written")
+            media = media_tapes[index][0]
+            manifest["media_id"] = media
+            assignments[media].append(manifest)
+            remaining[media] -= required
+        parent_id = str(uuid.uuid4())
+        children = []
+        child_plans = []
+        for media, _ in media_tapes:
+            group = assignments[media]
+            if not group:
+                continue
+            child_id = str(uuid.uuid4())
+            child = {"media_id": media, "source": str(root), "archives": group,
+                     "required_estimate": available[media] - remaining[media],
+                     "available": available[media],
+                     "payload_bytes": sum(entry["size"] for m in group for entry in m["files"]),
+                     "file_count": sum(len(m["files"]) for m in group),
+                     "expected_tape_files": positions[media], "verify_mode": verify_mode,
+                     "parent_job": parent_id}
+            if selected is not None:
+                child["selected_paths"] = sorted(set(selected))
+            child["sha256"] = hashlib.sha256(encode(child)).hexdigest()
+            child_plans.append((child_id, child))
+            children.append({"job_id": child_id, "media_id": media,
+                             "archives": len(group), "files": child["file_count"],
+                             "payload_bytes": child["payload_bytes"],
+                             "required_estimate": child["required_estimate"]})
+        parent = {"source": str(root), "children": children,
+                  "media_ids": [child["media_id"] for child in children],
+                  "verify_mode": verify_mode, "target": target,
+                  "payload_bytes": sum(e["size"] for e in entries),
+                  "file_count": len(entries)}
+        if selected is not None:
+            parent["selected_paths"] = sorted(set(selected))
+        parent["sha256"] = hashlib.sha256(encode(parent)).hexdigest()
+        now = time.time()
+        with catalog.db:
+            catalog.db.execute("""INSERT INTO jobs(id,kind,state,media_id,created,updated,plan_json,phase)
+                VALUES(?,'archive-set','PLANNED',NULL,?,?,?,'INVENTORY')""",
+                (parent_id, now, now, encode(parent).decode()))
+            for child_id, child in child_plans:
+                catalog.db.execute("""INSERT INTO jobs(id,kind,state,media_id,created,updated,plan_json,phase)
+                    VALUES(?,'archive','PLANNED',?,?,?,?, 'INVENTORY')""",
+                    (child_id, child["media_id"], now, now, encode(child).decode()))
+                for manifest in child["archives"]:
+                    catalog.db.execute("""INSERT INTO staged_archives
+                        (job_id,archive_id,phase,state,total_bytes,updated)
+                        VALUES(?,?,'INVENTORY','COMPLETE',?,?)""",
+                        (child_id, manifest["archive_id"],
+                         sum(e["size"] for e in manifest["files"]), now))
+        catalog.event(parent_id, "plan_ready", sha256=parent["sha256"],
+                      media=len(children), files=len(entries), bytes=parent["payload_bytes"])
+        return {"job_id": parent_id, **parent}
+
+
+def next_child(catalog: Catalog, parent_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    row = catalog.db.execute("SELECT kind,state,plan_json FROM jobs WHERE id=?", (parent_id,)).fetchone()
+    if row is None or row["kind"] != "archive-set" or not row["plan_json"]:
+        raise SafetyError("Unknown archive set")
+    plan = json.loads(row["plan_json"])
+    checksum = plan.pop("sha256")
+    if hashlib.sha256(encode(plan)).hexdigest() != checksum:
+        raise SafetyError("Stored archive-set plan has changed")
+    plan["sha256"] = checksum
+    for child in plan["children"]:
+        state = catalog.db.execute("SELECT state FROM jobs WHERE id=? AND kind='archive'",
+                                   (child["job_id"],)).fetchone()
+        if state is None:
+            raise SafetyError("Archive-set child job is missing")
+        if state["state"] != "VERIFIED":
+            return dict(row), child
+    raise SafetyError("Archive set already verified")
+
+
+def backup_set_step(catalog: Catalog, parent_id: str, confirmation: str,
+                    plan_hash: str, media_id: str, tape: Tape, spool: Path,
+                    *, resume: bool = False) -> dict[str, Any]:
+    if confirmation != parent_id:
+        raise SafetyError("Confirm the reviewed archive-set job ID")
+    row, child = next_child(catalog, parent_id)
+    plan = json.loads(row["plan_json"])
+    if plan_hash != plan["sha256"] or media_id != child["media_id"]:
+        raise SafetyError("Wrong media or changed archive-set plan")
+    if row["state"] not in ("PLANNED", "WAITING_MEDIA", "FAILED", "INTERRUPTED"):
+        raise SafetyError("Archive set is not ready for this medium")
+    state = catalog.db.execute("SELECT state FROM jobs WHERE id=?", (child["job_id"],)).fetchone()[0]
+    if state not in ("PLANNED", "STAGED", "FAILED", "INTERRUPTED"):
+        raise SafetyError("Medium child job is not ready")
+    if state in ("FAILED", "INTERRUPTED") and not resume:
+        raise SafetyError("A failed medium requires explicit resume after inspection")
+    with catalog.db:
+        catalog.db.execute("UPDATE jobs SET state='RUNNING',phase='TAPE_WRITE',updated=? WHERE id=?",
+                           (time.time(), parent_id))
+    try:
+        service = ArchiveService(catalog, tape)
+        service.backup(child["job_id"], child["job_id"], spool, resume=resume)
+        remaining = [c for c in plan["children"] if catalog.db.execute(
+            "SELECT state FROM jobs WHERE id=?", (c["job_id"],)).fetchone()[0] != "VERIFIED"]
+        report = {"job_id": parent_id, "verified_media": len(plan["children"]) - len(remaining),
+                  "total_media": len(plan["children"]), "next_media_id": remaining[0]["media_id"] if remaining else None,
+                  "files": plan["file_count"], "payload_bytes": plan["payload_bytes"]}
+        catalog.finish(parent_id, "WAITING_MEDIA" if remaining else "VERIFIED", report=report)
+        return {"state": "WAITING_MEDIA" if remaining else "VERIFIED", **report}
+    except BaseException as error:
+        catalog.finish(parent_id, "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "FAILED",
+                       str(error), {"failed_media": media_id, "staging_retained": True})
+        raise

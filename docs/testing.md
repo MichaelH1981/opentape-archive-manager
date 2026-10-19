@@ -1,5 +1,11 @@
 # Softwaretests und physische Abnahme
 
+## Version 0.5 – Simulatorabnahme
+
+Die Softwaretests prüfen die Auswahl einzelner Dateien und rekursiver Ordner im freigegebenen Quellbereich, gesperrte Pfad-Traversal-/Symlink-Zugriffe, einen übergeordneten Auftrag auf zwei Simulatormedien, falsche Medienreihenfolge, `WAITING_MEDIA` und Abschluss nach dem zweiten Medium. Der Modus für verzögerte Rücklesung wird mit vollständigem Medien-Scan, tatsächlichem Rücklesefehler nach dem Schreiben, Staging-Erhalt, Katalogverlust und Wiederaufnahme nach Abbruch während der Bereinigung getestet. Die kleinen synthetischen Medien stehen für einen Ordner über der Kapazität eines einzelnen LTO-4-Bandes; ein 800-GB-Hardwaretest wurde damit nicht ersetzt.
+
+Für die Freigabe an echten Bändern fehlen weiterhin LTO-Positionierungs-/Filemark-/EOM-Abnahme, ein langer Staging-Durchsatznachweis und ein ausdrücklich freigegebener Testlauf. Physische Archivierungswrites sind im Produkt weiter gesperrt.
+
 ## Automatisierte Tests (ohne Bandhardware)
 
 Aufruf: `python3 -m unittest discover -v`. Nur temporäre reguläre Testdateien; Tests greifen niemals auf /dev/nst* oder /dev/sg* zu. LinuxTape ist ausdrücklich schreibgesperrt.

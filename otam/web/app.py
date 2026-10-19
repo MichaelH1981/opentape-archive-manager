@@ -149,7 +149,7 @@ def create_app(config: WebConfig) -> FastAPI:
         modules.append(Module("archive", "Archivierung und Staging", True))
     app = FastAPI(
         title="OpenTape Archive Manager",
-        version="0.4.0",
+        version="0.5.0",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -267,7 +267,7 @@ def create_app(config: WebConfig) -> FastAPI:
             "id": config.node_id,
             "name": config.name,
             "role": config.role,
-            "version": "0.4.0",
+            "version": "0.5.0",
             "modules": [vars(m) for m in modules],
             "capabilities": {
                 "catalog": True,
@@ -534,6 +534,12 @@ def create_app(config: WebConfig) -> FastAPI:
         @archive.get("/directories")
         def directories(path: str = Query("", max_length=4096)):
             return resources.browse(config, control, path)
+
+        @archive.get("/source-tree")
+        def source_tree(source_id: str = Query(max_length=100),
+                        path: str = Query("", max_length=4096),
+                        offset: int = Query(0, ge=0, le=1_000_000)):
+            return resources.source_tree(config, control, source_id, path, offset)
 
         @archive.get("/storage-resources")
         def storage_resources():

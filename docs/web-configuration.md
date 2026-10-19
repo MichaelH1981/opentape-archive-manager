@@ -43,6 +43,7 @@ Alle Katalog- und Betriebsendpunkte erfordern eine gültige HttpOnly-Sitzung. Be
 | GET /api/v1/media | Medieninventar, auf Archive Node eingebundene Simulatoren |
 | GET /api/v1/archives | Archivübersicht mit `limit` und `offset` |
 | GET /api/v1/files | Filter `q`, `checksum`, `file_type`, `media_id`, `archive_id`, `state`, `min_size`, `max_size`, `after`, `before`, `duplicates`, `limit`, `offset` |
+| GET /api/v1/source-tree | Dateibrowser innerhalb einer freigegebenen Quelle; `source_id`, relativer `path`, `offset` |
 | GET /api/v1/jobs und /jobs/{id} | Jobliste und geprüfter Plan ohne vollständige Manifest-Dateiliste in der Übersicht |
 | GET /api/v1/staging | Persistente Archivphasen; lokale Kapazität ausschließlich auf Archive Node |
 | GET /api/v1/events | Ereignisse, optional `job_id`, `before`, `limit` |
@@ -55,7 +56,7 @@ Alle Katalog- und Betriebsendpunkte erfordern eine gültige HttpOnly-Sitzung. Be
 | GET /api/v1/hardware | Nur Archive Node: lesende Erkennung |
 | PUT /api/v1/replication/snapshot | Nur Catalog Node: eigener Peer-Bearer plus signiertes Manifest; kein Sessionzugang |
 
-Befehlsarten: `create-medium`, `plan`, `stage`, `backup`, `verify`, `restore`, `recover`, `rebuild`, `sync`. HTTP 202 bedeutet angenommen, nicht abgeschlossen. Über `/commands` und den referenzierten Kernjob das Ergebnis prüfen. `backup` verlangt Job-ID sowohl in `job_id` als auch `confirm` und den geprüften `plan_hash`. `resume` ist ein ausdrücklicher boolescher Parameter. `stage` mit `revalidate_ready=true` verlangt ebenfalls `confirm=job_id`; es ist kein Weg zur Akzeptanz geänderter TAR-Inhalte. Ein identischer Idempotency-Key gibt denselben Auftrag zurück; andere Nutzdaten mit demselben Key werden abgelehnt.
+Befehlsarten: `create-medium`, `plan`, `stage`, `backup`, `backup-set`, `verify`, `restore`, `recover`, `rebuild`, `sync`. `plan` akzeptiert `selected_paths` (relative Dateien/Ordner), `verify_mode` (`archive` oder `media`) und entweder `media_id` oder geordnete `media_ids`. `backup-set` bestätigt je Medium `job_id`, `confirm`, `plan_hash` und `media_id`. HTTP 202 bedeutet angenommen, nicht abgeschlossen. Über `/commands` und den referenzierten Kernjob das Ergebnis prüfen. `backup` verlangt Job-ID sowohl in `job_id` als auch `confirm` und den geprüften `plan_hash`. `resume` ist ein ausdrücklicher boolescher Parameter. `stage` mit `revalidate_ready=true` verlangt ebenfalls `confirm=job_id`; es ist kein Weg zur Akzeptanz geänderter TAR-Inhalte. Ein identischer Idempotency-Key gibt denselben Auftrag zurück; andere Nutzdaten mit demselben Key werden abgelehnt.
 
 Dateisuchgrößen sind Bytes, `after`/`before` Änderungszeitpunkte in Unix-Nanosekunden. Pagination maximal 200 Treffer pro API-Seite. CSV-Export entschärft Tabellenformeln; JSON bewahrt die ursprünglichen Dateinamen.
 

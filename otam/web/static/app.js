@@ -95,11 +95,25 @@ async function showJob(id) {
       ),
     )}`;
   }
+  if (p?.children) {
+    html += `<h3>Medienfolge</h3><p>${num(p.file_count)} Dateien · ${bytes(p.payload_bytes)} · ${p.verify_mode === "media" ? "Rücklesung nach allen TARs je Medium" : "Rücklesung nach jedem TAR"}</p>${table(
+      ["Medium", "TARs", "Dateien", "Daten", "Status"],
+      p.children.map((c) => `<tr><td>${esc(mediaName(c.media_id))}</td><td>${num(c.archives)}</td><td>${num(c.files)}</td><td>${bytes(c.payload_bytes)}</td><td>${badge(c.state)}</td></tr>`),
+    )}`;
+    const next = p.children.find((c) => c.state !== "VERIFIED");
+    if (next) html += note(`Nächstes Medium: ${esc(mediaName(next.media_id))}. Vor dem nächsten Schritt wird die Identität erneut geprüft.`, "info");
+  }
+  if (p?.selected_paths?.length)
+    html += `<h3>Ausgewählte Quellen</h3><p>${num(p.selected_paths.length)} Dateien oder Ordner</p><div class="code-block">${p.selected_paths.slice(0, 50).map((path) => `<div>${esc(path)}</div>`).join("")}${p.selected_paths.length > 50 ? `<div>… ${num(p.selected_paths.length - 50)} weitere</div>` : ""}</div>`;
   if (j.staging?.length)
     html += `<h3>Vorbereitung und Transfer</h3>${j.staging.map((s) => `<div class="progress-meta"><span>${esc(short(s.archive_id))} · ${esc(labels[s.phase] || s.phase)}</span>${badge(s.state)}</div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}`).join("")}`;
   if (j.error) html += `<p class="error-text">${esc(j.error)}</p>`;
   if (j.report)
     html += `<h3>Abschlussbericht</h3><pre class="code-block">${esc(JSON.stringify(j.report, null, 2))}</pre>`;
+  if (p?.children && state.node.role === "archive" && ["PLANNED", "WAITING_MEDIA", "FAILED", "INTERRUPTED"].includes(j.state)) {
+    const next = p.children.find((c) => c.state !== "VERIFIED");
+    if (next) html += `<div class="button-row"><button class="button primary" data-backup-set="${esc(j.id)}">${icon("tape")}${["FAILED", "INTERRUPTED"].includes(j.state) ? "Medienprüfung und Wiederaufnahme" : "Nächstes Medium bestätigen"}</button></div>`;
+  }
   if (
     state.node.role === "archive" &&
     p?.archives &&
@@ -111,6 +125,14 @@ async function showJob(id) {
 }
 async function confirmBackup(id, resume = false) {
   const j = await api("/jobs/" + encodeURIComponent(id));
+  if (j.plan?.children) {
+    const next = j.plan.children.find((c) => c.state !== "VERIFIED");
+    if (!next) throw Error("Alle Medien sind bereits verifiziert.");
+    resume = ["FAILED", "INTERRUPTED"].includes(next.state);
+    modal("Nächstes Medium bestätigen", `<p>Bitte Medium <strong>${esc(mediaName(next.media_id))}</strong> bereitstellen. Der Job hält nach diesem Medium an und verlangt für das nächste Medium eine neue Bestätigung. ${j.plan.verify_mode === "media" ? "Alle TARs dieses Mediums werden erst nach dem Schreiben vollständig zurückgelesen; das Staging muss sie bis dahin aufnehmen." : "Jedes TAR wird nach dem Schreiben zurückgelesen."}</p>${resume ? note("Ein fehlgeschlagener Schreibversuch darf nicht blind fortgesetzt werden. OTAM prüft die vorhandene Mediensequenz erneut.", "warning") : ""}<dl class="detail-list"><dt>Medien-ID</dt><dd class="mono">${esc(next.media_id)}</dd><dt>Job-ID</dt><dd class="mono">${esc(id)}</dd><dt>Archive auf diesem Medium</dt><dd>${num(next.archives)}</dd></dl><form id="backup-form" data-kind="backup-set" data-job="${esc(id)}" data-media="${esc(next.media_id)}" data-hash="${esc(j.plan.sha256)}" data-resume="${resume}"><label>Job-ID zur Bestätigung<input name="confirmation" required autocomplete="off"></label><label class="check-label"><input type="checkbox" name="reviewed" required>Ich habe die Medien-ID und den Plan geprüft.</label><div class="form-actions"><button class="button primary" type="submit">Medium schreiben und verifizieren</button></div></form>`);
+    bindForms($("#modal"));
+    return;
+  }
   if (!j.plan?.archives) throw Error("Archivplan fehlt");
   modal(
     resume ? "Archivierung bewusst wiederaufnehmen" : "Archivierung bestätigen",
@@ -234,6 +256,48 @@ async function resourceDialog(kind) {
     }
   });
   await browsePath("");
+}
+async function sourceSelectionDialog() {
+  const form = $("#plan-form");
+  const sourceId = form?.elements.source_id.value;
+  if (!sourceId) throw new Error("Bitte zuerst eine Datenquelle auswählen.");
+  const selected = new Set(state.sourceSelection.sourceId === sourceId ? state.sourceSelection.paths : []);
+  modal("Dateien und Ordner auswählen", `<p>Wähle einzelne Dateien oder ganze Unterordner. Ohne Auswahl wird die gesamte Quelle gesichert.</p><div id="source-picker-body"></div><div class="form-actions"><button class="button" id="source-picker-all" type="button">Gesamte Quelle wählen</button><button class="button primary" id="source-picker-save" type="button">Auswahl übernehmen</button></div>`);
+  let current = "", offset = 0;
+  async function browse(path = "", next = 0) {
+    const query = new URLSearchParams({ source_id: sourceId, path, offset: String(next) });
+    const result = await api("/source-tree?" + query);
+    current = path; offset = next;
+    const rows = result.items.map((item) => `<div class="source-picker-row"><label><input type="checkbox" data-select-source="${esc(item.path)}" ${selected.has(item.path) ? "checked" : ""}>${icon(item.kind === "directory" ? "folder" : "file")}<span>${esc(item.name)}</span></label>${item.kind === "directory" ? `<button class="button subtle small" type="button" data-open-source="${esc(item.path)}">Öffnen</button>` : ""}</div>`).join("");
+    $("#source-picker-body").innerHTML = `<div class="source-picker-nav"><button class="button small" type="button" data-open-source="${esc(result.parent)}" ${!path ? "disabled" : ""}>Übergeordnet</button><span class="mono">${esc(path || "/")}</span></div>${rows || `<p class="hint">Keine auswählbaren Einträge.</p>`}${result.next_offset !== null ? `<button class="button small" type="button" data-next-source="${result.next_offset}">Weitere Einträge</button>` : ""}<p class="hint">${selected.size} ausgewählte Einträge</p>`;
+    paintIcons($("#source-picker-body"));
+    localize($("#source-picker-body"));
+  }
+  $("#source-picker-body").addEventListener("change", (event) => {
+    const input = event.target.closest("[data-select-source]");
+    if (!input) return;
+    if (input.checked) selected.add(input.dataset.selectSource);
+    else selected.delete(input.dataset.selectSource);
+    $("#source-picker-body .hint:last-child").textContent = `${selected.size} ausgewählte Einträge`;
+    localize($("#source-picker-body"));
+  });
+  $("#source-picker-body").addEventListener("click", async (event) => {
+    const folder = event.target.closest("[data-open-source]");
+    const next = event.target.closest("[data-next-source]");
+    try {
+      if (folder) await browse(folder.dataset.openSource);
+      else if (next) await browse(current, Number(next.dataset.nextSource));
+    } catch (error) { toast(error.message, true); }
+  });
+  $("#source-picker-all").addEventListener("click", () => { selected.clear(); save(); });
+  function save() {
+    state.sourceSelection = { sourceId, paths: [...selected].sort() };
+    $("#source-selection-summary").textContent = selected.size ? `${selected.size} ausgewählte Dateien oder Ordner` : "Gesamtes Quellverzeichnis (rekursiv)";
+    localize($("#source-selection-summary"));
+    closeModal();
+  }
+  $("#source-picker-save").addEventListener("click", save);
+  await browse();
 }
 async function maintenanceDialog(drive, operation) {
   const approval = await api("/maintenance/prepare", {
@@ -405,13 +469,26 @@ function bindForms(root = $("#content")) {
     toast("Betriebsart übernommen. Es wurde kein Band verändert.");
   });
   on("#plan-form", async (d) => {
-    await enqueue("plan", {
+    const mediaIds = d.getAll("media_ids");
+    if (!mediaIds.length) throw new Error("Bitte mindestens ein Zielmedium auswählen.");
+    const request = {
       source_id: d.get("source_id"),
-      media_id: d.get("media_id"),
       target: Math.round(Number(d.get("target")) * 1e9),
       staging_id: d.get("staging_id"),
-    });
+      verify_mode: d.get("verify_mode"),
+    };
+    if (mediaIds.length === 1) request.media_id = mediaIds[0];
+    else request.media_ids = mediaIds;
+    if (state.sourceSelection.sourceId === request.source_id && state.sourceSelection.paths.length)
+      request.selected_paths = state.sourceSelection.paths;
+    await enqueue("plan", request);
     location.hash = "jobs";
+  });
+  const sourceSelect = $("#plan-form [name=source_id]", root);
+  if (sourceSelect) sourceSelect.addEventListener("change", () => {
+    state.sourceSelection = { sourceId: sourceSelect.value, paths: [] };
+    $("#source-selection-summary").textContent = "Gesamtes Quellverzeichnis (rekursiv)";
+    localize($("#source-selection-summary"));
   });
   on("#medium-form", async (d) => {
     await enqueue("create-medium", {
@@ -425,12 +502,13 @@ function bindForms(root = $("#content")) {
   on("#backup-form", async (d, f) => {
     if (d.get("confirmation") !== f.dataset.job)
       throw new Error("Die eingegebene Job-ID stimmt nicht überein.");
-    await enqueue("backup", {
+    const set = f.dataset.kind === "backup-set";
+    await enqueue(set ? "backup-set" : "backup", {
       job_id: f.dataset.job,
       confirm: d.get("confirmation"),
       plan_hash: f.dataset.hash,
       resume: f.dataset.resume === "true",
-      prepare_all: d.get("prepare_all") === "on",
+      ...(set ? { media_id: f.dataset.media } : { prepare_all: d.get("prepare_all") === "on" }),
     });
     closeModal();
     location.hash = "jobs";
@@ -532,6 +610,7 @@ document.addEventListener("click", async (e) => {
       location.hash = "staging";
       await render();
     } else if (b.dataset.backup) await confirmBackup(b.dataset.backup);
+    else if (b.dataset.backupSet) await confirmBackup(b.dataset.backupSet);
     else if (b.dataset.revalidate) {
       const ident = b.dataset.revalidate;
       modal(
@@ -590,6 +669,9 @@ document.addEventListener("click", async (e) => {
           break;
         case "new-source":
           await resourceDialog("source");
+          break;
+        case "choose-source-files":
+          await sourceSelectionDialog();
           break;
         case "new-staging":
           await resourceDialog("staging");

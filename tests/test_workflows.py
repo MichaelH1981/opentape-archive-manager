@@ -179,6 +179,67 @@ class Workflows(unittest.TestCase):
                 tiny.append(data, media)
             self.assertEqual(tiny.positions(), [0])
 
+    def test_selected_files_and_subdirectory_are_only_inventory(self) -> None:
+        plan = self.service.plan(self.source, self.media, selected=["notes.txt", "nested"])
+        paths = [entry["path"] for archive in plan["archives"] for entry in archive["files"]]
+        self.assertEqual(paths, ["nested/picture ü\n.jpg", "notes.txt"])
+        self.assertNotIn("empty", paths)
+        self.assertEqual(plan["selected_paths"], ["nested", "notes.txt"])
+        result = self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.assertEqual(result["state"], "VERIFIED")
+        self.assertEqual(result["files"], 2)
+        for selection in (["../notes.txt"], ["missing.txt"], []):
+            with self.assertRaises(SafetyError):
+                self.service.plan(self.source, self.media, selected=selection)
+
+    def test_deferred_media_verification_reads_all_before_commit(self) -> None:
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        self.assertGreater(len(plan["archives"]), 1)
+        result = self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.assertEqual(result["state"], "VERIFIED")
+        self.assertEqual(result["verification"], "media")
+        self.assertEqual(len(result["archives"]), len(plan["archives"]))
+        self.assertEqual(self.service.verify(self.media)["archives"], len(plan["archives"]))
+
+    def test_deferred_read_error_never_claims_verified(self) -> None:
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        with patch.object(self.tape, "open_read", side_effect=OSError("readback failed")):
+            with self.assertRaises(OSError):
+                self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.assertGreater(len(self.tape.positions()), 1)
+        self.assertEqual(self.catalog.db.execute(
+            "SELECT count(*) FROM archives WHERE job_id=? AND state='VERIFIED'", (plan["job_id"],)
+        ).fetchone()[0], 0)
+        self.assertEqual(self.catalog.db.execute(
+            "SELECT state FROM jobs WHERE id=?", (plan["job_id"],)
+        ).fetchone()[0], "FAILED")
+        self.assertTrue(any(self.spool.rglob("*.tar")))
+
+    def test_deferred_resume_after_cleanup_crash_does_not_rewrite(self) -> None:
+        from otam.staging import StagingStore
+
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        original_cleanup = StagingStore.cleanup
+        calls = 0
+
+        def interrupted_cleanup(store, job, archive):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated crash during cleanup")
+            return original_cleanup(store, job, archive)
+
+        with patch.object(StagingStore, "cleanup", interrupted_cleanup):
+            with self.assertRaises(OSError):
+                self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        before = self.tape.positions()
+        report = self.service.backup(plan["job_id"], plan["job_id"], self.spool, resume=True)
+        self.assertEqual(report["state"], "VERIFIED")
+        self.assertEqual(self.tape.positions(), before)
+        self.assertEqual(self.catalog.db.execute(
+            "SELECT count(*) FROM archives WHERE job_id=? AND state='VERIFIED'",
+            (plan["job_id"],)).fetchone()[0], len(plan["archives"]))
+
     def test_unexpected_end_of_medium_marks_incomplete(self) -> None:
         plan = self.service.plan(self.source, self.media)
         with patch.object(self.tape, "append", side_effect=SafetyError("Injected EOM")):
@@ -208,6 +269,17 @@ class Workflows(unittest.TestCase):
         self.assertFalse(report["incomplete_tail"])
         self.assertEqual(len(self.catalog.search()), 3)
         self.assertEqual(self.service.restore(self.media, self.base / "recovered")["files"], 3)
+
+    def test_catalog_loss_rebuilds_deferred_receipts_by_reading_data(self) -> None:
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.catalog.close()
+        self.catalog = Catalog(self.base / "deferred-rebuilt.sqlite")
+        self.service = ArchiveService(self.catalog, self.tape)
+        report = self.service.rebuild(self.media)
+        self.assertEqual(report["archives"], len(plan["archives"]))
+        self.assertEqual(len(self.catalog.search()), 3)
+        self.assertEqual(self.service.restore(self.media, self.base / "deferred-restored")["files"], 3)
 
     def test_rebuild_preserves_prior_pairs_with_incomplete_tail(self) -> None:
         first = self.backup()
