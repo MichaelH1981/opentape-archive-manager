@@ -151,7 +151,8 @@ async function stagingPage() {
   const locations = (result.locations || []).filter((r) => r.kind === "staging");
   const profiles = speed.drive_profiles || [];
   state.transferProfiles = profiles;
-  const speedRows = speed.items.slice(0, 6).map((r) =>
+  const activePaths = new Set(locations.map((r) => r.path));
+  const speedRows = speed.items.filter((r) => activePaths.has(r.storage?.path)).slice(0, 6).map((r) =>
     `<tr><td>${esc(r.time ? date(r.time) : "—")}</td><td>${esc(r.storage?.path || "—")}</td><td>${r.average_rate ? bytes(r.average_rate) + "/s" : "—"}</td><td>${r.minimum_sample_rate ? bytes(r.minimum_sample_rate) + "/s" : "—"}</td><td>${r.buffer_model ? bytes(r.buffer_model.maximum_buffer_deficit_bytes) + " / " + bytes(r.buffer_model.buffer_bytes) : "—"}</td><td>${r.average_system_cpu_percent === undefined ? "—" : r.average_system_cpu_percent.toFixed(1) + "%"}</td><td>${r.peak_io_wait_percent === undefined ? "—" : r.peak_io_wait_percent.toFixed(1) + "%"}</td><td>${r.qualified ? badge("VERIFIED") : "Nicht qualifiziert"}</td></tr>`,
   );
   const runningTests = locations.map((r) => ({ label: r.label, data: speed.progress[r.id] }))
