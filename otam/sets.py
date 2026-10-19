@@ -128,6 +128,10 @@ def next_child(catalog: Catalog, parent_id: str) -> tuple[dict[str, Any], dict[s
             raise SafetyError("Archive-set child job is missing")
         if state["state"] != "VERIFIED":
             return dict(row), child
+    if row["state"] != "VERIFIED" and plan["children"]:
+        # A crash can happen after the final child commits, before the parent
+        # result is persisted. Return that child for a read-only final check.
+        return dict(row), plan["children"][-1]
     raise SafetyError("Archive set already verified")
 
 
@@ -140,19 +144,29 @@ def backup_set_step(catalog: Catalog, parent_id: str, confirmation: str,
     plan = json.loads(row["plan_json"])
     if plan_hash != plan["sha256"] or media_id != child["media_id"]:
         raise SafetyError("Wrong media or changed archive-set plan")
-    if row["state"] not in ("PLANNED", "WAITING_MEDIA", "FAILED", "INTERRUPTED"):
+    child_state = catalog.db.execute("SELECT state FROM jobs WHERE id=?", (child["job_id"],)).fetchone()[0]
+    finalizing = child_state == "VERIFIED" and all(
+        catalog.db.execute("SELECT state FROM jobs WHERE id=?", (item["job_id"],)).fetchone()[0] == "VERIFIED"
+        for item in plan["children"]
+    )
+    if row["state"] not in (("PLANNED", "WAITING_MEDIA", "FAILED", "INTERRUPTED", "RUNNING")
+                            if finalizing else ("PLANNED", "WAITING_MEDIA", "FAILED", "INTERRUPTED")):
         raise SafetyError("Archive set is not ready for this medium")
-    state = catalog.db.execute("SELECT state FROM jobs WHERE id=?", (child["job_id"],)).fetchone()[0]
-    if state not in ("PLANNED", "STAGED", "FAILED", "INTERRUPTED"):
+    if child_state not in (("VERIFIED",) if finalizing else ("PLANNED", "STAGED", "FAILED", "INTERRUPTED")):
         raise SafetyError("Medium child job is not ready")
-    if state in ("FAILED", "INTERRUPTED") and not resume:
+    if child_state in ("FAILED", "INTERRUPTED") and not resume:
         raise SafetyError("A failed medium requires explicit resume after inspection")
     with catalog.db:
         catalog.db.execute("UPDATE jobs SET state='RUNNING',phase='TAPE_WRITE',updated=? WHERE id=?",
                            (time.time(), parent_id))
     try:
         service = ArchiveService(catalog, tape)
-        service.backup(child["job_id"], child["job_id"], spool, resume=resume)
+        if finalizing:
+            # Re-read the last medium before promoting a parent whose final
+            # commit was lost. No append is attempted.
+            service.verify(media_id)
+        else:
+            service.backup(child["job_id"], child["job_id"], spool, resume=resume)
         remaining = [c for c in plan["children"] if catalog.db.execute(
             "SELECT state FROM jobs WHERE id=?", (c["job_id"],)).fetchone()[0] != "VERIFIED"]
         report = {"job_id": parent_id, "verified_media": len(plan["children"]) - len(remaining),

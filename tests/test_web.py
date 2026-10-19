@@ -255,6 +255,20 @@ class WebAcceptance(unittest.TestCase):
         self.assertEqual({row["media_id"] for row in files}, {first, second})
         self.assertEqual((album / "a.raw").read_bytes(), b"a" * 60_000)
         self.assertEqual((album / "b.raw").read_bytes(), b"b" * 60_000)
+        catalog = Catalog(self.config.catalog)
+        try:
+            with catalog.db:
+                catalog.db.execute("UPDATE jobs SET state='INTERRUPTED' WHERE id=?",
+                                   (plan["job_id"],))
+        finally:
+            catalog.close()
+        from otam.tape import SimulatedTape
+        second_tape = SimulatedTape(self.control.resource(second))
+        before = second_tape.positions()
+        repaired = execute(self.config, self.control, "backup-set",
+                           {**payload, "media_id": second})
+        self.assertEqual(repaired["state"], "VERIFIED")
+        self.assertEqual(second_tape.positions(), before)
 
     def test_unhashable_media_selection_returns_client_error(self):
         response = self.client.post("/api/v1/commands", json={
