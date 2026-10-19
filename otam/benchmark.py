@@ -22,6 +22,10 @@ MIN_DURATION = 1800
 MIN_FILE = 10 * 1024 ** 3
 CHUNK = 4 * 1024 ** 2
 TEST_FILE_BYTES = 12 * 1024 ** 3
+BUFFER_RESERVE_SECONDS = 5
+BUFFER_USABLE_FRACTION = 0.75
+AVERAGE_HEADROOM = 1.05
+QUALIFICATION_VERSION = 2
 Progress = Callable[[dict[str, Any]], None]
 
 
@@ -32,27 +36,68 @@ def available_memory() -> int:
     raise SafetyError('Cannot determine available system memory')
 
 
+def buffer_analysis(samples: list[dict[str, Any]], rate: int, buffer_bytes: int) -> dict[str, Any]:
+    """Model a prefilled FIFO: excess input refills it, deficits consume it."""
+    if not samples or rate <= 0 or buffer_bytes <= 0:
+        raise SafetyError('Insufficient measurements for buffer analysis')
+    backlog = peak = 0.0
+    total_bytes = total_seconds = 0.0
+    for sample in samples:
+        seconds = float(sample['seconds'])
+        incoming = float(sample['bytes'])
+        if seconds <= 0 or incoming < 0:
+            raise SafetyError('Invalid benchmark sample')
+        total_bytes += incoming
+        total_seconds += seconds
+        backlog = max(0.0, backlog + rate * seconds - incoming)
+        peak = max(peak, backlog)
+    average = total_bytes / total_seconds
+    reserve = rate * BUFFER_RESERVE_SECONDS
+    usable = buffer_bytes * BUFFER_USABLE_FRACTION
+    return {
+        'rate_bytes_per_second': rate,
+        'buffer_bytes': buffer_bytes,
+        'average_bytes_per_second': average,
+        'average_headroom_percent': 100 * (average / rate - 1),
+        'maximum_buffer_deficit_bytes': peak,
+        'final_buffer_deficit_bytes': backlog,
+        'reserve_bytes': reserve,
+        'usable_buffer_bytes': usable,
+        'average_sufficient': average >= rate * AVERAGE_HEADROOM,
+        'buffer_sufficient': peak + reserve <= usable,
+        'recovered': backlog <= reserve,
+        'qualified': (average >= rate * AVERAGE_HEADROOM
+                      and peak + reserve <= usable and backlog <= reserve),
+    }
+
+
 def transfer_recommendation(samples: list[dict[str, Any]], *, memory_bytes: int,
                             drive_cap: int = TARGET_RATE) -> dict[str, Any]:
-    """Conservative starting values; never a throughput guarantee or auto-applied."""
+    """Choose the fastest measured sustainable host feed with a bounded buffer."""
     if not samples or memory_bytes <= 0 or drive_cap <= 0:
         raise SafetyError('Insufficient measurements for transfer recommendation')
     minimum = min(s['bytes_per_second'] for s in samples)
     average = sum(s['bytes'] for s in samples) / sum(s['seconds'] for s in samples)
     stressed = any(s.get('system_cpu_percent', 0) >= 85 or s.get('io_wait_percent', 0) >= 30
                    for s in samples)
-    margin = 0.70 if stressed else 0.85
-    rate = int(min(drive_cap, margin * minimum, margin * average) // 1_000_000 * 1_000_000)
-    rate = max(1_000_000, rate)
-    # Fifteen seconds of tape output plus the largest observed run of source deficits.
-    deficit = worst_deficit = 0.0
-    for sample in samples:
-        deficit = max(0.0, deficit + (rate - sample['bytes_per_second']) * sample['seconds'])
-        worst_deficit = max(worst_deficit, deficit)
-    requested = max(512 * 1024 ** 2, int(15 * rate + worst_deficit))
-    memory_cap = max(256 * 1024 ** 2, min(2 * 1024 ** 3, memory_bytes // 4))
-    buffer_bytes = max(256 * 1024 ** 2, min(requested, memory_cap))
-    buffer_bytes = buffer_bytes // (64 * 1024 ** 2) * (64 * 1024 ** 2)
+    quantum = 64 * 1024 ** 2
+    memory_cap = max(256 * 1024 ** 2, min(4 * 1024 ** 3, memory_bytes // 2))
+    memory_cap = memory_cap // quantum * quantum
+    rate = max(1_000_000, min(drive_cap, int(average / AVERAGE_HEADROOM)) // 1_000_000 * 1_000_000)
+    requested = buffer_bytes = 0
+    while rate >= 1_000_000:
+        model = buffer_analysis(samples, rate, memory_cap)
+        requested = max(512 * 1024 ** 2,
+                        int((model['maximum_buffer_deficit_bytes'] + model['reserve_bytes'])
+                            / BUFFER_USABLE_FRACTION + quantum - 1) // quantum * quantum)
+        if model['qualified'] and requested <= memory_cap:
+            buffer_bytes = requested
+            break
+        rate -= 1_000_000
+    if not buffer_bytes:
+        rate = 1_000_000
+        buffer_bytes = memory_cap
+    model = buffer_analysis(samples, rate, buffer_bytes)
     return {
         'write_rate_bytes_per_second': rate,
         'buffer_bytes': buffer_bytes,
@@ -61,7 +106,8 @@ def transfer_recommendation(samples: list[dict[str, Any]], *, memory_bytes: int,
         'drive_cap_bytes_per_second': drive_cap,
         'system_load_warning': stressed,
         'memory_warning': memory_bytes < 1024 ** 3,
-        'basis': f'{int(margin * 100)}% of observed minimum/average, capped by drive rate; 15 s buffer reserve',
+        'buffer_model': model,
+        'basis': '5% average headroom; measured peak FIFO deficit plus 5 s reserve; 75% usable buffer',
         'advisory_only': True,
     }
 
@@ -176,19 +222,22 @@ def run_benchmark(catalog: Catalog, root: Path, source: Path, *, seconds: float 
                     raise SafetyError("Benchmark input changed during read test")
                 elapsed = ended - started
                 minimum = min(s["bytes_per_second"] for s in samples)
+                recommendation = transfer_recommendation(
+                    samples, memory_bytes=min(s['memory_available_bytes'] for s in samples))
+                model = buffer_analysis(samples, min_rate, recommendation['buffer_bytes'])
                 qualified = (seconds >= MIN_DURATION and elapsed >= MIN_DURATION and before.st_size >= MIN_FILE
-                             and min_rate >= TARGET_RATE and minimum >= min_rate)
+                             and min_rate >= TARGET_RATE and model['qualified'])
                 report.update(state="COMPLETE", seconds=elapsed, bytes=done, average_rate=done / elapsed,
                               minimum_sample_rate=minimum, samples=samples, qualified=qualified,
+                              qualification_version=QUALIFICATION_VERSION, buffer_model=model,
                               average_system_cpu_percent=sum(s['system_cpu_percent'] for s in samples) / len(samples),
                               peak_system_cpu_percent=max(s['system_cpu_percent'] for s in samples),
                               average_io_wait_percent=sum(s['io_wait_percent'] for s in samples) / len(samples),
                               peak_io_wait_percent=max(s['io_wait_percent'] for s in samples),
                               peak_load1=max(s['load1'] for s in samples),
                               load_warning=any(s['system_cpu_percent'] >= 85 or s['io_wait_percent'] >= 30 for s in samples),
-                              transfer_recommendation=transfer_recommendation(
-                                  samples, memory_bytes=min(s['memory_available_bytes'] for s in samples)),
-                              qualification_note="Requires >=1800s, >=10GiB input, every sample >=120 MB/s; no throughput guarantee outside measured conditions")
+                              transfer_recommendation=recommendation,
+                              qualification_note="Requires >=1800s, >=10GiB input, >=5% average headroom, measured deficits fitting the buffer with 5s reserve, and recovery by test end; no throughput guarantee outside measured conditions")
                 catalog.finish(job, "VERIFIED" if qualified else "FAILED",
                                None if qualified else "Benchmark did not meet production qualification requirements", report)
                 return report
@@ -277,7 +326,8 @@ def require_qualification(catalog: Catalog, root: Path) -> None:
         if (report.get("qualified") and report.get("direct_io")
                 and report.get("seconds", 0) >= MIN_DURATION and report.get("required_rate", 0) >= TARGET_RATE
                 and report.get("file_bytes", 0) >= MIN_FILE
-                and report.get("minimum_sample_rate", 0) >= TARGET_RATE
+                and report.get("qualification_version") == QUALIFICATION_VERSION
+                and report.get("buffer_model", {}).get("qualified")
                 and all(storage[key] == current[key] for key in ("mount", "type", "source", "device"))):
             return
     raise SafetyError("No passing long-duration direct-I/O benchmark for this staging filesystem")

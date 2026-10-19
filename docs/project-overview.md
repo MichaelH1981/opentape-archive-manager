@@ -1,6 +1,6 @@
 # Was OTAM derzeit kann
 
-Stand: Version 0.5.2. OTAM umfasst einen Python-Archivierungskern mit CLI und persistentem Bandsimulator, eine responsive Weboberfläche, eine REST-API, einen separaten Worker und einen eigenständigen Katalogdienst. Eine produktive physische LTO-Abnahme steht aus.
+Stand: Version 0.5.3. OTAM umfasst einen Python-Archivierungskern mit CLI und persistentem Bandsimulator, eine responsive Weboberfläche, eine REST-API, einen separaten Worker und einen eigenständigen Katalogdienst. Eine produktive physische LTO-Abnahme steht aus.
 
 ## Implementiert und automatisiert geprüft
 

@@ -18,7 +18,7 @@ V1 nutzt explizite CLI-Optionen, keine versteckten Umgebungsvariablen und noch k
 | staging-status --staging [--job-id] | Kapazität, freie Bytes, Phasen, Fortschritt und letzte Messwerte |
 | staging-benchmark --staging --file | Vorhandene lokale Datei ausschließlich mit O_DIRECT lesen; Linux erforderlich |
 | staging-benchmark --seconds | 1800 Sekunden; kürzere Tests qualifizieren niemals für Produktion |
-| staging-benchmark --min-rate | 120000000 Bytes/s (120 MB/s dezimal), Mindestwert für jedes Sample |
+| staging-benchmark --min-rate | 120000000 Bytes/s (120 MB/s dezimal), Zielrate für das Puffermodell mit mindestens 5 % Durchschnittsreserve |
 | restore/restore-plan --path | Wiederholbar; Datei oder Verzeichnispräfix; ohne Auswahl alle verifizierten Dateien |
 | restore/restore-plan --archive-id | Bestimmte Archivkopie; bei gleichen Pfaden mehrerer Versionen erforderlich |
 | restore/restore-plan --target | Explizites Ziel; vorhandene Dateien und Symlink-Pfadkomponenten werden abgelehnt |

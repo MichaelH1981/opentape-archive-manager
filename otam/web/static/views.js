@@ -152,7 +152,7 @@ async function stagingPage() {
   const profiles = speed.drive_profiles || [];
   state.transferProfiles = profiles;
   const speedRows = speed.items.slice(0, 6).map((r) =>
-    `<tr><td>${esc(r.time ? date(r.time) : "—")}</td><td>${esc(r.storage?.path || "—")}</td><td>${r.average_rate ? bytes(r.average_rate) + "/s" : "—"}</td><td>${r.minimum_sample_rate ? bytes(r.minimum_sample_rate) + "/s" : "—"}</td><td>${r.average_system_cpu_percent === undefined ? "—" : r.average_system_cpu_percent.toFixed(1) + "%"}</td><td>${r.peak_io_wait_percent === undefined ? "—" : r.peak_io_wait_percent.toFixed(1) + "%"}</td><td>${r.qualified ? badge("VERIFIED") : "Nicht qualifiziert"}</td></tr>`,
+    `<tr><td>${esc(r.time ? date(r.time) : "—")}</td><td>${esc(r.storage?.path || "—")}</td><td>${r.average_rate ? bytes(r.average_rate) + "/s" : "—"}</td><td>${r.minimum_sample_rate ? bytes(r.minimum_sample_rate) + "/s" : "—"}</td><td>${r.buffer_model ? bytes(r.buffer_model.maximum_buffer_deficit_bytes) + " / " + bytes(r.buffer_model.buffer_bytes) : "—"}</td><td>${r.average_system_cpu_percent === undefined ? "—" : r.average_system_cpu_percent.toFixed(1) + "%"}</td><td>${r.peak_io_wait_percent === undefined ? "—" : r.peak_io_wait_percent.toFixed(1) + "%"}</td><td>${r.qualified ? badge("VERIFIED") : "Nicht qualifiziert"}</td></tr>`,
   );
   const runningTests = locations.map((r) => ({ label: r.label, data: speed.progress[r.id] }))
     .filter((r) => r.data?.state === "RUNNING");
@@ -187,11 +187,11 @@ async function stagingPage() {
         <form id="speedtest-form"><div class="form-grid">
           <label>Staging-Verzeichnis<select name="staging_id" required>${locations.filter((r) => r.available && r.writable && r.storage?.local).map((r) => `<option value="${esc(r.id)}">${esc(r.label)} · ${esc(r.path)}</option>`).join("")}</select></label>
           <label>Messdauer<select name="seconds"><option value="1800">30 Minuten · Qualifikation</option><option value="60">1 Minute · Funktionstest</option></select></label>
-        </div><p class="hint">Qualifiziert wird nur ein vollständiger 30-Minuten-Lauf mit mindestens 10 GiB Testdatei und mindestens 120 MB/s in jedem Messfenster. CPU-Auslastung, I/O-Wartezeit und Systemlast werden mitprotokolliert. OTAM lässt währenddessen keine andere eigene intensive I/O-Arbeit zu.</p>
+        </div><p class="hint">Qualifiziert wird nur ein vollständiger 30-Minuten-Lauf mit mindestens 10 GiB Testdatei. Für 120 MB/s muss der Durchschnitt mindestens 5 % Reserve haben; gemessene Einbrüche müssen mit dem vorgeschlagenen Puffer samt Reserve überbrückt und bis Testende aufgeholt werden. CPU-Auslastung und I/O-Wartezeit werden mitprotokolliert.</p>
         <div class="form-actions"><button class="button primary" type="submit" ${locations.some((r) => r.available && r.writable && r.storage?.local) ? "" : "disabled"}>Speedtest starten</button></div></form>
         ${runningTests.map((r) => `<div class="progress-meta"><span>${esc(r.label)} · ${r.data.phase === "PREPARING" ? "Testdatei vorbereiten" : "Direkt lesen"}</span><strong>${r.data.bytes_per_second ? bytes(r.data.bytes_per_second) + "/s" : bytes(r.data.bytes || 0)}</strong></div>${progress(r.data.phase === "PREPARING" ? 100 * (r.data.bytes || 0) / Math.max(1, r.data.total_bytes || 1) : 100 * (r.data.elapsed || 0) / Math.max(1, r.data.duration || 1))}<p class="hint">CPU ${(r.data.system_cpu_percent || 0).toFixed(1)} % · I/O-Wartezeit ${(r.data.io_wait_percent || 0).toFixed(1)} % · Last ${(r.data.load1 || 0).toFixed(2)}</p>`).join("")}
       </div>
-      ${table(["Zeit", "Staging", "Durchschnitt", "Minimum", "CPU Ø", "I/O-Wait max.", "Ergebnis"], speedRows, "Noch kein Speedtest durchgeführt")}
+      ${table(["Zeit", "Staging", "Durchschnitt", "Minimum", "Pufferdefizit / Größe", "CPU Ø", "I/O-Wait max.", "Ergebnis"], speedRows, "Noch kein Speedtest durchgeführt")}
       <div class="panel-body"><h3>Transferwerte</h3><p class="hint">Die Vorschläge berücksichtigen gemessene Leserate und verfügbaren RAM. Gespeicherte Werte sind bis zur Freigabe des physischen Schreibpfads noch nicht wirksam.</p>${transferForms}</div>
     </section>` : "";
   return (
