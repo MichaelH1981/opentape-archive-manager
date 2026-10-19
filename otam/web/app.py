@@ -545,7 +545,9 @@ def create_app(config: WebConfig) -> FastAPI:
 
         @archive.put("/staging/transfer-settings/{ident}", dependencies=[Depends(require_admin)])
         def transfer_settings(ident: str, data: dict[str, Any] = Body()):
-            resources.staging_for(config, control, ident)
+            staging = resources.staging_for(config, control, ident)
+            from ..storage import require_local
+            storage = require_local(staging)
             if set(data) != {"write_rate_bytes_per_second", "buffer_bytes"}:
                 raise SafetyError("Schreibrate und Puffergröße erforderlich")
             rate, buffer = data["write_rate_bytes_per_second"], data["buffer_bytes"]
@@ -558,7 +560,8 @@ def create_app(config: WebConfig) -> FastAPI:
                 if db.execute("SELECT 1 FROM commands WHERE kind IN ('backup','backup-set') AND state='RUNNING'").fetchone():
                     raise SafetyError("Transferwerte während eines Archivjobs nicht ändern")
             value = {"write_rate_bytes_per_second": rate, "buffer_bytes": buffer,
-                     "updated": time.time(), "effective": False}
+                     "updated": time.time(), "effective": False,
+                     "storage": {key: storage[key] for key in ("mount", "source", "device", "type")}}
             control.set("transfer_settings:" + ident, value)
             control.sync_event("config", "UPDATED", None,
                                "Vorgemerkte Transferwerte für Staging: " + ident)

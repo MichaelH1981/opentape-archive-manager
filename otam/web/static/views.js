@@ -155,12 +155,14 @@ async function stagingPage() {
   const runningTests = locations.map((r) => ({ label: r.label, data: speed.progress[r.id] }))
     .filter((r) => r.data?.state === "RUNNING");
   const transferForms = locations.map((location) => {
-    const measured = speed.items.find((r) => r.storage?.path === location.path && r.transfer_recommendation);
+    const sameStorage = (left, right) => left && right && ["mount", "source", "device", "type"].every((key) => left[key] === right[key]);
+    const measured = speed.items.find((r) => r.storage?.path === location.path && sameStorage(r.storage, location.storage) && r.transfer_recommendation);
     const suggestion = measured?.transfer_recommendation;
-    const saved = speed.settings?.[location.id];
+    const savedValue = speed.settings?.[location.id];
+    const saved = sameStorage(savedValue?.storage, location.storage) ? savedValue : null;
     const rate = saved?.write_rate_bytes_per_second || suggestion?.write_rate_bytes_per_second || 0;
     const buffer = saved?.buffer_bytes || suggestion?.buffer_bytes || 0;
-    return `<form class="transfer-form" data-staging="${esc(location.id)}"><h3>${esc(location.label)}</h3><p class="hint">${suggestion ? `Messvorschlag: ${bytes(suggestion.write_rate_bytes_per_second)}/s · ${bytes(suggestion.buffer_bytes)} Puffer${measured.qualified ? "" : " · Messung nicht qualifiziert"}` : "Noch kein Messvorschlag für dieses Staging."}</p><div class="form-grid"><label>Band-Schreibrate (MB/s)<input name="rate_mbps" type="number" min="1" max="1000" step="1" value="${rate ? Math.round(rate / 1e6) : ""}" required></label><label>mbuffer-Größe (MiB)<input name="buffer_mib" type="number" min="256" max="4096" step="64" value="${buffer ? Math.round(buffer / 1048576) : ""}" required></label></div><div class="form-actions"><button class="button" type="submit">Transferwerte speichern</button></div></form>`;
+    return `<form class="transfer-form" data-staging="${esc(location.id)}"><h3>${esc(location.label)}</h3><p class="hint">${savedValue && !saved ? "<span>Gespeicherte Werte gehören zu einem anderen Dateisystem und müssen neu geprüft werden.</span> " : ""}${suggestion ? `Messvorschlag: ${bytes(suggestion.write_rate_bytes_per_second)}/s · ${bytes(suggestion.buffer_bytes)} Puffer${measured.qualified ? "" : " · Messung nicht qualifiziert"}` : "Noch kein Messvorschlag für dieses Staging."}</p><div class="form-grid"><label>Band-Schreibrate (MB/s)<input name="rate_mbps" type="number" min="1" max="1000" step="1" value="${rate ? Math.round(rate / 1e6) : ""}" required></label><label>mbuffer-Größe (MiB)<input name="buffer_mib" type="number" min="256" max="4096" step="64" value="${buffer ? Math.round(buffer / 1048576) : ""}" required></label></div><div class="form-actions"><button class="button" type="submit">Transferwerte speichern</button></div></form>`;
   }).join("");
   const speedtestPanel = state.node.role === "archive" ? `
     <section class="panel" style="margin-bottom:22px">

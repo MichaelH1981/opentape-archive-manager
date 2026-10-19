@@ -136,6 +136,7 @@ class WebAcceptance(unittest.TestCase):
     def test_staging_speedtest_settings_are_editable_but_not_effective(self):
         from fastapi.testclient import TestClient
 
+        self.config.staging.mkdir(parents=True, exist_ok=True)
         path = "/api/v1/staging/transfer-settings/default-staging"
         value = {"write_rate_bytes_per_second": 85_000_000,
                  "buffer_bytes": 1024 * 1024 ** 2}
@@ -147,6 +148,7 @@ class WebAcceptance(unittest.TestCase):
                                 headers={"X-CSRF-Token": self.csrf})
         self.assertEqual(saved.status_code, 200, saved.text)
         self.assertFalse(saved.json()["effective"])
+        self.assertEqual(set(saved.json()["storage"]), {"mount", "source", "device", "type"})
         speedtests = self.client.get("/api/v1/staging/speedtests").json()
         self.assertEqual(speedtests["settings"]["default-staging"]["buffer_bytes"],
                          value["buffer_bytes"])

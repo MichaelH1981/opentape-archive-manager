@@ -151,6 +151,7 @@ const en = {
   "Transferwerte": "Transfer settings",
   "Die Vorschläge berücksichtigen gemessene Leserate und verfügbaren RAM. Gespeicherte Werte sind bis zur Freigabe des physischen Schreibpfads noch nicht wirksam.": "Suggestions account for measured read speed and available RAM. Saved settings have no effect until the physical write path is approved.",
   "Noch kein Messvorschlag für dieses Staging.": "No measurement-based suggestion for this staging location yet.",
+  "Gespeicherte Werte gehören zu einem anderen Dateisystem und müssen neu geprüft werden.": "Saved settings belong to a different filesystem and must be reviewed again.",
   "Messung nicht qualifiziert": "Test not qualified",
   "Band-Schreibrate (MB/s)": "Tape write rate (MB/s)",
   "mbuffer-Größe (MiB)": "mbuffer size (MiB)",
