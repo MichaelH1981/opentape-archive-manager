@@ -112,6 +112,7 @@ const kindLabel = (k) =>
     sync: "Katalog synchronisieren",
     "hardware-scan": "Status und Diagnose abfragen",
     "tape-maintenance": "Bandwartung",
+    "staging-speedtest": "Staging-Speedtest",
     "create-medium": "Testmedium erstellen",
   })[k] || k;
 const titles = {

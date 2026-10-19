@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..catalog import Catalog
+from ..benchmark import MIN_FILE, CHUNK, TEST_FILE_BYTES, run_managed_speedtest
 from ..common import SafetyError, safe_path
 from ..service import ArchiveService
 from ..sets import backup_set_step, next_child, plan_set
@@ -40,6 +41,7 @@ COMMANDS = {
     "sync",
     "tape-maintenance",
     "hardware-scan",
+    "staging-speedtest",
 }
 
 
@@ -75,6 +77,18 @@ def validate_command(
     if kind == "hardware-scan":
         if payload:
             raise SafetyError("Laufwerkserkennung benötigt keine Parameter")
+        return
+    if kind == "staging-speedtest":
+        if set(payload) - {"staging_id", "seconds", "file_bytes"}:
+            raise SafetyError("Unbekannte Speedtest-Parameter")
+        if (not isinstance(payload.get("staging_id"), str)
+                or type(payload.get("seconds", 1800)) is not int
+                or not 1 <= payload.get("seconds", 1800) <= 7200
+                or type(payload.get("file_bytes", TEST_FILE_BYTES)) is not int
+                or not MIN_FILE <= payload.get("file_bytes", TEST_FILE_BYTES) <= 100 * 1024 ** 3
+                or payload.get("file_bytes", TEST_FILE_BYTES) % CHUNK):
+            raise SafetyError("Ungültiger Speedtest-Umfang")
+        resources.staging_for(config, control, payload["staging_id"])
         return
     if kind not in ("sync",) and maintenance.mode(config, control) != "simulator":
         raise SafetyError(
@@ -251,6 +265,29 @@ def execute(
         return maintenance.execute(config, control, payload)
     if kind == "hardware-scan":
         return diagnostics.scan(control, force=True)
+    if kind == "staging-speedtest":
+        root = resources.staging_for(config, control, payload["staging_id"])
+        key = "speedtest_progress:" + payload["staging_id"]
+        control.set(key, {"state": "RUNNING", "phase": "PREPARING", "time": time.time()})
+        catalog = Catalog(config.catalog)
+        try:
+            def progress(data: dict[str, Any]) -> None:
+                control.set(key, {"state": "RUNNING", "time": time.time(), **data})
+            report = run_managed_speedtest(
+                catalog, root, seconds=payload.get("seconds", 1800),
+                file_bytes=payload.get("file_bytes", TEST_FILE_BYTES), progress=progress,
+            )
+            control.set(key, {"state": "COMPLETE", "phase": "COMPLETE", "time": time.time(),
+                              "qualified": report["qualified"], "id": report["id"]})
+            return {k: report[k] for k in ("id", "qualified", "average_rate",
+                                            "minimum_sample_rate", "average_system_cpu_percent",
+                                            "peak_system_cpu_percent", "peak_io_wait_percent")}
+        except Exception as error:
+            control.set(key, {"state": "FAILED", "phase": "FAILED", "time": time.time(),
+                              "error": str(error)})
+            raise
+        finally:
+            catalog.close()
     if kind == "sync":
         with io_lock():
             return push(config, control, due_only=scheduled)
@@ -451,6 +488,15 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
                         "UPDATE settings SET value=? WHERE key=?",
                         (json.dumps(value), row["key"]),
                     )
+            for row in db.execute(
+                "SELECT key,value FROM settings WHERE key LIKE 'speedtest_progress:%'"
+            ).fetchall():
+                value = json.loads(row["value"])
+                if value.get("state") == "RUNNING":
+                    value.update(state="INTERRUPTED", phase="INCOMPLETE",
+                                 error="Worker-Neustart: Testdatei vor erneutem Test prüfen")
+                    db.execute("UPDATE settings SET value=? WHERE key=?",
+                               (json.dumps(value), row["key"]))
         heartbeat_stop = threading.Event()
 
         def heartbeat() -> None:

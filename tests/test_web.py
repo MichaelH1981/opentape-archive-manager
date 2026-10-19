@@ -133,6 +133,45 @@ class WebAcceptance(unittest.TestCase):
         self.assertEqual(row["state"], "SUCCEEDED", row)
         return row["result"]
 
+    def test_staging_speedtest_settings_are_editable_but_not_effective(self):
+        from fastapi.testclient import TestClient
+
+        path = "/api/v1/staging/transfer-settings/default-staging"
+        value = {"write_rate_bytes_per_second": 85_000_000,
+                 "buffer_bytes": 1024 * 1024 ** 2}
+        self.assertEqual(self.client.put(path, json=value).status_code, 403)
+        invalid = {**value, "buffer_bytes": 1000}
+        self.assertEqual(self.client.put(path, json=invalid,
+                                         headers={"X-CSRF-Token": self.csrf}).status_code, 409)
+        saved = self.client.put(path, json=value,
+                                headers={"X-CSRF-Token": self.csrf})
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertFalse(saved.json()["effective"])
+        speedtests = self.client.get("/api/v1/staging/speedtests").json()
+        self.assertEqual(speedtests["settings"]["default-staging"]["buffer_bytes"],
+                         value["buffer_bytes"])
+        self.assertEqual(speedtests["items"], [])
+        with self.assertRaises(SafetyError):
+            validate_command(self.config, self.control, "staging-speedtest",
+                             {"staging_id": "default-staging", "seconds": 0})
+        viewer = self.client.post("/api/v1/users", json={
+            "username": "speed.viewer", "password": "viewer-password-1234", "role": "viewer",
+        }, headers={"X-CSRF-Token": self.csrf})
+        self.assertEqual(viewer.status_code, 201)
+        other = TestClient(self.app)
+        try:
+            csrf = other.post("/api/v1/login", json={
+                "username": "speed.viewer", "password": "viewer-password-1234",
+            }).json()["csrf"]
+            self.assertEqual(other.put(path, json=value,
+                                       headers={"X-CSRF-Token": csrf}).status_code, 403)
+            self.assertEqual(other.post("/api/v1/commands", json={
+                "kind": "staging-speedtest", "payload": {"staging_id": "default-staging", "seconds": 60},
+            }, headers={"X-CSRF-Token": csrf,
+                        "Idempotency-Key": str(uuid.uuid4())}).status_code, 403)
+        finally:
+            other.close()
+
     def archived(self):
         self.command("create-medium", {"label": "TEST-001"})
         medium = self.work()["media_id"]

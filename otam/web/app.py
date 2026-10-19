@@ -506,7 +506,7 @@ def create_app(config: WebConfig) -> FastAPI:
             idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
             request: Request,
         ):
-            if data.kind == "tape-maintenance":
+            if data.kind in ("tape-maintenance", "staging-speedtest"):
                 require_admin(request)
             validate_command(config, control, data.kind, data.payload)
             result = control.enqueue(data.kind, data.payload, idempotency_key)
@@ -515,6 +515,54 @@ def create_app(config: WebConfig) -> FastAPI:
                 "kind": result["kind"],
                 "state": result["state"],
             }
+
+        @archive.get("/staging/speedtests")
+        def staging_speedtests():
+            catalog = Catalog(config.catalog)
+            try:
+                reports = []
+                for row in catalog.db.execute(
+                    "SELECT report_json FROM storage_benchmarks ORDER BY time DESC LIMIT 20"
+                ):
+                    report = json.loads(row[0])
+                    samples = report.pop("samples", [])
+                    report["sample_count"] = len(samples)
+                    report["recent_samples"] = samples[-30:]
+                    reports.append(report)
+            finally:
+                catalog.close()
+            return {
+                "items": reports,
+                "progress": {
+                    r["id"]: control.get("speedtest_progress:" + r["id"])
+                    for r in resources.entries(config, control) if r["kind"] == "staging"
+                },
+                "settings": {
+                    r["id"]: control.get("transfer_settings:" + r["id"])
+                    for r in resources.entries(config, control) if r["kind"] == "staging"
+                },
+            }
+
+        @archive.put("/staging/transfer-settings/{ident}", dependencies=[Depends(require_admin)])
+        def transfer_settings(ident: str, data: dict[str, Any] = Body()):
+            resources.staging_for(config, control, ident)
+            if set(data) != {"write_rate_bytes_per_second", "buffer_bytes"}:
+                raise SafetyError("Schreibrate und Puffergröße erforderlich")
+            rate, buffer = data["write_rate_bytes_per_second"], data["buffer_bytes"]
+            if (type(rate) is not int or type(buffer) is not int
+                    or not 1_000_000 <= rate <= 1_000_000_000
+                    or not 256 * 1024 ** 2 <= buffer <= 4 * 1024 ** 3
+                    or buffer % (64 * 1024 ** 2)):
+                raise SafetyError("Ungültige Schreibrate oder Puffergröße")
+            with control.connect() as db:
+                if db.execute("SELECT 1 FROM commands WHERE kind IN ('backup','backup-set') AND state='RUNNING'").fetchone():
+                    raise SafetyError("Transferwerte während eines Archivjobs nicht ändern")
+            value = {"write_rate_bytes_per_second": rate, "buffer_bytes": buffer,
+                     "updated": time.time(), "effective": False}
+            control.set("transfer_settings:" + ident, value)
+            control.sync_event("config", "UPDATED", None,
+                               "Vorgemerkte Transferwerte für Staging: " + ident)
+            return value
 
         @archive.post("/restore-plan")
         def restore_plan(data: RestoreRequest):

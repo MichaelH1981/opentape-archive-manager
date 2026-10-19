@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from otam.archive import create_archive, verify_stream
-from otam.benchmark import require_qualification, run_benchmark
+from otam.benchmark import CHUNK, require_qualification, run_benchmark, run_managed_speedtest, transfer_recommendation
 from otam.catalog import Catalog, SCHEMA
 from otam.cli import main
 from otam.common import SafetyError, sha256
@@ -340,9 +340,51 @@ class Staging(unittest.TestCase):
         self.assertFalse(report['qualified'])
         self.assertTrue(report['direct_io'])
         self.assertGreater(report['bytes'], 0)
+        self.assertIn('average_system_cpu_percent', report)
+        self.assertIn('peak_io_wait_percent', report)
+        self.assertIn('transfer_recommendation', report)
         self.assertEqual(path.stat().st_size, 8 * 1024 * 1024)
         with self.assertRaises(SafetyError):
             require_qualification(self.catalog, self.spool)
+
+
+class TransferRecommendation(unittest.TestCase):
+    def test_rate_uses_slowest_window_and_tape_cap(self):
+        samples = [
+            {'bytes': 200_000_000, 'seconds': 1, 'bytes_per_second': 200_000_000,
+             'system_cpu_percent': 20, 'io_wait_percent': 2},
+            {'bytes': 100_000_000, 'seconds': 1, 'bytes_per_second': 100_000_000,
+             'system_cpu_percent': 25, 'io_wait_percent': 5},
+        ]
+        result = transfer_recommendation(samples, memory_bytes=4 * 1024 ** 3)
+        self.assertEqual(result['write_rate_bytes_per_second'], 85_000_000)
+        self.assertEqual(result['buffer_bytes'] % (64 * 1024 ** 2), 0)
+        self.assertLessEqual(result['buffer_bytes'], 1024 ** 3)
+        self.assertTrue(result['advisory_only'])
+        samples[1]['io_wait_percent'] = 35
+        stressed = transfer_recommendation(samples, memory_bytes=4 * 1024 ** 3)
+        self.assertEqual(stressed['write_rate_bytes_per_second'], 70_000_000)
+        self.assertTrue(stressed['system_load_warning'])
+
+    def test_managed_fixture_cleans_only_its_own_file(self):
+        with tempfile.TemporaryDirectory(prefix='otam-speedtest-') as directory:
+            root = Path(directory)
+            protected = root / 'keep.txt'
+            protected.write_text('existing data')
+            with patch('otam.benchmark.MIN_FILE', CHUNK), \
+                 patch('otam.benchmark.require_local', return_value={}), \
+                 patch('otam.benchmark.run_benchmark', return_value={
+                     'id': 'synthetic-id', 'seconds': 1, 'qualified': False,
+                 }) as measure:
+                catalog = Catalog(root / 'catalog.sqlite')
+                try:
+                    result = run_managed_speedtest(catalog, root, seconds=1, file_bytes=CHUNK)
+                    self.assertEqual(result['managed_fixture_bytes'], CHUNK)
+                    self.assertEqual(measure.call_args.kwargs['_already_locked'], True)
+                    self.assertFalse(list((root / '.otam-speedtest').iterdir()))
+                    self.assertEqual(protected.read_text(), 'existing data')
+                finally:
+                    catalog.close()
 
 
 if __name__ == '__main__':

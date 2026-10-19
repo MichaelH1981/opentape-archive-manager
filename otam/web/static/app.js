@@ -44,7 +44,7 @@ let renderId = 0;
 function applyPermissions(root) {
   const role = state.account?.role || "viewer";
   if (role !== "admin")
-    $$("#new-source, #new-staging, #new-target, #mode-form, [data-maintenance-drive], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
+    $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
       .forEach((element) => (element.hidden = true));
   if (role === "viewer")
     $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group]", root)
@@ -484,6 +484,38 @@ function bindForms(root = $("#content")) {
     await enqueue("plan", request);
     location.hash = "jobs";
   });
+  on("#speedtest-form", async (d) => {
+    await enqueue("staging-speedtest", {
+      staging_id: d.get("staging_id"),
+      seconds: Number(d.get("seconds")),
+    });
+    await render();
+    toast("Staging-Speedtest eingeplant.");
+  });
+  $$(".transfer-form", root).forEach((form) => form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const button = $("button[type=submit]", form);
+    button.disabled = true;
+    try {
+      const data = new FormData(form);
+      const rate = Number(data.get("rate_mbps"));
+      const buffer = Number(data.get("buffer_mib"));
+      if (!Number.isInteger(rate) || !Number.isInteger(buffer))
+        throw new Error("Ganze Werte für Schreibrate und Puffergröße eingeben.");
+      await api("/staging/transfer-settings/" + encodeURIComponent(form.dataset.staging), {
+        method: "PUT",
+        body: JSON.stringify({
+          write_rate_bytes_per_second: rate * 1_000_000,
+          buffer_bytes: buffer * 1048576,
+        }),
+      });
+      await render();
+      toast("Transferwerte gespeichert; physischer Schreibpfad weiterhin gesperrt.");
+    } catch (error) {
+      toast(error.message, true);
+      button.disabled = false;
+    }
+  }));
   const sourceSelect = $("#plan-form [name=source_id]", root);
   if (sourceSelect) sourceSelect.addEventListener("change", () => {
     state.sourceSelection = { sourceId: sourceSelect.value, paths: [] };

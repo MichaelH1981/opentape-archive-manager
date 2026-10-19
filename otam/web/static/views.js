@@ -143,15 +143,47 @@ async function planning() {
   );
 }
 async function stagingPage() {
-  const result = await api("/staging");
+  const [result, speed] = await Promise.all([
+    api("/staging"),
+    state.node.role === "archive" ? api("/staging/speedtests") : Promise.resolve({ items: [], progress: {} }),
+  ]);
   const rows = result.items;
+  const locations = (result.locations || []).filter((r) => r.kind === "staging");
+  const speedRows = speed.items.slice(0, 6).map((r) =>
+    `<tr><td>${esc(r.time ? date(r.time) : "—")}</td><td>${esc(r.storage?.path || "—")}</td><td>${r.average_rate ? bytes(r.average_rate) + "/s" : "—"}</td><td>${r.minimum_sample_rate ? bytes(r.minimum_sample_rate) + "/s" : "—"}</td><td>${r.average_system_cpu_percent === undefined ? "—" : r.average_system_cpu_percent.toFixed(1) + "%"}</td><td>${r.peak_io_wait_percent === undefined ? "—" : r.peak_io_wait_percent.toFixed(1) + "%"}</td><td>${r.qualified ? badge("VERIFIED") : "Nicht qualifiziert"}</td></tr>`,
+  );
+  const runningTests = locations.map((r) => ({ label: r.label, data: speed.progress[r.id] }))
+    .filter((r) => r.data?.state === "RUNNING");
+  const transferForms = locations.map((location) => {
+    const measured = speed.items.find((r) => r.storage?.path === location.path && r.transfer_recommendation);
+    const suggestion = measured?.transfer_recommendation;
+    const saved = speed.settings?.[location.id];
+    const rate = saved?.write_rate_bytes_per_second || suggestion?.write_rate_bytes_per_second || 0;
+    const buffer = saved?.buffer_bytes || suggestion?.buffer_bytes || 0;
+    return `<form class="transfer-form" data-staging="${esc(location.id)}"><h3>${esc(location.label)}</h3><p class="hint">${suggestion ? `Messvorschlag: ${bytes(suggestion.write_rate_bytes_per_second)}/s · ${bytes(suggestion.buffer_bytes)} Puffer${measured.qualified ? "" : " · Messung nicht qualifiziert"}` : "Noch kein Messvorschlag für dieses Staging."}</p><div class="form-grid"><label>Band-Schreibrate (MB/s)<input name="rate_mbps" type="number" min="1" max="1000" step="1" value="${rate ? Math.round(rate / 1e6) : ""}" required></label><label>mbuffer-Größe (MiB)<input name="buffer_mib" type="number" min="256" max="4096" step="64" value="${buffer ? Math.round(buffer / 1048576) : ""}" required></label></div><div class="form-actions"><button class="button" type="submit">Transferwerte speichern</button></div></form>`;
+  }).join("");
+  const speedtestPanel = state.node.role === "archive" ? `
+    <section class="panel" style="margin-bottom:22px">
+      <div class="panel-header"><div><h2>Staging-Speedtest</h2><p>Lokale Platte und Systemlast über längere Zeit messen.</p></div></div>
+      <div class="panel-body">
+        <p>OTAM erzeugt eine eigene 12-GiB-Testdatei, schreibt sie vollständig auf das gewählte Staging-Dateisystem, liest sie mit Linux O_DIRECT und entfernt ausschließlich diese Testdatei wieder. Die Bandhardware bleibt unberührt.</p>
+        <form id="speedtest-form"><div class="form-grid">
+          <label>Staging-Verzeichnis<select name="staging_id" required>${locations.filter((r) => r.available && r.writable && r.storage?.local).map((r) => `<option value="${esc(r.id)}">${esc(r.label)} · ${esc(r.path)}</option>`).join("")}</select></label>
+          <label>Messdauer<select name="seconds"><option value="1800">30 Minuten · Qualifikation</option><option value="60">1 Minute · Funktionstest</option></select></label>
+        </div><p class="hint">Qualifiziert wird nur ein vollständiger 30-Minuten-Lauf mit mindestens 10 GiB Testdatei und mindestens 120 MB/s in jedem Messfenster. CPU-Auslastung, I/O-Wartezeit und Systemlast werden mitprotokolliert. OTAM lässt währenddessen keine andere eigene intensive I/O-Arbeit zu.</p>
+        <div class="form-actions"><button class="button primary" type="submit" ${locations.some((r) => r.available && r.writable && r.storage?.local) ? "" : "disabled"}>Speedtest starten</button></div></form>
+        ${runningTests.map((r) => `<div class="progress-meta"><span>${esc(r.label)} · ${r.data.phase === "PREPARING" ? "Testdatei vorbereiten" : "Direkt lesen"}</span><strong>${r.data.bytes_per_second ? bytes(r.data.bytes_per_second) + "/s" : bytes(r.data.bytes || 0)}</strong></div>${progress(r.data.phase === "PREPARING" ? 100 * (r.data.bytes || 0) / Math.max(1, r.data.total_bytes || 1) : 100 * (r.data.elapsed || 0) / Math.max(1, r.data.duration || 1))}<p class="hint">CPU ${(r.data.system_cpu_percent || 0).toFixed(1)} % · I/O-Wartezeit ${(r.data.io_wait_percent || 0).toFixed(1)} % · Last ${(r.data.load1 || 0).toFixed(2)}</p>`).join("")}
+      </div>
+      ${table(["Zeit", "Staging", "Durchschnitt", "Minimum", "CPU Ø", "I/O-Wait max.", "Ergebnis"], speedRows, "Noch kein Speedtest durchgeführt")}
+      <div class="panel-body"><h3>Transferwerte</h3><p class="hint">Die Vorschläge berücksichtigen gemessene Leserate und verfügbaren RAM. Gespeicherte Werte sind bis zur Freigabe des physischen Schreibpfads noch nicht wirksam.</p>${transferForms}</div>
+    </section>` : "";
   return (
     heading(
       "Vorbereitet für den langen Weg.",
       "Vollständige lokale TARs. Erst geprüft, dann zum Band.",
       `<button class="button primary" id="new-staging">${icon("layers")}Staging hinzufügen</button>`,
     ) +
-    `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><h2>Staging-Verzeichnisse</h2></div>${resourceTable((result.locations || []).filter((r) => r.kind === "staging"))}</section><div class="dashboard-grid"><div class="main-column">${rows.length ? rows.map((s) => `<section class="panel job-card"><div class="job-top"><div><strong>Archiv ${esc(short(s.archive_id))}</strong><small>Job ${esc(short(s.job_id))} · ${esc(ago(s.updated))}</small></div>${badge(s.state)}</div><div class="progress-meta"><span>${esc(labels[s.phase] || s.phase)}</span><strong>${bytes(s.progress_bytes)} / ${bytes(s.total_bytes)}</strong></div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}${pipeline(s.phase)}${s.error ? `<p class="error-text">${esc(s.error)}</p>` : ""}<div class="button-row"><button class="button small" data-job="${esc(s.job_id)}">Job und Plan ansehen ${icon("arrow")}</button></div></section>`).join("") : `<section class="panel">${empty("Noch keine Archive im Staging", "Erstelle einen Plan und starte die lokale Vorbereitung.", "layers", state.node.role === "archive" ? linkButton("Planung öffnen", "planning", "calendar", true) : "")}</section>`}</div><aside class="side-column">${storageCard(result.storage)}${note("Staging-Archive bleiben bis zur erfolgreichen Rückleseverifikation erhalten. Nur von OTAM verwaltete temporäre Dateien werden danach bereinigt.")}</aside></div>`
+    `<section class="panel" style="margin-bottom:22px"><div class="panel-header"><h2>Staging-Verzeichnisse</h2></div>${resourceTable(locations)}</section>${speedtestPanel}<div class="dashboard-grid"><div class="main-column">${rows.length ? rows.map((s) => `<section class="panel job-card"><div class="job-top"><div><strong>Archiv ${esc(short(s.archive_id))}</strong><small>Job ${esc(short(s.job_id))} · ${esc(ago(s.updated))}</small></div>${badge(s.state)}</div><div class="progress-meta"><span>${esc(labels[s.phase] || s.phase)}</span><strong>${bytes(s.progress_bytes)} / ${bytes(s.total_bytes)}</strong></div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}${pipeline(s.phase)}${s.error ? `<p class="error-text">${esc(s.error)}</p>` : ""}<div class="button-row"><button class="button small" data-job="${esc(s.job_id)}">Job und Plan ansehen ${icon("arrow")}</button></div></section>`).join("") : `<section class="panel">${empty("Noch keine Archive im Staging", "Erstelle einen Plan und starte die lokale Vorbereitung.", "layers", state.node.role === "archive" ? linkButton("Planung öffnen", "planning", "calendar", true) : "")}</section>`}</div><aside class="side-column">${storageCard(result.storage)}${note("Staging-Archive bleiben bis zur erfolgreichen Rückleseverifikation erhalten. Nur von OTAM verwaltete temporäre Dateien werden danach bereinigt.")}</aside></div>`
   );
 }
 async function jobsPage() {
