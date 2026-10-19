@@ -9,7 +9,7 @@
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
 | 256-GiB-Medientest | Vollständiger Schreib-/Rücklesezyklus mit SHA-256; kein echtes Bandende erreicht | Teilabnahme |
-| Volles Band bis EOM und vollständig zurücklesen | Destruktive Aktion; Freigabe für genau das eingelegte Testmedium und diesen Umfang ausstehend | Offen |
+| Volles Band bis EOM und vollständig zurücklesen | Nutzerfreigabe für die eingelegte Testkassette erteilt. Dauerhaft protokollierter OTAM-Wartungsauftrag am 19.10.2026 mit erneut geprüfter Medienidentität gestartet; Ergebnis erst nach vollständigem Rücklesen bewerten | Läuft |
 | Kontrollierter Abbruch, Neustart und Medienwechsel an echter Hardware | Position, Tail und Identität müssen vor jedem weiteren Write unabhängig geprüft werden | Offen |
 | Reguläre OTAM-Pipeline auf `/dev/nst*` | Backend fehlt; `LinuxTape` löst absichtlich `SafetyError` aus. Inklusive `mbuffer`, Staging, Receipt, Scan, gezieltem Restore und vollständiger Rückleseprüfung zu implementieren und separat abzunehmen | Sperrend |
 | Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Testlayout-Wiederherstellung ersetzt diesen End-to-End-Test nicht | Offen |

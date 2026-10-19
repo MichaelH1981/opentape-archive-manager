@@ -10,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -280,6 +281,29 @@ class Workflows(unittest.TestCase):
         self.assertEqual(report["archives"], len(plan["archives"]))
         self.assertEqual(len(self.catalog.search()), 3)
         self.assertEqual(self.service.restore(self.media, self.base / "deferred-restored")["files"], 3)
+
+    def test_restore_reads_archive_as_stream_without_local_tape_copy(self) -> None:
+        self.backup()
+        original_read = self.tape.read
+
+        def metadata_only(position: int) -> Path:
+            if position % 2:
+                raise AssertionError("Data archive must use the streaming API")
+            return original_read(position)
+
+        @contextmanager
+        def open_read(position: int):
+            with (self.tape.path / f"{position:08d}.tar").open("rb") as stream:
+                yield stream
+
+        self.tape.read = metadata_only  # type: ignore[method-assign]
+        self.tape.open_read = open_read  # type: ignore[method-assign]
+        report = self.service.restore(self.media, self.base / "stream-restored")
+        self.assertEqual(report["files"], 3)
+        self.assertEqual(
+            sha256(self.base / "stream-restored" / "notes.txt"),
+            sha256(self.source / "notes.txt"),
+        )
 
     def test_rebuild_preserves_prior_pairs_with_incomplete_tail(self) -> None:
         first = self.backup()

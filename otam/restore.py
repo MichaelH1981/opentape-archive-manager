@@ -5,9 +5,8 @@ import hashlib
 import os
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
-from .archive import verify_archive
 from .common import BLOCK, SafetyError, safe_path
 
 
@@ -30,15 +29,19 @@ def open_directory(root: Path) -> int:
         raise
 
 
-def restore_files(path: Path, target: Path, expected: dict[str, Any], names: set[str]) -> int:
-    verify_archive(path, expected)
+def restore_files(incoming: BinaryIO, target: Path, expected: dict[str, Any], names: set[str]) -> int:
+    """Extract from a sequential stream already checked by the media scan.
+
+    Every restored payload and destination is independently SHA-256 checked.
+    The caller must first verify the complete archive and receipt chain.
+    """
     entries = {e["path"]: e for e in expected["files"]}
     if not names <= entries.keys():
         raise SafetyError("Restore selection contains unknown files")
     root_fd = open_directory(target)
     count = 0
     try:
-        with tarfile.open(path, "r|") as tar:
+        with tarfile.open(fileobj=incoming, mode="r|") as tar:
             for member in tar:
                 if not member.name.startswith("data/"):
                     continue

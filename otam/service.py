@@ -537,7 +537,8 @@ class ArchiveService:
                 for item in found:
                     names = {r["path"] for r in plan["files"] if r["archive_id"] == item["manifest"]["archive_id"]}
                     if names:
-                        count += restore_files(self.tape.read(item["position"]), target, item["manifest"], names)
+                        with self.tape.open_read(item["position"]) as incoming:
+                            count += restore_files(incoming, target, item["manifest"], names)
                 if count != len(plan["files"]):
                     raise SafetyError("Catalog selection not found on medium")
                 with self.catalog.db:
