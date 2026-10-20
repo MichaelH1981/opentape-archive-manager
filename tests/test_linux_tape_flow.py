@@ -238,6 +238,90 @@ class PhysicalServiceFlow(TestCase):
                     self.assertEqual(args[args.index("-R") + 1], "120000000")
                     self.assertEqual(args[args.index("-m") + 1], "2368M")
 
+    def test_explicit_exchange_acceptance_harness_uses_live_journals_and_small_real_plans(self):
+        from dataclasses import asdict
+        from otam.common import SafetyError
+        from tools.tape_exchange_acceptance import main
+        from otam.web.config import WebConfig
+        from otam.web.control import Control
+        from otam.web.worker import execute
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            staging = root / 'staging'
+            staging.mkdir()
+            config = WebConfig(str(uuid.uuid4()), 'test', 'archive', root / 'state', root / 'catalog.sqlite',
+                               staging, root / 'media', root / 'restore', 'pbkdf2_sha256$600000$salt$hash',
+                               physical_maintenance=True)
+            config_file = root / 'live.json'
+            config_file.write_text(json.dumps(asdict(config), default=str))
+            original_config = config_file.read_bytes()
+            control = Control(config.state)
+            control.set('operation_mode', 'physical')
+            drives = [dict(id='drive-id', serial='DRIVE', medium_serial=serial, ready=True, device='/dev/nst0',
+                           vendor='IBM', model='ULT3580-HH4', status={'online': True, 'density_code': 0x46})
+                      for serial in ('FIRST', 'SECOND')]
+            devices = []
+            for i, drive in enumerate(drives):
+                path = root / str(i)
+                path.mkdir()
+                devices.append(FileST(path, drive))
+            current = 0
+            storage = {'free': 10**9, 'mount': str(staging), 'source': '/dev/test', 'device': '1:2', 'type': 'ext4'}
+            with ExitStack() as stack:
+                stack.enter_context(patch('otam.physical.LinuxMaintenance', side_effect=lambda expected, *a, **kw: devices[current]))
+                stack.enter_context(patch('otam.physical.run', side_effect=lambda *a, **kw: devices[current].move(*a, **kw)))
+                stack.enter_context(patch('otam.physical.status', side_effect=lambda *a: devices[current].status(*a)))
+                stack.enter_context(patch.object(LinuxTape, '_driver_mode'))
+                for name in ('otam.physical.discover_drives', 'otam.web.physical_archive.discover_drives',
+                             'tools.tape_exchange_acceptance.discover_drives'):
+                    stack.enter_context(patch(name, side_effect=lambda: [drives[current]]))
+                for name in ('otam.storage.require_local', 'otam.staging.require_local',
+                             'otam.web.resources.require_local', 'otam.web.physical_archive.require_local',
+                             'tools.tape_exchange_acceptance.require_local'):
+                    stack.enter_context(patch(name, return_value=storage))
+                stack.enter_context(patch('otam.service.require_qualification'))
+                stack.enter_context(patch('otam.benchmark.available_memory', return_value=8 * 1024**3))
+                stack.enter_context(patch('subprocess.Popen', side_effect=LocalProducer))
+                for current in range(2):
+                    tape = LinuxTape(drives[current], config.state)
+                    with tape.locked():
+                        tape.initialize('TEST', 800_000_000_000, 'rotation', 'INITIALIZE ' + drives[current]['medium_serial'])
+                    execute(config, control, 'register-physical', {'drive_id': 'drive-id', 'drive_serial': 'DRIVE',
+                                                                  'medium_serial': drives[current]['medium_serial']})
+                current = 0
+                report_root = root / 'exchange-report'
+                base = ['acceptance', '--config', str(config_file), '--report-root', str(report_root),
+                        '--drive-serial', 'DRIVE', '--first-serial', 'FIRST', '--second-serial', 'SECOND']
+                with patch('sys.argv', base + ['--action', 'prepare', '--confirm', 'PREPARE DRIVE FIRST SECOND']):
+                    main()
+                self.assertEqual([len(d.files) for d in devices], [1, 1])
+                report = json.loads((report_root / 'report.json').read_text())
+                self.assertEqual(report['state'], 'READY')
+                self.assertIsNone(control.get('transfer_settings:default-staging'))
+                self.assertEqual(report['transfer_policy']['buffer_bytes'], 2368 * 1024**2)
+                current = 1
+                with patch('sys.argv', base + ['--action', 'step', '--confirm', 'APPEND DRIVE FIRST']):
+                    with self.assertRaises(SafetyError):
+                        main()
+                self.assertEqual([len(d.files) for d in devices], [1, 1])
+                self.assertEqual(json.loads((report_root / 'report.json').read_text())['state'], 'READY')
+                for current in range(2):
+                    with patch('sys.argv', base + ['--action', 'step', '--confirm', 'APPEND DRIVE ' + drives[current]['medium_serial']]):
+                        main()
+                    report = json.loads((report_root / 'report.json').read_text())
+                    self.assertEqual(report['state'], 'WAITING_MEDIA' if current == 0 else 'VERIFIED')
+                self.assertEqual([len(d.files) for d in devices], [3, 3])
+                self.assertEqual(report['data_reads'], [{'medium_serial': serial, 'position': 1}
+                                                        for serial in ('FIRST', 'FIRST', 'SECOND', 'SECOND')])
+                self.assertTrue(report['archive_prefix_unchanged'])
+                self.assertEqual(original_config, config_file.read_bytes())
+                catalog = Catalog(config.catalog)
+                try:
+                    self.assertEqual(catalog.db.execute("SELECT count(*) FROM archives WHERE state='VERIFIED'").fetchone()[0], 2)
+                    self.assertEqual([r[0] for r in catalog.db.execute('SELECT capacity FROM media')], [800_000_000_000] * 2)
+                finally:
+                    catalog.close()
+
     def test_regular_worker_binding_staging_transfer_and_restore(self):
         from otam.web.config import WebConfig, Resource
         from otam.web.control import Control

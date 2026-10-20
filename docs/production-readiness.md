@@ -4,14 +4,14 @@
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests | Aktueller sequenzieller/gezielter Restore-Kandidat: 156/156 Tests auf Debian bestanden, mit isoliertem lokalen Test-TMPDIR. Lokal 156 Tests mit 43 Linux-Skips. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
+| Automatisierte Softwaretests | Initialisierungskandidat: 198/198 Tests auf Debian bestanden, mit isoliertem lokalen Test-TMPDIR. Der nachfolgende Medienwechselharness wird separat geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
 | 256-GiB-Medientest | Vollständiger Schreib-/Rücklesezyklus mit SHA-256; kein echtes Bandende erreicht | Teilabnahme |
 | Volles Band bis EOM und vollständig zurücklesen | Der ausdrücklich freigegebene OTAM-Wartungsauftrag erreichte das echte Bandende nach 781,41 GiB rekonstruierbaren Testdaten (`eom=true`). Vollständige Rücklesung und SHA-256-Vergleich bestanden (`0ee3c3af5b6b68327c71464bca6944f520aa5373f793395b4faf7c8b045c4b68`). Kein aktives TapeAlert-Flag; die Laufwerkszähler meldeten drei korrigierte Schreibereignisse und keine unkorrigierten Schreib-/Lesefehler. Kompression war deaktiviert. Der Kapazitätswert gilt bis zum ersten gemeldeten ENOSPC/Frühwarnbereich, nicht als erzwungenes physisches EOT | Bestanden für dieses Testmedium |
 | Kontrollierter Abbruch, Neustart und Medienwechsel an echter Hardware | Position, Tail und Identität müssen vor jedem weiteren Write unabhängig geprüft werden | Offen |
-| Reguläre OTAM-Pipeline auf `/dev/nst*` | Kleine Zyklen, Append und verzögerte Verifikation bestanden. Großer Zyklus mit 2 × 70 GiB am 20.10.2026 um 10:00:54 MESZ vollständig VERIFIED. Optimierter gezielter Restore physisch bestanden. Gemeinsamer HTTP-/CLI-/Worker-Zyklus am 20.10.2026 um 13:15:30 MESZ mit zwei neuen TARs, physischer SHA-256-Verifikation und Restore bestanden | Kernzyklus und Web-/CLI-Einbandintegration bestanden; Abbruch-/Neustart, Initialisierung und Mehrbandabnahme offen |
+| Reguläre OTAM-Pipeline auf `/dev/nst*` | Kleine Zyklen, Append und verzögerte Verifikation bestanden. Großer Zyklus mit 2 × 70 GiB am 20.10.2026 um 10:00:54 MESZ vollständig VERIFIED. Optimierter gezielter Restore physisch bestanden. Gemeinsamer HTTP-/CLI-/Worker-Zyklus am 20.10.2026 um 13:15:30 MESZ mit zwei neuen TARs, physischer SHA-256-Verifikation und Restore bestanden | Kernzyklus, Web-/CLI-Einbandintegration und Headerinitialisierung der zweiten Kassette bestanden; Abbruch-/Neustart und Mehrbandabnahme offen |
 | Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Am 20.10.2026 zwei regulär durch ArchiveService geschriebene Archive physisch exportiert und unter isoliertem Python ohne OTAM-Importe mit `tools/recover_tar.py` vollständig wiederhergestellt (2 + 1 Dateien, Archiv- und Ziel-Hashes geprüft). Zusätzlich Katalogrekonstruktion aus leerer DB und regulärer Restore bestanden. Anschließend Header und erstes Paar ausschließlich mit sg3-utils, mt-st und GNU dd gelesen und mit System-Python unabhängig wiederhergestellt; Archivhash identisch, zwei Zieldateien geprüft | Für diese regulären Testarchive bestanden |
 | Eigenständiger Katalog auf Proxmox | Debian-LXC mit eigenem `otam`-Dienstkonto und Catalog-Node-Webdienst installiert. Lokaler `/healthz`, Anmeldung, geschützte Dateisuche und gesperrte Archivierungsroute geprüft. Der SSH-Tunnel blieb aktiv; der signierte Katalog-Snapshot (Sequenz 1, 98.304 Byte) wurde nach dem Bandauftrag übernommen. Bei gestopptem Bandserver-Webdienst antworteten die unabhängige Medienansicht und Dateisuche weiterhin; anschließend liefen Webdienst und Worker wieder. Nach dem Neustart des Bandservers wurde auch der Tunnel aktiv; ein expliziter Synchronisierungsauftrag `f5ee9520-0a29-4c1a-9678-e1a853c21fdf` endete `SUCCEEDED/UNCHANGED` für Sequenz 27 | Bestanden für vorhandenen Katalogstand |
 | Automatische Katalogsynchronisierung bei belegtem I/O-Lock | Während des HDD-Zonentests wurden 33 automatisch geplante Synchronisierungen in wenigen Minuten als Fehler angezeigt, weil der Scheduler die I/O-Sperre nicht beachtete. Version 0.5.4 stellt fällige automatische Aufträge bis zur Freigabe der Sperre zurück; ein Wettlauf nach dem Einplanen wird als `DEFERRED` ohne Fehlertoast abgeschlossen. Linux-Regressionstest bestanden und Version 0.5.4 auf dem Bandserver installiert. Keine der fehlgeschlagenen Veröffentlichungen änderte den gültigen Peer-Katalog. Direkt nach Ende des Zonentests um 21:03:50 MESZ lief der nächste Auftrag erfolgreich; `sync_log` bestätigt `send/SUCCEEDED`, Sequenz 27 | Fehler behoben; erfolgreicher Nachlauf bestätigt |
@@ -564,3 +564,77 @@ Inhaltsverlust ausdrücklich freigegeben werden muss. Zunächst nur lesend
 identifizieren; keine unbekannte Kassette eigenmächtig beschreiben. Danach
 bleiben reale Mehrbandwechsel und abschließend der kleine Schreibabbruch/Tail-
 Neustartnachweis offen. [Ablauf und Grenzen](architecture/physical-initialization.md).
+
+
+### Zweite Kassette: reale Initialisierung bestanden
+
+Nach ausdrücklicher Freigabe der eingelegten zweiten Testkassette wurde deren
+MAM-Identität frisch als `HC4AS6a414` im bekannten Laufwerk `1K10112224` erkannt.
+Bestätigtes LTO-4-Profil, native Kapazität 800.000.000.000 Byte, bereit und
+nicht schreibgeschützt. `otam-physical-initialization-second.service` hat mit
+dem zuvor unter Debian vollständig geprüften Initialisierungskandidaten den
+normalen Initialisierungs-Workerhandler ausgeführt. Ausschließlich Laufzeitflags
+im Abnahmeprozess waren aktiviert; installierte Konfiguration und Gates sind
+unverändert. Live-Katalog, Control, Laufwerkssperren und Pending-Journal wurden
+verwendet. Der Hauptworker war kontrolliert gestoppt und wurde über OnSuccess
+wieder gestartet; Web und Katalogtunnel blieben aktiv.
+
+**Ergebnis: Headerinitialisierung bestanden, INITIALIZED.** Bestätigt sind
+BOT, geschriebener Header, Dateimarke, Bandende mit einer Banddatei und genau
+eine vollständige physische Headerrücklesung. SHA-256:
+`9e831c319d23a20a584282d5f3263c15eaea85ce60195ffe48f1ebfc1fc94594`.
+Neue Medien-UUID: `4c7a70fe-f1a4-45f9-b14c-02cfaf1c9896`, Klasse Rotation.
+Die acht bisherigen Archivdatensätze wurden unverändert erhalten. Kein
+Datenarchiv wurde als VERIFIED erzeugt; dies ist keine Vollqualifikation dieser
+zweiten Kassette. Originalbericht:
+`/var/lib/otam/reports/physical-initialization-second-20261020-r1/report.json`.
+Der Rohbericht ist nur im ignorierten lokalen Dossier samt SHA256SUMS gesichert.
+
+Für den folgenden kleinen Wechseltest werden zwei normale, ausdrücklich je
+Medium geplante Kindaufträge zu einem Abnahme-Parent verbunden. Keine native
+Kapazität und kein Verbrauchswert wird verändert, keine Hunderte GB für einen
+künstlichen Platzmangel geschrieben. Dieser Test weist den realen Wechselpfad,
+WAITING_MEDIA, vollständigen Readback und Restore beider Kinder nach; die
+automatische Kapazitätsverteilung bleibt durch gesonderte Softwaretests belegt.
+Der tatsächliche Schreibabbruch/Tail-/Neustartnachweis bleibt zuletzt offen.
+**Keine Produktionsfreigabe und kein Deployment.**
+
+Der neue `tools/tape_exchange_acceptance.py`-Kandidat besteht **199/199 Debian-
+Tests** (lokal 199 mit einem Skip); die abschließende strengere Kontrolle der
+Transfer-Samples wurde zusätzlich im vollständigen Harness-Dateigerätetest
+unter Debian geprüft. Der Dateigerätetest durchläuft Prepare, explizite kleine
+Kindpläne, Staging, einen abgewiesenen falschen Medienwechsel ohne Write, beide
+Backup-Set-Schritte, WAITING_MEDIA/VERIFIED und verifizierte Restores. Native
+Kapazitäten bleiben jeweils 800.000.000.000 Byte. Livekonfiguration und
+Transfer-Einstellungen bleiben unverändert; Abnahmewerte liegen in privater
+Test-Control. Adapter erhalten hingegen immer den **Live-State** für sämtliche
+Laufwerkssperren, Pending-Marker und Transferlogs. Archivmetadaten werden direkt
+im Livekatalog geführt, statt später Vollrekonstruktionen zu benötigen.
+
+Der erste reale Schritt wurde als `otam-physical-exchange-first.service` mit
+Code unter `/var/lib/otam/acceptance-code/physical-exchange-20261020` gestartet.
+Er bereitet genau zwei eigene 1-MiB-Quelldateien vor, plant pro Medium ein TAR,
+staget beide auf der qualifizierten HDD und bearbeitet zuerst die zweite
+Kassette. Report: `/var/lib/otam/reports/physical-exchange-20261020-r1/report.json`.
+OnSuccess/OnFailure startet den zuvor kontrolliert angehaltenen Hauptworker
+wieder. Keine parallelen Gerätejobs oder Änderung des laufenden Kandidaten.
+
+Der erste Wechselharness-Aufruf `otam-physical-exchange-first.service` wurde
+vor Planung, Staging und sämtlichen Bandzugriffen sicher abgewiesen: Die
+Live-Control enthielt nur die gerade initialisierte neue Medienbindung. Der
+frühere HTTP-/CLI-Abnahmelauf hatte die Bindung der ersten Kassette in seiner
+isolierten Control bestätigt, beim Metadatenimport aber nicht übernommen.
+Der historische Journalfehler bleibt lokal unverändert erhalten. Die
+bereits physisch nachgewiesene Bindung wurde anschließend aus genau dessen
+VERIFIED-Report (`00797008418f086c6c5d78d0987c913bc23cf3c0abb5d57041e9a31c6889623e`)
+und Control übernommen: exakte UUID/MAM/Drive-Zuordnung, passender physischer
+Live-Header und acht VERIFIED-Archive wurden geprüft. Kein neues Erkennen
+oder Lesen des aktuell nicht eingelegten alten Mediums wird damit behauptet;
+der obligatorische frische Identitäts-/EOD-/Receipt-Check vor Write bleibt
+bestehen. Herkunft wurde in der Live-Control auditiert und als Konfigurations-
+ereignis protokolliert.
+
+Der neue, ausdrücklich nach dieser Ursachenprüfung gestartete Lauf heißt
+`otam-physical-exchange-first-r2.service`, Reportroot
+`/var/lib/otam/reports/physical-exchange-20261020-r2`. Der ursprüngliche
+Reportroot r1 wird nicht wiederverwendet. Keine Schutzprüfung wurde gelockert.
