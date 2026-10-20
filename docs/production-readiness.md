@@ -213,6 +213,23 @@ nicht ausgewählte Nutzdaten werden nicht als verifiziert ausgegeben. Nach dem
 letzten gewählten Beleg endet der Scan. So kann die physische Nachprüfung mit
 einem kleinen Archiv erfolgen, ohne die großen TARs erneut vollständig zu lesen.
 
+### Gezielte physische Restore-Nachprüfung
+
+Am 20.10.2026 um 10:22 MESZ bestand anschließend der rein lesende Test
+`otam-physical-targeted-restore.service` mit dem 156-fach unter Debian geprüften
+gezielten Kandidaten. Genau das kleine Daten-TAR an Position 1 wurde einmal
+gelesen, zwei Dateien aus einer isolierten Katalogkopie in ein neues Ziel
+wiederhergestellt und gegen die ursprünglichen Fixture-SHA-256 geprüft.
+Keine anderen Nutzarchive wurden gelesen und kein Bandinhalt geschrieben.
+Aufgezeichnete Positionierungskommandos: einmal `eod` zur Bestätigung der
+Banddateianzahl und einmal `rewind` zum Header; danach wurden Header, Daten und
+Receipt ohne weitere Bewegungsbefehle gelesen. Gesamtdauer rund 25,30 Sekunden.
+Das ist ein funktionaler Nachweis des sequenziellen und selektiven Lesepfads,
+kein direkter Leistungsvergleich mit einem vollständigen großen Restore.
+Bericht: `/var/lib/otam/reports/physical-targeted-restore-20261020-r1/report.json`.
+Die regulär installierten Dienste bleiben unverändert auf 0.5.7; insbesondere
+Web-/CLI-Archivierungsfreigabe und reale Abbruch-/Neustartsperren sind noch offen.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
