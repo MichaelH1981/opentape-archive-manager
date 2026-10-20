@@ -465,6 +465,10 @@ class LinuxTape:
         from .physical import BLOCK_SIZE, status
 
         self._check()
+        # An unresolved write cannot be made safe by repositioning. Refuse
+        # before reading the header or moving to EOD/BOT on every retry.
+        if self._pending.exists():
+            raise SafetyError("Incomplete or uncertain physical tape tail")
         self._driver_mode()
         header = self.header()
         if header["media_id"] != expected_media:

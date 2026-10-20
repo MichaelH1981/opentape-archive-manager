@@ -53,6 +53,19 @@ class LinuxTapeSafety(TestCase):
                 self.tape.append(Path(self.root.name) / "unused.tar", "media")
         self.device.writer.assert_not_called()
 
+    def test_pending_marker_refuses_without_header_reads_or_tape_motion(self):
+        self.tape._pending.parent.mkdir()
+        self.tape._pending.write_text("interrupted")
+        with patch.object(self.tape, "header") as header, \
+                patch.object(self.tape, "_move") as move, \
+                patch.object(self.tape, "_count") as count:
+            with self.assertRaisesRegex(SafetyError, "Incomplete or uncertain"):
+                self.tape.append(Path(self.root.name) / "not-needed.tar", "media")
+        header.assert_not_called()
+        count.assert_not_called()
+        move.assert_not_called()
+        self.device.writer.assert_not_called()
+
     def test_unconfirmed_seek_does_not_open_reader(self):
         with patch.object(self.tape, "_count", return_value=3), \
                 patch("otam.physical.status", return_value={
