@@ -544,7 +544,15 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     with worker_lock(config):
-        control.interrupt_running()
+        # Reconcile durable UI/catalog states before claiming any new command.
+        # No tape access, position inference or automatic retry is involved.
+        with io_lock():
+            catalog = Catalog(config.catalog)
+            try:
+                catalog.interrupt_unfinished()
+                control.interrupt_running()
+            finally:
+                catalog.close()
         with control.connect() as db:
             for row in db.execute(
                 "SELECT key,value FROM settings WHERE key LIKE 'maintenance_progress:%'"

@@ -11,7 +11,7 @@
 | 256-GiB-Medientest | Vollständiger Schreib-/Rücklesezyklus mit SHA-256; kein echtes Bandende erreicht | Teilabnahme |
 | Volles Band bis EOM und vollständig zurücklesen | Der ausdrücklich freigegebene OTAM-Wartungsauftrag erreichte das echte Bandende nach 781,41 GiB rekonstruierbaren Testdaten (`eom=true`). Vollständige Rücklesung und SHA-256-Vergleich bestanden (`0ee3c3af5b6b68327c71464bca6944f520aa5373f793395b4faf7c8b045c4b68`). Kein aktives TapeAlert-Flag; die Laufwerkszähler meldeten drei korrigierte Schreibereignisse und keine unkorrigierten Schreib-/Lesefehler. Kompression war deaktiviert. Der Kapazitätswert gilt bis zum ersten gemeldeten ENOSPC/Frühwarnbereich, nicht als erzwungenes physisches EOT | Bestanden für dieses Testmedium |
 | Kontrollierter Abbruch, Neustart und Medienwechsel an echter Hardware | Position, Tail und Identität müssen vor jedem weiteren Write unabhängig geprüft werden | Offen |
-| Reguläre OTAM-Pipeline auf `/dev/nst*` | Kleine Zyklen, Append und verzögerte Verifikation bestanden. Großer Zyklus mit 2 × 70 GiB am 20.10.2026 um 10:00:54 MESZ vollständig VERIFIED: physischer Archivhash, Rekonstruktion aller sechs Archive und vollständiger Restore mit identischen Ziel-Hashes. Optimierter gezielter Restore-Kandidat besteht 156 Debian-Tests; physischer Nachtest läuft separat | Großer Kernzyklus bestanden; Sicherheits-/Web-/CLI-Abnahme noch offen |
+| Reguläre OTAM-Pipeline auf `/dev/nst*` | Kleine Zyklen, Append und verzögerte Verifikation bestanden. Großer Zyklus mit 2 × 70 GiB am 20.10.2026 um 10:00:54 MESZ vollständig VERIFIED. Optimierter gezielter Restore physisch bestanden. Gemeinsamer HTTP-/CLI-/Worker-Zyklus am 20.10.2026 um 13:15:30 MESZ mit zwei neuen TARs, physischer SHA-256-Verifikation und Restore bestanden | Kernzyklus und Web-/CLI-Einbandintegration bestanden; Abbruch-/Neustart, Initialisierung und Mehrbandabnahme offen |
 | Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Am 20.10.2026 zwei regulär durch ArchiveService geschriebene Archive physisch exportiert und unter isoliertem Python ohne OTAM-Importe mit `tools/recover_tar.py` vollständig wiederhergestellt (2 + 1 Dateien, Archiv- und Ziel-Hashes geprüft). Zusätzlich Katalogrekonstruktion aus leerer DB und regulärer Restore bestanden. Anschließend Header und erstes Paar ausschließlich mit sg3-utils, mt-st und GNU dd gelesen und mit System-Python unabhängig wiederhergestellt; Archivhash identisch, zwei Zieldateien geprüft | Für diese regulären Testarchive bestanden |
 | Eigenständiger Katalog auf Proxmox | Debian-LXC mit eigenem `otam`-Dienstkonto und Catalog-Node-Webdienst installiert. Lokaler `/healthz`, Anmeldung, geschützte Dateisuche und gesperrte Archivierungsroute geprüft. Der SSH-Tunnel blieb aktiv; der signierte Katalog-Snapshot (Sequenz 1, 98.304 Byte) wurde nach dem Bandauftrag übernommen. Bei gestopptem Bandserver-Webdienst antworteten die unabhängige Medienansicht und Dateisuche weiterhin; anschließend liefen Webdienst und Worker wieder. Nach dem Neustart des Bandservers wurde auch der Tunnel aktiv; ein expliziter Synchronisierungsauftrag `f5ee9520-0a29-4c1a-9678-e1a853c21fdf` endete `SUCCEEDED/UNCHANGED` für Sequenz 27 | Bestanden für vorhandenen Katalogstand |
 | Automatische Katalogsynchronisierung bei belegtem I/O-Lock | Während des HDD-Zonentests wurden 33 automatisch geplante Synchronisierungen in wenigen Minuten als Fehler angezeigt, weil der Scheduler die I/O-Sperre nicht beachtete. Version 0.5.4 stellt fällige automatische Aufträge bis zur Freigabe der Sperre zurück; ein Wettlauf nach dem Einplanen wird als `DEFERRED` ohne Fehlertoast abgeschlossen. Linux-Regressionstest bestanden und Version 0.5.4 auf dem Bandserver installiert. Keine der fehlgeschlagenen Veröffentlichungen änderte den gültigen Peer-Katalog. Direkt nach Ende des Zonentests um 21:03:50 MESZ lief der nächste Auftrag erfolgreich; `sync_log` bestätigt `send/SUCCEEDED`, Sequenz 27 | Fehler behoben; erfolgreicher Nachlauf bestätigt |
@@ -19,7 +19,7 @@
 | NAS-Katalogsicherung | Noch kein gemounteter Backup-Pfad mit Zielmarker konfiguriert | Offen für verteilten Betrieb |
 | Staging-HDD | Die interne SATA-HDD Seagate S1E02N8E wurde mit ext4 formatiert. Der offizielle 30-Minuten-O_DIRECT-Test bestand mit 200,88 MB/s im Mittel, 140,94 MB/s im schwächsten Fenster und 1,82 % mittlerer CPU-Beschäftigung. Fünf zusätzliche ausschließlich lesende O_DIRECT-Zonenmessungen bis 1,60 TB bestanden das 120-MB/s-FIFO-Puffermodell; Einzelwerte und Last siehe unten. SMART nach den Tests: PASSED, 0 reallozierte/schwebende/unkorrigierbare Sektoren, 0 UDMA-CRC-Fehler; die historischen Werte Runtime_Bad_Block=40 und Command_Timeout=1/1/5 blieben unverändert. Keine passenden Kernel-I/O-Fehler im Testzeitraum. Der Benutzer hat den langen SMART-Test ausdrücklich abgewählt. UUID-basierter, optionaler ext4-Mount und zusätzliche OTAM-Staging-Ressource sind eingerichtet. Nach kontrolliertem Neustart am 19.10.2026 um 21:12 MESZ wurde `/dev/sdb1` wieder automatisch mit `nosuid,nodev,noexec,noatime` eingehängt; die gespeicherte Ressourcen-Geräte-ID stimmt, Webdienst und Worker wurden aktiv | Staging-Leistung, Registrierung und Neustartprüfung bestanden |
 | Aktive Staging-Anzeige und SSD-Abmeldung | Version 0.5.7 summiert registrierte lokale Staging-Dateisysteme genau einmal und zeigt Gesamt-, belegte und verfügbare Kapazität. Auf dem Bandserver ist allein `/srv/otam/staging-hdd` aktiv: 1.967.845.998.592 Byte Gesamtgröße, 1.867.807.203.328 Byte für den Dienst verfügbar zum Zeitpunkt der Prüfung. Die beiden SSD-Einträge `/var/lib/otam/staging` und `/srv/otam/staging/zusatz` wurden mit der Ressourcen-Sicherheitsprüfung abgemeldet; Dateien wurden nicht gelöscht. Der primäre Staging-Pfad und die systemd-Schreibfreigaben verweisen nur noch auf die HDD. Historische SSD-Speedtests bleiben als Testdaten erhalten, werden jedoch nicht mehr als aktive Staging-Messungen angezeigt. Webdienst, Worker und `/healthz` waren nach Installation aktiv | Bestanden für die aktuelle Konfiguration |
-| Verwalteter Staging-Speedtest und Transferempfehlung | Web-Workflow mit eigener 12-GiB-Testdatei, O_DIRECT-Lesefenstern und CPU-/I/O-Wait-Messung. Version 0.5.3 bewertet kurzzeitige Einbrüche über ein kumulatives FIFO-Puffermodell statt über das schwächste Einzelsample. Mindestens 5 % Durchschnittsreserve, 15 Sekunden Reserve im Puffer und ein bis auf höchstens fünf Sekunden Zielrate aufgeholter Rückstand am Testende sind erforderlich. Der Host-Datenstrom-Grenzwert wird aus den dokumentierten Stufen des aktuell erkannten IBM-HH4/LTO-4-Profils gewählt; der Puffer bleibt editierbar. Der reale `mbuffer`-Schreibpfad ist weiterhin gesperrt | Software lokal getestet; Hardware-Abnahme offen |
+| Verwalteter Staging-Speedtest und Transferempfehlung | Web-Workflow mit eigener 12-GiB-Testdatei, O_DIRECT-Lesefenstern und CPU-/I/O-Wait-Messung. Version 0.5.3 bewertet kurzzeitige Einbrüche über ein kumulatives FIFO-Puffermodell. HDD-Qualifikation bestanden. Reale Anwendung von 120 MB/s und 2.368 MiB im getrennten physischen Integrationskandidaten nachgewiesen; großer Test enthält Pufferfüllstand-Samples. Die installierte Version bleibt bis zur restlichen Abnahme gesperrt | Hardware-Nachweise bestanden; noch nicht produktiv aktiviert |
 
 Der erste **60-Sekunden-Funktionstest** auf dem bisherigen SSD-Staging `/var/lib/otam/staging` erzeugte und entfernte seine eigene 12-GiB-Datei vollständig. Gemessen wurden 457,75 MB/s im Durchschnitt, aber nur 55,09 MB/s im schwächsten Fenster; gegen Ende lagen mehrere volle Fenster um 69–71 MB/s. Die mittlere systemweite CPU-Beschäftigung lag bei 3,4 %, die höchste I/O-Wartezeit bei 61,7 %. OTAM meldete folgerichtig `qualified=false` und schlug unter Lastwarnung lediglich 38 MB/s Schreibrate mit 512 MiB Puffer als unverbindliche Werte vor. Diese SSD ist damit nicht als dauerhafte 120-MB/s-Quelle nachgewiesen. Der kurze Lauf ersetzt ausdrücklich nicht die spätere 30-Minuten-Prüfung der eingebauten HDD.
 
@@ -383,3 +383,61 @@ Die Test-ID ist `0d579a37-aad6-4371-9867-1797da07a5c3`; anfänglich sind weiterh
 angehalten und wird über OnSuccess/OnFailure wieder gestartet. Keine parallelen
 Gerätejobs oder intensiven Servertests starten. Ergebnis und Livekatalogimport
 dieses Laufs sind noch offen; die Produktionssperre bleibt aktiv.
+
+#### HTTP-/CLI-Zyklus r2 vollständig bestanden
+
+Der korrigierte Lauf endete am **20.10.2026 um 13:15:30 MESZ VERIFIED**,
+nach 1.273,54 Sekunden. Es wurden ausschließlich Banddateien 13–16 angehängt:
+zwei Daten-TARs mit je 1.054.720 Byte an Position 13/15 und Receipts an 14/16.
+Die Datenpositionen wurden jeweils genau einmal für die Rückleseprüfung und
+einmal für Restore gelesen; keine alte Payloadposition wurde an den Host gelesen.
+Die physischen Vorwärtspositionierungen zu alten Receipts bleiben im Journal
+sichtbar und sind nicht mit vermiedener mechanischer Bewegung gleichzusetzen.
+
+Alle drei Quell-/Zieldateihashes wurden nach Testende unabhängig erneut geprüft.
+Der Livekatalog enthält nun acht VERIFIED-Archive; die Archivfolge einschließlich
+des bisherigen Präfixes stimmt mit der isolierten Testkopie überein. Die beiden
+neuen TAR-SHA-256 lauten
+`926529a51a1c46d5ddd9d63f9d17e34e32bf86f23b7f9404d673406c1d5b3ad7`
+und `ad85902ad68e910c4927bfa5c3ee646d43007c762c10d202e1af1401e662cc9d`.
+Der Bericht hat SHA-256
+`00797008418f086c6c5d78d0987c913bc23cf3c0abb5d57041e9a31c6889623e`.
+
+Alle vier tatsächlichen Schreibfortschrittsereignisse bestätigen die gespeicherte
+Hostbegrenzung 120.000.000 Byte/s und den Puffer 2.483.027.968 Byte (2.368 MiB).
+Bei diesen kleinen TARs liegen keine mbuffer-Füllstand-Samples vor; hierfür ist
+der bereits bestandene große Test der Nachweis. Die kleinen Transferraten sind
+keine Leistungsmessung. Unit-Abrechnung: 4,95 Sekunden CPU, 116.121.600 Byte
+MemoryPeak einschließlich Cache, 2.379.776 Byte lokales Lesen und 14.462.976 Byte
+lokales Schreiben. Web, Worker und Tunnel sind wieder aktiv. Der Katalogpeer
+bestätigte anschließend die erfolgreiche Übertragung der Sequenz 129.
+Rohbericht, unabhängige Nachprüfung, Journal und Transferlogs sind ausschließlich
+im ignorierten lokalen Dossier mit SHA256SUMS gesichert.
+
+#### Zusätzliche Neustartsicherung im Kandidaten
+
+Bei der Vorbereitung des echten Abbruchtests fiel eine Statuslücke auf: Der
+Workerstart unterbrach zwar die dauerhaften Steueraufträge, ein Katalogjob konnte
+aber bis zum expliziten Recover weiter RUNNING anzeigen. Der neue Kandidat
+korrigiert dies nach exklusiver Worker- und I/O-Sperre bereits lokal beim Start:
+RUNNING/PLANNING-Jobs werden INTERRUPTED, WRITING-Archive INCOMPLETE, betroffene
+Medien SUSPECT und aktive Restore-/Staging-Einträge INTERRUPTED. Die zugehörigen
+Katalogänderungen und Ereignisse bilden eine SQLite-Transaktion. Bereits
+verifizierte Archive, Staging-Dateien, deren Hashes, Fortschrittswerte und
+Pending-Marker bleiben erhalten. Es gibt keine Bandabfrage, Positionierung oder
+automatische Wiederaufnahme. Explizites Recover verwendet denselben Statuspfad
+weiterhin erst nach Medienidentitätsprüfung.
+
+Vier neue Softwaretests prüfen tatsächliches Ende eines separaten Prozesses mit
+anschließendem CLI-Workerneustart ohne eingelegtes Gerät, erhaltene Daten und
+Marker, fehlende automatische Wiederholung, idempotente Statuskorrektur,
+transaktionales Rollback bei Fehler sowie Medien-/I/O-Sperren. Diese Tests sind
+**kein Nachweis eines tatsächlich unterbrochenen physischen Schreibvorgangs**.
+Insgesamt bestehen 179 lokale Tests (ein Skip) und **179/179 Debian-Tests** unter
+`/var/lib/otam/acceptance-code/physical-restart-catalog-20261020`. Die anschließend
+auf `sqlite3.IntegrityError` präzisierte Rollback-Assertion wurde mit allen vier
+Neustarttests zusätzlich lokal und unter Debian in einem getrennten
+Testverzeichnis geprüft. Der laufende Dienstcode wurde nicht verändert.
+Dieser Hardwaretest bleibt offen und soll erst nach den übrigen positiven
+Medienworkflows stattfinden, da er einen absichtlich gesperrten Tail erzeugt.
+Keine Installation oder Produktionsfreigabe durch diesen Softwarestand.

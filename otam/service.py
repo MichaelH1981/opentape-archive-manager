@@ -636,14 +636,4 @@ class ArchiveService:
     def recover_jobs(self, media: str) -> int:
         with io_lock(), self.tape.locked():
             self._identity(media)
-            rows = self.catalog.db.execute("SELECT id FROM jobs WHERE media_id=? AND state IN ('RUNNING','PLANNING')", (media,)).fetchall()
-            for row in rows:
-                self.catalog.finish(row["id"], "INTERRUPTED", "Process ended without a terminal result; inspect medium")
-            with self.catalog.db:
-                self.catalog.db.execute("UPDATE archives SET state='INCOMPLETE' WHERE media_id=? AND state='WRITING'", (media,))
-                self.catalog.db.execute("UPDATE restores SET state='INTERRUPTED' WHERE job_id IN (SELECT id FROM jobs WHERE state='INTERRUPTED')")
-                attempted = self.catalog.db.execute("SELECT 1 FROM archives WHERE media_id=? AND state='INCOMPLETE'", (media,)).fetchone()
-                if attempted:
-                    self.catalog.db.execute("UPDATE media SET state='SUSPECT' WHERE id=?", (media,))
-                self.catalog.db.execute("UPDATE staged_archives SET state='INTERRUPTED',error='Process ended; phase must be rechecked' WHERE job_id IN (SELECT id FROM jobs WHERE state='INTERRUPTED') AND state='RUNNING'")
-            return len(rows)
+            return self.catalog.interrupt_unfinished(media)
