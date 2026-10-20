@@ -310,6 +310,37 @@ Initialisierung und Mehrbandplanung bleiben gesperrt und benötigen eigene siche
 Workflows. Die bisherige Simulator-Mehrbandfunktion ist unverändert. Die
 Produktionsabnahme ist deshalb weiterhin offen; die Installation bleibt 0.5.7.
 
+### Kleiner gemeinsamer HTTP-/CLI-Hardwarezyklus
+
+Der Abnahmeharness `tools/tape_web_cli_acceptance.py` und seine transaktionalen
+Katalogimport-Tests bestanden 173/173 Debian-Tests. Unter separatem Codepfad
+`/var/lib/otam/acceptance-code/physical-http-cli-20261020` (`545f2a5`) läuft seit
+20.10.2026 12:24:27 MESZ `otam-physical-http-cli.service`. Bericht:
+`/var/lib/otam/reports/physical-http-cli-20261020-r1/report.json`.
+
+Der Test verwendet zwei eigene 1-MiB-Dateien plus README, isolierte Konfiguration,
+Anmeldung, Steuerung und Katalogkopie sowie das vorhandene HDD-Staging. Er prüft
+die reale HTTP-Anmeldung/CSRF, lesende Medienregistrierung, Speicherung der
+Transferwerte, Planung, CLI-Staging über die dauerhafte Warteschlange, normales
+Worker-Backup mit verzögerter Verifikation und HTTP-Restore. Die Geräteklasse
+wird ausschließlich zur Beobachtung von Datenlesepositionen und Bewegungsbefehlen
+abgeleitet; alle Basissicherheitsprüfungen bleiben unverändert. Initialisierung
+ist im Harness ausdrücklich gesperrt. Alter Payload darf nicht erneut gelesen
+werden; das Überspringen alter Daten zu den Prüfbelegen erfordert weiterhin
+physische Vorwärtspositionierungen und ist kein vollständiger Payload-Scrub.
+
+Erst nach erfolgreicher vollständiger neuer TAR-/Datei-Verifikation und Restore
+dürfen ausschließlich die neuen verifizierten Archivmetadaten mit Herkunftslog
+atomar in den unveränderten Livekatalog übernommen werden. Fehlende Verifikation,
+geänderter Katalogpräfix oder Importfehler sperren dies; Softwaretests sichern
+auch vollständiges Rollback bei Fehler nach dem ersten Datensatz.
+
+Der Hauptworker ist für den Lauf kontrolliert angehalten und startet durch
+OnSuccess/OnFailure wieder; Web und Tunnel bleiben aktiv. Die Livekonfiguration
+und ihre Produktionssperre bleiben unverändert. Den laufenden Kandidaten nicht
+verändern oder durch parallele Geräte-/I/O-Tests stören. Ein Ergebnis ist noch
+nicht bestätigt; bei Fehler keine blinde Wiederholung oder Neuinitialisierung.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
