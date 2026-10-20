@@ -96,7 +96,7 @@ Hardware-Abnahme übergibt ihre geprüften Werte ausdrücklich.
 
 ## Sequenzieller Restore-Kandidat
 
-Der neue, noch nicht auf Hardware abgenommene Kandidat liest bei `scan()` zuerst
+Der am kleinen physischen Testarchiv abgenommene Kandidat liest bei `scan()` zuerst
 das Daten-TAR vollständig und danach seinen Prüfbeleg. Archivhash, Bytezahl,
 Dateimanifest und alle Datei-Hashes werden weiterhin geprüft; die Receipt-Kette
 wird erst mit dem nachfolgenden Beleg bestätigt. Das vermeidet den bisherigen
@@ -122,9 +122,15 @@ verwenden weiterhin den vollständigen Scan aller Nutzdaten.
 Jedes ausgewählte Daten-TAR wird dadurch nur einmal vom Band gelesen. Bei bestätigter
 Vorwärtsposition verwendet der Adapter relative Filemarks mit anschließender
 Positionskontrolle. Unbekannte oder rückwärts liegende Positionen verwenden
-weiterhin den konservativen BOT-Pfad. Die laufende große Hardware-Abnahme nutzt
-unverändert den vorherigen Code; Linux- und physische Nachtests dieses Kandidaten
-stehen noch aus.
+weiterhin den konservativen BOT-Pfad. Die große Hardware-Abnahme bestand mit dem
+vorherigen Code. Der gezielte Kandidat bestand anschließend 156 Debian-Tests
+und einen rein lesenden physischen Restore: kleines Daten-TAR an Position 1 genau
+einmal gelesen, zwei Dateien mit identischen Fixture-Hashes wiederhergestellt,
+keine weiteren Positionierungskommandos nach initialem EOD und Rewind.
+
+Ein vorhandener Pending-Marker sperrt Append bereits unmittelbar nach der
+Identitätsprüfung, vor Headerlesen und EOD-/BOT-Bewegung. Wiederholte Versuche
+an einem unklaren Medium dürfen keine sinnlosen Bandbewegungen auslösen.
 
 ## Noch sperrende Abnahmen
 

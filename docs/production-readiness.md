@@ -230,6 +230,29 @@ Bericht: `/var/lib/otam/reports/physical-targeted-restore-20261020-r1/report.jso
 Die regulär installierten Dienste bleiben unverändert auf 0.5.7; insbesondere
 Web-/CLI-Archivierungsfreigabe und reale Abbruch-/Neustartsperren sind noch offen.
 
+### Nichtdestruktive Sicherheitsprüfung am Laufwerk
+
+Der Kandidat `da06f91` bestand 157/157 Debian-Tests. Anschließend bestand am
+20.10.2026 um 10:51 MESZ `otam-physical-safety-preflight.service` folgende Gates
+am tatsächlich erkannten Laufwerk: falsche Laufwerksseriennummer, falsche
+MAM-Seriennummer und abweichender Gerätepfad wurden abgewiesen; ein zweiter
+Laufwerkszugriff scheiterte an derselben exklusiven Sperre. Ein separater Prozess
+erzeugte ausschließlich im neuen privaten Abnahmeverzeichnis einen fsync-
+gesicherten Test-Pending-Marker und endete abrupt ohne Bereinigung. Eine neue
+Backend-Instanz verweigerte Append daraufhin bereits vor Headerlesen,
+EOD-/BOT-Bewegung und Öffnen eines Schreibdeskriptors. Der persistente Marker
+bleibt im isolierten Abnahmeverzeichnis zur Nachvollziehbarkeit erhalten.
+
+Es wurden keine Banddaten gelesen, geschrieben oder positioniert; lediglich
+der vorhandene variable Blockmodus wurde gesetzt. Diese Prüfung belegt die
+realen Identitäts-/Exklusivitätsgates und die Sperre bei erhaltenem Testmarker.
+Sie ersetzt **keinen tatsächlichen Abbruch während physischem Bandschreiben**.
+Dieser Nachweis bleibt offen und wird erst nach den übrigen Integrationsschritten
+mit kleinem synthetischem Append geplant, damit keine unnötige Wiederholung
+der großen erfolgreichen Zyklen entsteht. Produktionsfreigabe bleibt gesperrt.
+Bericht: `/var/lib/otam/reports/physical-safety-preflight-20261020-r1/report.json`.
+Worker, Webdienst und Katalogtunnel sind nach dem Test wieder aktiv.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
