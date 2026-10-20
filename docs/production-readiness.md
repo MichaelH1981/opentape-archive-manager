@@ -11,7 +11,7 @@
 | 256-GiB-Medientest | Vollständiger Schreib-/Rücklesezyklus mit SHA-256; kein echtes Bandende erreicht | Teilabnahme |
 | Volles Band bis EOM und vollständig zurücklesen | Der ausdrücklich freigegebene OTAM-Wartungsauftrag erreichte das echte Bandende nach 781,41 GiB rekonstruierbaren Testdaten (`eom=true`). Vollständige Rücklesung und SHA-256-Vergleich bestanden (`0ee3c3af5b6b68327c71464bca6944f520aa5373f793395b4faf7c8b045c4b68`). Kein aktives TapeAlert-Flag; die Laufwerkszähler meldeten drei korrigierte Schreibereignisse und keine unkorrigierten Schreib-/Lesefehler. Kompression war deaktiviert. Der Kapazitätswert gilt bis zum ersten gemeldeten ENOSPC/Frühwarnbereich, nicht als erzwungenes physisches EOT | Bestanden für dieses Testmedium |
 | Kontrollierter Abbruch, Neustart und Medienwechsel an echter Hardware | Position, Tail und Identität müssen vor jedem weiteren Write unabhängig geprüft werden | Offen |
-| Reguläre OTAM-Pipeline auf `/dev/nst*` | Kleine Zyklen, Append und verzögerte Verifikation bestanden. Großer Zyklus mit 2 × 70 GiB am 20.10.2026 um 10:00:54 MESZ vollständig VERIFIED. Optimierter gezielter Restore physisch bestanden. Gemeinsamer HTTP-/CLI-/Worker-Zyklus am 20.10.2026 um 13:15:30 MESZ mit zwei neuen TARs, physischer SHA-256-Verifikation und Restore bestanden | Kernzyklus, Web-/CLI-Einbandintegration und Headerinitialisierung der zweiten Kassette bestanden; Abbruch-/Neustart und Mehrbandabnahme offen |
+| Reguläre OTAM-Pipeline auf `/dev/nst*` | Kleine Zyklen, Append und verzögerte Verifikation bestanden. Großer Zyklus mit 2 × 70 GiB am 20.10.2026 um 10:00:54 MESZ vollständig VERIFIED. Optimierter gezielter Restore physisch bestanden. Gemeinsamer HTTP-/CLI-/Worker-Zyklus am 20.10.2026 um 13:15:30 MESZ mit zwei neuen TARs, physischer SHA-256-Verifikation und Restore bestanden | Kernzyklus, Web-/CLI-Einbandintegration, Headerinitialisierung und kleiner realer Medienwechsel bestanden; echter Abbruch-/Neustartnachweis und abschließende Betriebsaktivierung offen |
 | Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Am 20.10.2026 zwei regulär durch ArchiveService geschriebene Archive physisch exportiert und unter isoliertem Python ohne OTAM-Importe mit `tools/recover_tar.py` vollständig wiederhergestellt (2 + 1 Dateien, Archiv- und Ziel-Hashes geprüft). Zusätzlich Katalogrekonstruktion aus leerer DB und regulärer Restore bestanden. Anschließend Header und erstes Paar ausschließlich mit sg3-utils, mt-st und GNU dd gelesen und mit System-Python unabhängig wiederhergestellt; Archivhash identisch, zwei Zieldateien geprüft | Für diese regulären Testarchive bestanden |
 | Eigenständiger Katalog auf Proxmox | Debian-LXC mit eigenem `otam`-Dienstkonto und Catalog-Node-Webdienst installiert. Lokaler `/healthz`, Anmeldung, geschützte Dateisuche und gesperrte Archivierungsroute geprüft. Der SSH-Tunnel blieb aktiv; der signierte Katalog-Snapshot (Sequenz 1, 98.304 Byte) wurde nach dem Bandauftrag übernommen. Bei gestopptem Bandserver-Webdienst antworteten die unabhängige Medienansicht und Dateisuche weiterhin; anschließend liefen Webdienst und Worker wieder. Nach dem Neustart des Bandservers wurde auch der Tunnel aktiv; ein expliziter Synchronisierungsauftrag `f5ee9520-0a29-4c1a-9678-e1a853c21fdf` endete `SUCCEEDED/UNCHANGED` für Sequenz 27 | Bestanden für vorhandenen Katalogstand |
 | Automatische Katalogsynchronisierung bei belegtem I/O-Lock | Während des HDD-Zonentests wurden 33 automatisch geplante Synchronisierungen in wenigen Minuten als Fehler angezeigt, weil der Scheduler die I/O-Sperre nicht beachtete. Version 0.5.4 stellt fällige automatische Aufträge bis zur Freigabe der Sperre zurück; ein Wettlauf nach dem Einplanen wird als `DEFERRED` ohne Fehlertoast abgeschlossen. Linux-Regressionstest bestanden und Version 0.5.4 auf dem Bandserver installiert. Keine der fehlgeschlagenen Veröffentlichungen änderte den gültigen Peer-Katalog. Direkt nach Ende des Zonentests um 21:03:50 MESZ lief der nächste Auftrag erfolgreich; `sync_log` bestätigt `send/SUCCEEDED`, Sequenz 27 | Fehler behoben; erfolgreicher Nachlauf bestätigt |
@@ -663,3 +663,39 @@ physischen Rückwechsel zu `HC4BELa904`. Der Medienwechsel ist erst nach dessen
 frischer Identitätsprüfung, normalem Backup-Set-Schritt und Restore vollständig
 abgenommen. Keine Produktionsfreigabe. Alle Quellen und Testausgaben bleiben
 erhalten; kein weiterer großer Restore.
+
+#### Kleiner realer Medienwechsel vollständig bestanden
+
+`otam-physical-exchange-second.service` endete erfolgreich am 20.10.2026
+um 17:09:52 MESZ. Parent `58f57007-ab95-4bda-b8b1-830cb4182184` ist
+**VERIFIED**, beide Kinder und beide Restores sind VERIFIED, kein nächstes
+Medium wird angefordert. Der zweite Schritt schrieb ausschließlich TAR 17
+und Receipt 18 auf der ersten Kassette. Nutzdatenposition 17 wurde genau
+einmal während Backup und einmal während Restore gelesen. Alte große
+Nutzarchive wurden nicht an den Host gelesen; physisches Vorwärtspositionieren
+zu den vorausgehenden Receipts blieb erforderlich.
+
+Das zweite TAR hat 1.054.720 Byte und SHA-256
+`958bb37d290f3c3c6c10fe9170b3a8b1f9b9d24b5b9a3a44236dbc88ccfe9b46`.
+Quell- und Zieldatei wurden nach Testende nochmals unabhängig geprüft:
+`545e8527cf9ef2d2d75d57d4019519de21073754111165ac67fc34ffe3df944c`.
+Auch die erste wiederhergestellte Datei wurde erneut unabhängig bestätigt.
+Zwei neue echte Schreib-Samples bestätigen 120.000.000 Byte/s Hostlimit,
+2.483.027.968 Pufferbytes und P90. Wegen der kleinen TARs wird keine neue
+Dauerdurchsatz- oder Pufferfüllstandsqualifikation daraus abgeleitet.
+
+Livekatalog: zehn VERIFIED-Archive, die acht alten Archivdatensätze
+unverändert. Worker, Web und Tunnel sind aktiv; Katalogsync bestätigt
+Sequenz 174 mit UNCHANGED. Report
+`/var/lib/otam/reports/physical-exchange-20261020-r2/report.json`, SHA-256
+`06359d721ed234ae5938ad592e3ec0d5772d14c0b527ca58cf8d0f2b53387fcd`. Lokale Rohdaten/Journale mit
+SHA256SUMS sind vom Upload ausgeschlossen. Quellen und Restore-Ausgaben
+bleiben erhalten.
+
+Diese Abnahme bestätigt den echten Wechsel zwischen zwei ausdrücklich
+zugeordneten kleinen Kindaufträgen. Sie behauptet keinen physisch erzwungenen
+Kapazitätsüberlauf; automatische Kapazitätsverteilung ist separat softwaregeprüft.
+Die installierte Version und Gates bleiben unverändert. Offen sind der
+tatsächliche kleine Schreibabbruch mit dauerhaftem Pending und Neustart-/
+Tail-Sperre sowie die abschließende geprüfte Installation und Betriebsaktivierung.
+**Weiterhin keine Produktionsfreigabe.**
