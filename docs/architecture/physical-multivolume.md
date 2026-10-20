@@ -70,12 +70,14 @@ die standardmäßig geschlossene Mehrbandsperre.
 
 Diese Dateigeräte emulieren SCSI-Positionen; sie beweisen keinen realen
 Medienwechsel, keine reale Laufwerksreaktion bei Entnahme und keinen realen
-Schreibabbruch. Für die physische Abnahme müssen zwei konkrete Testkassetten
-ausdrücklich freigegeben sein. Gegenwärtig ist nur die bisherige Testkassette
-freigegeben. Keines der anderen vorhandenen Medien darf dafür verwendet werden.
-Der echte Tail-/Neustarttest ist anschließend gezielt klein durchzuführen.
-Die unabhängige [Initialisierungsabnahme](physical-initialization.md) bleibt
-vor Produktivaktivierung offen. Recycling bereits bekannter Kassetten bleibt ein
+Schreibabbruch. Die anschließende physische Abnahme auf zwei ausdrücklich freigegebenen
+Kassetten ist bestanden: zwei bewusst zugeordnete 1-MiB-Kindaufträge, echte
+WAITING_MEDIA-Folge, vollständiger SHA-256-Readback und Restore beider Dateien.
+Keine Kapazitäten wurden geändert, kein physischer Kapazitätsüberlauf wird
+damit behauptet. Auch die unabhängige
+[Initialisierungsabnahme](physical-initialization.md) des zweiten Mediums ist
+bestanden. Den aktuellen separaten Tail-/Neustartnachweis und Betriebsstatus
+dokumentiert [production-readiness.md](../production-readiness.md). Recycling bereits bekannter Kassetten bleibt ein
 separater gesperrter späterer Workflow. Restore-Aufträge werden weiterhin pro
 ausgewählter Medien-/Archivgruppe bestätigt; ein übergreifender automatischer
 Restore-Wechsel ist kein Teil dieses Kandidaten.

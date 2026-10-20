@@ -699,3 +699,44 @@ Die installierte Version und Gates bleiben unverändert. Offen sind der
 tatsächliche kleine Schreibabbruch mit dauerhaftem Pending und Neustart-/
 Tail-Sperre sowie die abschließende geprüfte Installation und Betriebsaktivierung.
 **Weiterhin keine Produktionsfreigabe.**
+
+### Schlussabnahme: echter kleiner Schreibabbruch gestartet
+
+Der Benutzer hat die selbstständigen letzten Schritte bis zur Freigabe und
+anschließende Bereinigung der Testmedien/-dateien im Katalog autorisiert.
+Vor jeder Bereinigung werden Katalog und Control unabhängig gesichert; Quellen,
+Staging-Artefakte, Hardwareberichte und dauerhafte Pending-Journale werden dabei
+nicht gelöscht. Staging-Qualifikation, Konten und Konfiguration bleiben erhalten.
+
+`tools/tape_interrupt_acceptance.py` bestand vier zusätzliche Softwaretests,
+darunter ein tatsächlich abrupt beendeter Softwareprozess nach dem ersten
+geschriebenen Dateiblock, unverändertes Journal, Ablehnung fehlender/verlinkter
+Marker und eine frische LinuxTape-Instanz ohne weitere Bewegungen/Writer.
+Der eingefrorene Kandidat unter
+`/var/lib/otam/acceptance-code/physical-interruption-20261020` bestand alle
+**203/203 Debian-Tests**. Dies allein ist kein physischer Abbruchnachweis.
+
+Die reale Unit `otam-physical-interruption.service` wurde am 20.10.2026 um
+17:32:55 MESZ mit bestätigtem Drive/MAM und leerer Queue gestartet. Sie verwendet
+den normalen Archivierungs-/Staging-/LinuxTape-Pfad und ein eigenes 8-MiB-TAR.
+Nach dem ersten akzeptierten 512-KiB-Record beendet sich ausschließlich der
+Testwriter abrupt. Der Supervisor begrenzt dessen eigene Prozessgruppe und
+prüft anschließend mit frischen CLI-/Backend-Prozessen Job-/Archiv-/Staging-
+Zustände, erhaltene Quelle und Staging, dauerhaftes Live-Pending und Ablehnung
+weiteren Schreibens vor Header/EOD/BOT/Writer. Dies ist ein Prozessabbruchtest,
+kein Stromausfalltest. Kein blindes Wiederholen bei unerwartetem Ergebnis.
+
+Live-Katalog, Gerätesperren und Pending-Journal bleiben maßgeblich. Hauptworker
+ist währenddessen kontrolliert angehalten; OnSuccess/OnFailure startet ihn
+wieder. Web und Tunnel bleiben aktiv. Report:
+`/var/lib/otam/reports/physical-interruption-20261020-r1/report.json`.
+Installierte Version/Gates sind unverändert. **Bis zum belegten Abschluss
+weiterhin keine Produktionsfreigabe und keine Katalogbereinigung.**
+
+Der anschließende Release-Kandidat 0.6.0 sowie die ausdrücklich ID-begrenzte,
+transaktionale Katalogbereinigung bestehen lokal **207 Tests mit einem Skip**.
+Die Bereinigung verlangt den exakten Reviewhash des vollständigen Katalogstands,
+verweigert unbekannte IDs, aktive Jobs, geänderte Katalogstände und Beziehungen
+über die ausgewählten Grenzen hinaus. Fehler rollen alle Löschungen zurück.
+Dazu kommen vier gezielte SQLite-Tests. Ein Offline-Wheel wurde gebaut; dieser
+neue Kandidat ist noch nicht unter Debian vollständig geprüft oder installiert.
