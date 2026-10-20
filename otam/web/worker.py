@@ -104,8 +104,10 @@ def validate_command(
         return
     if kind not in ("sync",) and maintenance.mode(config, control) != "simulator":
         physical_archive.require_mode(config, control)
-        if kind in ("create-medium", "backup-set") or (kind == "plan" and "media_ids" in payload):
-            raise SafetyError("Physische Initialisierung und Mehrbandplanung benötigen die separate Workflow-Abnahme")
+        if kind == "create-medium":
+            raise SafetyError("Physische Initialisierung benötigt die separate Workflow-Abnahme")
+        if (kind == "backup-set" or (kind == "plan" and "media_ids" in payload)) and not config.physical_multivolume:
+            raise SafetyError("Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme")
     if kind == "sync":
         if payload:
             raise SafetyError(
@@ -169,12 +171,18 @@ def validate_command(
                 raise SafetyError("Zwei bis 32 verschiedene Medien erforderlich")
             for media_id in ids:
                 require_uuid({"media_id": media_id}, "media_id")
-                mounted(config, control, media_id)
+                if maintenance.mode(config, control) == "physical":
+                    physical_archive.planning_snapshot(config, control, media_id)
+                else:
+                    mounted(config, control, media_id)
             if "media_id" in payload:
                 raise SafetyError("Einzel- und Mehrbandziel nicht mischen")
         else:
             require_uuid(payload, "media_id")
-            mounted(config, control, payload["media_id"])
+            if maintenance.mode(config, control) == "physical":
+                physical_archive.planning_snapshot(config, control, payload["media_id"])
+            else:
+                mounted(config, control, payload["media_id"])
         if (
             type(payload.get("target", 75_000_000_000)) is not int
             or not 10240 <= payload.get("target", 75_000_000_000) <= 10_000_000_000_000
@@ -196,6 +204,11 @@ def validate_command(
             if Path(plan["source"]).resolve() not in {s.path.resolve() for s in config.sources}:
                 raise SafetyError("Planquelle ist nicht mehr freigegeben")
             mounted(config, control, payload["media_id"])
+            if maintenance.mode(config, control) == "physical":
+                binding = control.get("job_storage:" + payload["job_id"])
+                if not binding:
+                    raise SafetyError("Staging-Bindung des physischen Archivplans fehlt")
+                mounted(config, control, payload["media_id"], staging_id=binding["staging_id"])
         finally:
             catalog.close()
     elif kind in ("stage", "backup"):
@@ -281,7 +294,7 @@ def execute(
     scheduled: bool = False,
 ) -> Any:
     if maintenance.mode(config, control) == "physical" and kind in (
-            "register-physical", "plan", "backup", "verify", "restore", "recover", "rebuild"):
+            "register-physical", "backup", "backup-set", "verify", "restore", "recover", "rebuild"):
         # Only the worker refreshes device inventory. HTTP validation stays cached.
         from ..physical import discover_drives
         control.set("hardware_inventory", {"time": time.time(), "drives": discover_drives()})
@@ -344,20 +357,22 @@ def execute(
             if binding is None:
                 binding = {"staging_id": resources.default_staging_id(config, control)}
             spool = resources.staging_for(config, control, binding["staging_id"])
-        service = ArchiveService(catalog, None if kind == "stage" else mounted(
+        offline_plan = kind == "plan" and maintenance.mode(config, control) == "physical"
+        service = ArchiveService(catalog, None if kind == "stage" or offline_plan else mounted(
             config, control, media,
-            staging_id=binding["staging_id"] if kind == "backup" else None))
+            staging_id=binding["staging_id"] if kind in ("backup", "backup-set") else None))
         if kind == "plan":
             source = next(
                 s.path for s in config.sources if s.id == payload["source_id"]
             )
             if "media_ids" in payload:
                 plan = plan_set(catalog, source,
-                    [(ident, mounted(config, control, ident)) for ident in payload["media_ids"]],
+                    [(ident, None if offline_plan else mounted(config, control, ident)) for ident in payload["media_ids"]],
                     payload.get("target", 75_000_000_000), payload.get("selected_paths"),
-                    payload.get("verify_mode", "archive"))
+                    payload.get("verify_mode", "archive"), catalogue_only=offline_plan)
             else:
-                plan = service.plan(source, media, payload.get("target", 75_000_000_000),
+                planner = service.plan_catalogued if offline_plan else service.plan
+                plan = planner(source, media, payload.get("target", 75_000_000_000),
                                     payload.get("selected_paths"), payload.get("verify_mode", "archive"))
             control.set(
                 "job_storage:" + plan["job_id"],
@@ -400,6 +415,14 @@ def execute(
                 prepare_all=payload.get("prepare_all", False),
             )
         if kind == "backup-set":
+            if maintenance.mode(config, control) == "physical":
+                _, child = next_child(catalog, payload["job_id"])
+                catalog.event(child["job_id"], "transfer_policy_selected",
+                              parent_job=payload["job_id"], staging_id=binding["staging_id"],
+                              buffer_bytes=service.tape.buffer_mib * 1024**2,
+                              write_rate_bytes_per_second=service.tape.write_rate,
+                              drive_serial=service.tape.device.expected["serial"],
+                              medium_serial=service.tape.device.expected["medium_serial"])
             return backup_set_step(catalog, payload["job_id"], payload["confirm"],
                                    payload["plan_hash"], payload["media_id"], service.tape,
                                    spool, resume=payload.get("resume", False))

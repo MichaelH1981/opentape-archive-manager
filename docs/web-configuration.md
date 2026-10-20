@@ -108,10 +108,36 @@ wirksamen Werte. Das historische Feld `effective=false` bezeichnet keine globale
 Geräteeinstellung: Werte werden je Job erneut validiert. Staging bleibt nach
 Planung auch ohne eingelegtes Medium möglich.
 
-Der Integrationskandidat unterstützt vorerst **ein eingelegtes bereits
-initialisiertes physisches Medium**. Physische Initialisierung und Mehrbandjobs
-bleiben ausdrücklich gesperrt, bis ihre separaten Workflows abgenommen sind.
-Simulator-Mehrbandjobs bleiben verfügbar. Dies ist keine Produktionsfreigabe.
+`physical_multivolume`: Standard `false`, nur zusammen mit
+`physical_archiving=true` zulässig. Separates Gate des neuen physischen
+Mehrbandkandidaten. Bis zur realen Medienwechselabnahme nicht aktivieren.
+Simulator-Mehrbandjobs bleiben verfügbar. Physische Initialisierung bleibt
+unabhängig davon gesperrt; es wird niemals automatisch formatiert.
+
+Physische Planung verwendet nun registrierte Katalogstände, ohne Gerät zu öffnen
+oder das Band zu bewegen. Quelle, SHA-256 und vollständige TAR-Aufteilung werden
+weiterhin inventarisiert. Nur gebundene READY/IN_USE-Medien mit konsistenten
+VERIFIED-Archivfolgen, plausiblen Kapazitätsangaben und ohne bekannten lokalen
+Pending-Marker sind planbar. Das ist eine Schätzung und keine Prüfung des
+eingelegten Mediums. `/media` unterscheidet dafür `plannable`, `mounted` und
+`backend`; eine nicht eingelegte physische Kassette kann planbar sein.
+
+Bei separat freigegebenem Mehrbandbetrieb akzeptiert `plan` geordnete
+`media_ids`. Ganze TARs werden auf die Medien verteilt; Dateien und TARs werden
+nicht bandübergreifend geteilt. `backup-set` führt genau das nächste Kind aus
+und verlangt die bestätigte Parent-Job-ID, den Planhash und die erwartete
+Medien-UUID. Vor jedem Schritt werden Drive/MAM frisch erkannt, die gespeicherten
+Transferwerte geprüft und reale Identität, EOD/Dateianzahl, Tail und Receiptfolge
+gegen den Katalog kontrolliert. Ein veralteter Offlineplan erlaubt kein Append.
+Der Schritt endet erst nach vollständiger Verifikation dieses Mediums als
+WAITING_MEDIA beziehungsweise VERIFIED; es erfolgt kein automatischer Wechsel.
+Bei verlorenem Parent-Abschluss nach bereits VERIFIED abgeschlossenen Kindern
+werden Identität/EOD/Receipts erneut abgeglichen, ohne einen neuen Payload-Scrub
+zu behaupten. Restore erfolgt weiterhin je ausgewählter Archiv-/Mediengruppe.
+
+Der Kandidat ist softwareseitig gegen zwei emulierte physische Backends geprüft.
+Dies ersetzt keine reale Zwei-Kassetten-Abnahme und ist keine Produktionsfreigabe.
+Details: [Physischer Mehrbandbetrieb](architecture/physical-multivolume.md).
 
 Die CLI verwendet dieselbe dauerhafte Workerwarteschlange:
 
@@ -122,7 +148,7 @@ otam physical-command-status --config /etc/otam/node.json --command-id <command-
 
 `plan.json` enthält z.B. `{ "media_id": "<media-uuid>", "source_id": "source-1",
 "staging_id": "default-staging", "verify_mode": "media" }`.
-Weitere erlaubte Arten: `register-physical`, `stage`, `backup`, `verify`, `restore`,
+Weitere erlaubte Arten: `register-physical`, `stage`, `backup`, `backup-set`, `verify`, `restore`,
 `recover`, `rebuild`. Für Backup sind `{job_id, confirm: job_id, plan_hash}` nach
 Prüfung des persistenten Archivplans erforderlich. Restore akzeptiert
 `{media_id, target_name, paths?, archive_id?}`. Wiederholte Aufrufe können denselben

@@ -1,6 +1,13 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme": "Physical multi-volume operation requires separate administrative workflow acceptance",
+  "Physische Initialisierung benötigt die separate Workflow-Abnahme": "Physical initialization requires separate workflow acceptance",
+  "Physisches Medium eingelegt": "Physical medium loaded",
+  "Physisches Medium nicht eingelegt": "Physical medium not loaded",
+  "Planung anhand des Katalogs ohne Bandbewegung. Vor dem Schreiben werden Medium, Bandende und Prüfbelege erneut kontrolliert.": "Planning uses the catalog without moving the tape. Medium identity, end of data and receipts are checked again before writing.",
+  "Unvollständiger physischer Schreibvorgang; Planung gesperrt": "Incomplete physical write; planning is blocked",
+  "Physische Katalogbindung stimmt nicht überein": "Physical catalog binding does not match",
   "OTAM-Medium lesend registrieren": "Register existing OTAM medium (read only)",
   "Medienregistrierung eingeplant.": "Medium registration queued.",
   "Archive Node · physische Archivierung": "Archive node · physical archiving",

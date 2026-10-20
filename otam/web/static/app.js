@@ -471,6 +471,8 @@ function bindForms(root = $("#content")) {
   on("#plan-form", async (d) => {
     const mediaIds = d.getAll("media_ids");
     if (!mediaIds.length) throw new Error("Bitte mindestens ein Zielmedium auswählen.");
+    if (mediaIds.length > 1 && state.node.operation_mode === "physical" && !state.node.capabilities.physical_multivolume)
+      throw new Error("Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme");
     const request = {
       source_id: d.get("source_id"),
       target: Math.round(Number(d.get("target")) * 1e9),

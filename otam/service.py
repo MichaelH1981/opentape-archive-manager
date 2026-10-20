@@ -152,37 +152,60 @@ class ArchiveService:
                 inspect_catalogued_media(self.catalog, self.tape, media)
             else:
                 scan(self.tape, media)
-            job = self.catalog.job("archive", media, "PLANNING")
+            return self._plan_inventory(root, media, target, selected, verify_mode,
+                                        record["capacity"] * 95 // 100 - self.tape.used(),
+                                        len(self.tape.positions()))
+
+    def plan_catalogued(self, source: Path, media: str, target: int = 75_000_000_000,
+                        selected: list[str] | None = None, verify_mode: str = "archive") -> dict[str, Any]:
+        """Advisory physical plan without opening or positioning any tape device."""
+        from .planning import catalogue_snapshot
+        if verify_mode not in ("archive", "media") or target <= 0:
+            raise SafetyError("Unknown planning options")
+        root = source.resolve()
+        if self.catalog.path.is_relative_to(root):
+            raise SafetyError("Catalog must be outside source tree")
+        with io_lock():
+            snapshot = catalogue_snapshot(self.catalog, media)
+            return self._plan_inventory(root, media, target, selected, verify_mode,
+                                        snapshot["record"]["capacity"] * 95 // 100 - snapshot["used"],
+                                        snapshot["expected_tape_files"], catalogue_only=True)
+
+    def _plan_inventory(self, root: Path, media: str, target: int, selected: list[str] | None,
+                        verify_mode: str, available: int, expected_tape_files: int,
+                        *, catalogue_only: bool = False) -> dict[str, Any]:
+        job = self.catalog.job("archive", media, "PLANNING")
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE jobs SET phase='INVENTORY' WHERE id=?", (job,))
+        self.catalog.event(job, "job_phase", phase="INVENTORY")
+        try:
+            entries = inventory(root, selected)
+            manifests = plan_archives(entries, media, target)
+            if any(len(encode(m)) > MAX_META for m in manifests):
+                raise SafetyError("Manifest exceeds limit; reduce archive target size")
+            required = sum(estimate(m["files"]) + 10240 for m in manifests)
+            if required > available:
+                raise SafetyError("Plan exceeds conservative capacity; use another medium or smaller selection")
+            plan = {"media_id": media, "source": str(root), "archives": manifests,
+                    "required_estimate": required, "available": available,
+                    "payload_bytes": sum(e["size"] for e in entries), "file_count": len(entries),
+                    "expected_tape_files": expected_tape_files}
+            if selected is not None:
+                plan["selected_paths"] = sorted(set(selected))
+            plan["verify_mode"] = verify_mode
+            if catalogue_only:
+                plan["planning_basis"] = "catalogue; physical preflight required before write"
+            plan_hash = hashlib.sha256(encode(plan)).hexdigest()
+            plan["sha256"] = plan_hash
             with self.catalog.db:
-                self.catalog.db.execute("UPDATE jobs SET phase='INVENTORY' WHERE id=?", (job,))
-            self.catalog.event(job, "job_phase", phase="INVENTORY")
-            try:
-                entries = inventory(root, selected)
-                manifests = plan_archives(entries, media, target)
-                if any(len(encode(m)) > MAX_META for m in manifests):
-                    raise SafetyError("Manifest exceeds limit; reduce archive target size")
-                required = sum(estimate(m["files"]) + 10240 for m in manifests)
-                available = record["capacity"] * 95 // 100 - self.tape.used()
-                if required > available:
-                    raise SafetyError("Plan exceeds conservative capacity; use another medium or smaller selection")
-                plan = {"media_id": media, "source": str(root), "archives": manifests,
-                        "required_estimate": required, "available": available,
-                        "payload_bytes": sum(e["size"] for e in entries), "file_count": len(entries),
-                        "expected_tape_files": len(self.tape.positions())}
-                if selected is not None:
-                    plan["selected_paths"] = sorted(set(selected))
-                plan["verify_mode"] = verify_mode
-                plan_hash = hashlib.sha256(encode(plan)).hexdigest()
-                plan["sha256"] = plan_hash
-                with self.catalog.db:
-                    self.catalog.db.execute("UPDATE jobs SET state='PLANNED',plan_json=?,updated=? WHERE id=?",
-                                            (encode(plan).decode(), time.time(), job))
-                self._load_plan(job)  # Persist INVENTORY for each planned archive, including migrated catalogs.
-                self.catalog.event(job, "plan_ready", sha256=plan_hash, files=len(entries), bytes=plan["payload_bytes"])
-                return {"job_id": job, **plan}
-            except BaseException as error:
-                self.catalog.finish(job, "FAILED", str(error))
-                raise
+                self.catalog.db.execute("UPDATE jobs SET state='PLANNED',plan_json=?,updated=? WHERE id=?",
+                                        (encode(plan).decode(), time.time(), job))
+            self._load_plan(job)  # Persist INVENTORY for each planned archive, including migrated catalogs.
+            self.catalog.event(job, "plan_ready", sha256=plan_hash, files=len(entries), bytes=plan["payload_bytes"])
+            return {"job_id": job, **plan}
+        except BaseException as error:
+            self.catalog.finish(job, "FAILED", str(error))
+            raise
 
     def _load_plan(self, job: str) -> tuple[dict[str, Any], dict[str, Any]]:
         row = self.catalog.db.execute("SELECT * FROM jobs WHERE id=? AND kind='archive'", (job,)).fetchone()

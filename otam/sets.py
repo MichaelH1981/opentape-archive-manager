@@ -1,7 +1,7 @@
 """Guided multi-medium archive sets using independent, self-describing media.
 
-Only simulator media are admitted by the web worker until the physical tape
-format and exchange workflow have passed a separate hardware acceptance.
+Physical operation has a separate default-off gate. Its plans use registered
+catalog projections; every loaded medium is independently checked before write.
 """
 from __future__ import annotations
 
@@ -18,11 +18,12 @@ from .common import SafetyError, encode
 from .service import ArchiveService, scan, inspect_catalogued_media
 from .storage import io_lock
 from .tape import Tape
+from .planning import catalogue_snapshot
 
 
-def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape]],
+def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape | None]],
              target: int, selected: list[str] | None = None,
-             verify_mode: str = "archive") -> dict[str, Any]:
+             verify_mode: str = "archive", *, catalogue_only: bool = False) -> dict[str, Any]:
     if not 2 <= len(media_tapes) <= 32 or len({m for m, _ in media_tapes}) != len(media_tapes):
         raise SafetyError("Choose two to 32 distinct media in order")
     if verify_mode not in ("archive", "media") or target <= 0:
@@ -38,6 +39,13 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape]]
         available: dict[str, int] = {}
         positions: dict[str, int] = {}
         for media, tape in media_tapes:
+            if catalogue_only:
+                snapshot = catalogue_snapshot(catalog, media)
+                positions[media] = snapshot["expected_tape_files"]
+                available[media] = snapshot["record"]["capacity"] * 95 // 100 - snapshot["used"]
+                continue
+            if tape is None:
+                raise SafetyError("Loaded medium required for device-based planning")
             tape_path = getattr(tape, "path", None)
             if tape_path is not None and (tape_path.is_relative_to(root) or root.is_relative_to(tape_path)):
                 raise SafetyError("Source and simulator medium must be separate")
@@ -81,6 +89,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape]]
                      "parent_job": parent_id}
             if selected is not None:
                 child["selected_paths"] = sorted(set(selected))
+            if catalogue_only:
+                child["planning_basis"] = "catalogue; physical preflight required before write"
             child["sha256"] = hashlib.sha256(encode(child)).hexdigest()
             child_plans.append((child_id, child))
             children.append({"job_id": child_id, "media_id": media,
@@ -94,6 +104,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape]]
                   "file_count": len(entries)}
         if selected is not None:
             parent["selected_paths"] = sorted(set(selected))
+        if catalogue_only:
+            parent["planning_basis"] = "catalogue; physical preflight required before write"
         parent["sha256"] = hashlib.sha256(encode(parent)).hexdigest()
         now = time.time()
         with catalog.db:
@@ -165,9 +177,15 @@ def backup_set_step(catalog: Catalog, parent_id: str, confirmation: str,
     try:
         service = ArchiveService(catalog, tape)
         if finalizing:
-            # Re-read the last medium before promoting a parent whose final
-            # commit was lost. No append is attempted.
-            service.verify(media_id)
+            # Children already committed physical readback. Reconcile a lost
+            # parent result against exact identity/EOD/receipts, without claiming
+            # a new scrub or re-reading old physical payloads.
+            with io_lock(), tape.locked():
+                if tape.header().get("backend") == "physical":
+                    service._identity(media_id)
+                    inspect_catalogued_media(catalog, tape, media_id)
+                else:
+                    scan(tape, media_id)
         else:
             service.backup(child["job_id"], child["job_id"], spool, resume=resume)
         remaining = [c for c in plan["children"] if catalog.db.execute(

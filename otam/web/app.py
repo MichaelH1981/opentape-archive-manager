@@ -290,6 +290,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 "catalog": True,
                 "archive": config.role == "archive",
                 "physical_tape": config.physical_archiving,
+                "physical_multivolume": config.physical_multivolume,
                 "physical_maintenance": config.physical_maintenance,
             },
             "snapshot": active,
@@ -342,6 +343,16 @@ def create_app(config: WebConfig) -> FastAPI:
                     mounted_ids.add(ident)
             for item in items:
                 item["mounted"] = item["id"] in mounted_ids
+                item["plannable"] = item["mounted"] and item["state"] in ("READY", "IN_USE")
+                item["backend"] = "simulator"
+                if maintenance.mode(config, control) == "physical":
+                    item["backend"] = "physical" if item["id"] in physical_archive.bindings(control) else "unregistered"
+                    try:
+                        physical_archive.planning_snapshot(config, control, item["id"])
+                    except (SafetyError, ValueError, KeyError):
+                        item["plannable"] = False
+                    else:
+                        item["plannable"] = True
         return {"items": items}
 
     @api.get("/archives")

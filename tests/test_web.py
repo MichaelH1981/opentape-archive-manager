@@ -74,6 +74,39 @@ class AccountMigration(unittest.TestCase):
 
 @unittest.skipUnless(WEB_AVAILABLE, "Optional [web] dependencies not installed")
 class WebAcceptance(unittest.TestCase):
+    def test_unloaded_registered_physical_medium_is_plannable_without_hardware_io(self):
+        from fastapi.testclient import TestClient
+        from otam.web.app import create_app
+        from otam.common import FORMAT
+        config = replace(self.config, physical_maintenance=True, physical_archiving=True)
+        media = str(uuid.uuid4())
+        catalog = Catalog(config.catalog)
+        try:
+            catalog.register({"format": FORMAT, "media_id": media, "backend": "physical",
+                              "medium_serial": "OFFLINE", "label": "Offline tape", "class": "rotation",
+                              "capacity": 800_000_000_000}, 10240)
+        finally:
+            catalog.close()
+        self.control.set("operation_mode", "physical")
+        self.control.set("physical_media_bindings", {media: {
+            "media_id": media, "drive_serial": "DRIVE", "medium_serial": "OFFLINE"}})
+        self.control.set("hardware_inventory", {"time": 0, "drives": []})
+        with patch("otam.web.physical_archive.LinuxTape", side_effect=AssertionError("No device access")), \
+                TestClient(create_app(config)) as client:
+            login = client.post("/api/v1/login", json={"username": "admin", "password": PASSWORD})
+            headers = {"X-CSRF-Token": login.json()["csrf"]}
+            item = next(m for m in client.get("/api/v1/media").json()["items"] if m["id"] == media)
+            self.assertFalse(item["mounted"])
+            self.assertTrue(item["plannable"])
+            self.assertEqual(item["backend"], "physical")
+            response = client.post("/api/v1/commands", headers={**headers, "Idempotency-Key": "offline-plan"},
+                                   json={"kind": "plan", "payload": {"media_id": media, "source_id": "source-1"}})
+            self.assertEqual(response.status_code, 202, response.text)
+            refused = client.post("/api/v1/commands", headers={**headers, "Idempotency-Key": "gated-multi-plan"},
+                                  json={"kind": "plan", "payload": {"media_ids": [media, str(uuid.uuid4())], "source_id": "source-1"}})
+            self.assertEqual(refused.status_code, 409, refused.text)
+            self.assertIn("Mehrbandbetrieb", refused.text)
+
     def setUp(self):
         from fastapi.testclient import TestClient
         from otam.web.app import create_app

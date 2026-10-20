@@ -75,6 +75,7 @@ class WebConfig:
     secure_cookie: bool = False
     trusted_proxy_ips: tuple[str, ...] = ()
     allow_host_shutdown: bool = False
+    physical_multivolume: bool = False
 
     def validate(self) -> None:
         uuid.UUID(self.node_id)
@@ -148,6 +149,9 @@ class WebConfig:
         if (type(self.physical_archiving) is not bool
                 or (self.physical_archiving and (not self.physical_maintenance or self.role != "archive"))):
             raise SafetyError("Physische Archivierung benötigt einen administrativ freigegebenen Archivnode")
+        if (type(self.physical_multivolume) is not bool
+                or (self.physical_multivolume and not self.physical_archiving)):
+            raise SafetyError("Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme")
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources

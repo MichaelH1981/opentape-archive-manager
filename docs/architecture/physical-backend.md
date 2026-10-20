@@ -55,7 +55,7 @@ und reserviert konservativ dessen gesamte Kapazität.
 
 ## Staging und Rücklesung
 
-Für reguläre Planung und einen neuen Append prüft der nächste Kandidat den
+Vor einem neuen Append und bei gerätebasierter Kernplanung prüft der Kandidat den
 exakten Header, bestätigte EOD-Dateianzahl, Pending-/Tail-Zustand und alle
 physischen Prüfbelege gegen den bereits VERIFIED geführten Katalog. Jeder Beleg
 muss zu Position, Archiv-ID, Bytezahl, SHA-256 und Vorgängerverkettung passen.
@@ -70,8 +70,15 @@ erneut gelesen. Explizite Vollprüfung und Katalogrekonstruktion lesen weiterhin
 alle Nutzdaten. Eine ausdrückliche Wiederaufnahme behält vorläufig den
 konservativen vollständigen Scan bei. Damit bleibt die Sicherheit vor falschem
 Anhängen erhalten, ohne jeden regulären Job zu einem wiederholten Vollband-Scrub
-zu machen. Diese Änderung bestand 160 Debian-Tests; die gezielte physische
-Integrationsabnahme gemeinsam mit dem regulären Web-/CLI-Pfad steht noch aus.
+zu machen. Die gezielte physische HTTP-/CLI-/Worker-Integration ist mit zwei
+kleinen TARs, vollständiger Rücklesung und Restore am 20.10.2026 bestanden.
+
+Der nachfolgende Web-/CLI-Mehrbandkandidat plant ausdrücklich anhand
+registrierter konservativer Katalogprojektionen ohne Gerätezugriff. Erst der
+Schreibauftrag führt die oben beschriebene unabhängige physische Vorprüfung aus;
+ein seit der Planung geändertes Medium erlaubt kein Append. Dadurch lassen sich
+auch nicht eingelegte Medien planen. Die Mehrbandsperre bleibt standardmäßig
+geschlossen; [Workflow und Abnahmegrenzen](physical-multivolume.md).
 
 Daten-TARs und Receipts liegen vollständig lokal vor. Der Dienst prüft die
 Staging-Artefakte vor dem Schreiben vollständig; der Adapter verlangt zusätzlich

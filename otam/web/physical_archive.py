@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import hashlib
 from typing import Any
 
 from ..catalog import Catalog
@@ -30,6 +31,28 @@ def require_mode(config: WebConfig, control: Control, *, archive: bool = True) -
             or maintenance.mode(config, control) != "physical"
             or (archive and not config.physical_archiving)):
         raise SafetyError("Physische Archivierung benötigt die separate administrative Bandformat-Abnahme")
+
+
+def planning_snapshot(config: WebConfig, control: Control, media: str) -> dict[str, Any]:
+    """Validate a registered catalog projection, including known local write intent."""
+    from ..planning import catalogue_snapshot
+    require_mode(config, control)
+    binding = bindings(control).get(media)
+    if not binding or binding.get("media_id") != media:
+        raise SafetyError("Physisches Medium ist nicht ausdrücklich registriert")
+    catalog = Catalog(config.catalog)
+    try:
+        snapshot = catalogue_snapshot(catalog, media)
+    finally:
+        catalog.close()
+    if (snapshot["header"]["medium_serial"] != binding.get("medium_serial")
+            or not binding.get("drive_serial")):
+        raise SafetyError("Physische Katalogbindung stimmt nicht überein")
+    pending = config.state / "physical-pending" / (
+        hashlib.sha256(binding["medium_serial"].encode()).hexdigest() + ".json")
+    if pending.exists() or pending.is_symlink():
+        raise SafetyError("Unvollständiger physischer Schreibvorgang; Planung gesperrt")
+    return snapshot
 
 
 def validate_registration(config: WebConfig, control: Control, payload: dict[str, Any]) -> dict[str, Any]:

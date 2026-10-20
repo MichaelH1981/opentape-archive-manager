@@ -441,3 +441,57 @@ Testverzeichnis geprüft. Der laufende Dienstcode wurde nicht verändert.
 Dieser Hardwaretest bleibt offen und soll erst nach den übrigen positiven
 Medienworkflows stattfinden, da er einen absichtlich gesperrten Tail erzeugt.
 Keine Installation oder Produktionsfreigabe durch diesen Softwarestand.
+
+### Gegateter physischer Mehrbandkandidat und Offlineplanung
+
+Der nächste Kandidat ergänzt `physical_multivolume=false` als unabhängige
+Freigabesperre. Nur zusätzlich zu `physical_archiving=true` kann der neue
+Workerpfad geordnete physische Mediengruppen planen und je bestätigtem Medium
+einen Child-Job schreiben/verifizieren. Die Livekonfiguration und installierte
+Version wurden nicht geändert. Initialisierung bleibt ausdrücklich gesperrt.
+
+Web-/CLI-Planung verwendet nun konservative registrierte Katalogprojektionen,
+ohne Laufwerkserkennung, Geräteöffnung oder Bandbewegung. Katalogidentität,
+READY/IN_USE, lückenlose VERIFIED-Archivfolge, Größen/Hashes/Kapazität sowie
+bekannte lokale Pending-Marker werden kontrolliert. Vor jedem tatsächlichen
+Schreiben bleiben frische Drive/MAM-Prüfung, echte EOD-/Receipt-/Tail-Prüfung
+und die Abweisung veralteter Pläne verbindlich. Die physische Kern-API mit
+übergebenem Gerät behält ihre Vorprüfung; der Worker verwendet den ausdrücklich
+separaten Katalogplanpfad. Die Oberfläche unterscheidet planbare und eingelegte
+Medien und erklärt, dass die Planung keine physische Verifikation ist.
+
+Der Mehrbandschritt wendet die gespeicherten Puffer-/Ratenwerte auf das nächste
+eingelegte Medium an und protokolliert sie am Child. Erst nach dessen vollständiger
+Rückleseprüfung wird WAITING_MEDIA beziehungsweise abschließend VERIFIED
+gespeichert. Falsche, fehlende oder nicht nächste Medien werden ohne Writer
+abgewiesen. Für einen verlorenen Parent-Abschluss bei bereits VERIFIED Kindern
+genügt die erneute Prüfung von Header/EOD/Receiptkette auf dem letzten Medium;
+das behauptet keinen neuen Payload-Scrub und wiederholt keine großen Datenreads.
+
+**185 lokale Tests (ein Skip) und 185/185 Debian-Tests** bestehen unter
+`/var/lib/otam/acceptance-code/physical-multivolume-20261020`.
+JavaScript-Syntaxprüfungen bestanden. Neue Tests verwenden zwei unabhängige
+Dateigeräte hinter dem echten LinuxTape-/ArchiveService-/Workerpfad: Offlineplan
+und Staging ohne Gerät, falsches und fehlendes Medium ohne Write, bestätigter
+Wechsel, SHA-256-Rücklesung und Restore beider Gruppen, wirksame Transferwerte,
+veralteter Plan nach Append sowie Parent-Abschluss ohne zusätzliche Payloadreads.
+HTTP prüft außerdem planbare nicht eingelegte Medien und das geschlossene Gate.
+Dies ist ausdrücklich **keine physische Zwei-Kassetten-Abnahme**.
+
+Zusätzlich bestand auf dem Bandserver ein rein katalogbasierter Integrationscheck
+an einer separaten SQLite-Backup-Kopie des tatsächlichen Livekatalogs mit acht
+verifizierten Archiven. Eigene vorhandene synthetische 2-MiB-Quellen ergaben zwei
+TARs, erwartete Banddateianzahl 17 und einen unveränderten Live-Archivpräfix.
+Geräteerkennung und LinuxTape-Konstruktion waren durch Assertions vollständig
+verboten. Bericht:
+`/var/lib/otam/reports/physical-offline-plan-20261020-r1/report.json`.
+Keine Bandaktion, Quelländerung oder Mutation des Livekatalogs fand dabei statt.
+Bericht, Harness und Debian-Testlog bleiben im ignorierten Rohdatendossier.
+
+Offen bleiben explizite Initialisierung mit eigenständiger Freigabe,
+physischer Wechsel zwischen zwei konkret autorisierten Testkassetten und
+abschließend der echte kleine Schreibabbruch samt Tail-/Neustartsperre. Nur die
+bisherige Testkassette ist freigegeben; andere Medien werden nicht verwendet.
+Restore bleibt je ausgewählter Medien-/Archivgruppe bestätigt; ein automatischer
+medienübergreifender Restore ist nicht als abgeschlossen zu verstehen.
+Siehe [Mehrbandarchitektur](architecture/physical-multivolume.md).
