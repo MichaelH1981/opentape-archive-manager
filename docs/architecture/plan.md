@@ -36,6 +36,17 @@ erst nach Ende des aktuellen Produktivjobs und anschließender Leerlaufprüfung.
 Technische Vorbereitung, Phasendefinitionen und Abnahmekriterien:
 [Fortschrittsanzeige 0.8](progress-08.md). Noch keine Laufzeitänderung installiert.
 
+## TODO für Version 0.8: aktueller Archivplan auf der Übersichtsseite
+
+Aufgenommen am 20.10.2026 auf Nutzerwunsch. Der aktuelle Plan darf nicht nur
+unter Staging oder in verschachtelten Jobdetails auffindbar sein.
+
+- [ ] Auf dem Dashboard einen hervorgehobenen Bereich „Aktueller Archivplan“ anzeigen: Quelle/Auswahl, Umfang, Planstatus, aktuelle Phase und Fortschritt aus denselben Daten wie die Jobdetails. Auch vorbereitete oder auf Bestätigung wartende Pläne anzeigen, nicht nur RUNNING-Jobs.
+- [ ] Quellenplan, verbindlichen Archivplan und Mehrband-Kindjobs als zusammenhängenden Ablauf darstellen. Nach Medienbindung auf den verbindlichen Plan weiterführen, statt zwei scheinbar unabhängige aktuelle Jobs zu präsentieren. Bei mehreren offenen Plänen eine eindeutige Auswahl mit Verweisen auf weitere Pläne anbieten.
+- [ ] Den nächsten Handlungsschritt direkt anbieten: Zielmedien zuordnen, Archivierung starten/bestätigen, erforderliches Medium einlegen/bestätigen oder einen Fehler prüfen. Erwartete Medienbezeichnung und MAM-Seriennummer sowie die Medienfolge sichtbar machen; dieselben Rollen-, Status- und Sicherheitsprüfungen wie bisher verwenden. Ein Dashboard-Klick umgeht keine Schreibbestätigung und löst keinen automatischen Start aus.
+- [ ] Planung/Hashberechnung, tatsächliche lokale TAR-Bereitstellung, Schreiben und Verifikation klar unterscheiden. „Inventar abgeschlossen“ darf nicht wie „Staging bereit“ aussehen. Details bleiben erreichbar, sind aber nicht Voraussetzung, um den nächsten Schritt zu finden.
+- [ ] Live-Aktualisierung ohne Verlust von Eingaben, verständliche Mobilansicht und DE/EN-Texte prüfen. Archivierte Jobs nicht als aktuellen Plan präsentieren; nach Abschluss den Abschlusszustand nachvollziehbar anzeigen. Keine Installation während des jetzigen Jobs.
+
 1. **Phase 0:** leeres Repository erfassen, Alternativen bewerten, Bandformat/Schema/Risiken festhalten. Hardware-Skripte und Linux-Inventar sind lesend erfasst. Die physische Bandintegration bleibt vorläufig.
 2. **Phase 1a:** package/CLI, migrationsfähige SQLite-Datenbank, persistenter Simulator mit Lock/Medien-ID/Append, Plan mit SHA-256, PAX-TAR/Manifest.
 3. **Phase 1b:** Rücklesung und Receipt, strikte VERIFIED-Regel, sicherer Restore, Fehler/Abbruch/Neustart, Katalogrekonstruktion; automatisierte Tests und unabhängiges tar-Lesen.
