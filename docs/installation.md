@@ -9,8 +9,8 @@ Der aktuelle Freigabestand steht in [production-readiness.md](production-readine
 
 ```bash
 python3 -m venv /opt/otam/venv
-/opt/otam/venv/bin/pip install -r packaging/requirements-web.lock
-/opt/otam/venv/bin/pip install --no-deps --no-build-isolation .
+/opt/otam/venv/bin/python -m pip install -r packaging/requirements-web.lock
+/opt/otam/venv/bin/python -m pip install --no-deps --no-build-isolation .
 python3 -m otam --help
 python3 -m unittest discover -s tests
 ```
@@ -58,3 +58,7 @@ Eine Paketaktualisierung löscht keine Medien und bereinigt keine Pending-Marker
 Abgebrochene Writes bleiben gesperrt, bis ihre Unsicherheit ausdrücklich
 untersucht wurde. Katalogbereinigung ersetzt weder Bandlöschen noch
 Medieninitialisierung. Historische Abnahmeberichte bleiben unabhängig erhalten.
+
+Venvs nicht verschieben: Launcher enthalten absolute Interpreterpfade. Bei
+Aktualisierungen ausdrücklich `python -m pip` des Zielinterpreters verwenden
+und danach Version sowie Importpfad aus genau dieser Umgebung kontrollieren.
