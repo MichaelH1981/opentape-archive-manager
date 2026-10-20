@@ -29,6 +29,20 @@ from otam.tape import LinuxTape
 from otam.web.config import Resource, WebConfig, password_hash
 from otam.web.control import Control
 from otam.web.worker import run_once, worker_lock
+from otam.transfer import PROFILE_MAX_AGE_SECONDS
+
+
+def refresh_inventory(control):
+    """Match the normal worker's between-job scan without extending cache age.
+
+    run_once deliberately does not run the worker loop's periodic diagnostics.
+    Long physical positioning can outlive the profile TTL even for tiny inputs.
+    Only a new real discovery may renew it, and only between completed jobs.
+    """
+    observed = control.get("hardware_inventory", {}).get("time", 0)
+    if not 0 <= time.time() - observed <= PROFILE_MAX_AGE_SECONDS:
+        from otam.web import diagnostics
+        diagnostics.scan(control)
 
 
 def archive_rows(db, media):
@@ -171,9 +185,11 @@ def main() -> None:
                     if command["state"] != "SUCCEEDED":
                         raise SafetyError("Worker command failed: " + str(command.get("error")))
                     record("COMMAND_COMPLETE", kind=command["kind"], result=command["result"])
+                    refresh_inventory(test_control)
                     return command["result"]
 
                 def enqueue(kind, payload):
+                    refresh_inventory(test_control)
                     response = client.post("/api/v1/commands", json={"kind": kind, "payload": payload},
                                            headers={**headers, "Idempotency-Key": str(uuid.uuid4())})
                     if response.status_code != 202:

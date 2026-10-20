@@ -346,3 +346,23 @@ weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
 Keine Produktionsfreigabe vor Auswertung dieses Laufs und der verbleibenden
 Sicherheits-/Web-/CLI-Abnahmen.
+
+#### Ergebnis des ersten HTTP-/CLI-Laufs und Korrektur
+
+Der Lauf endete am 20.10.2026 um 12:29:09 MESZ **FAILED**, vor jedem
+Schreibzugriff. Die lesende Registrierung bestand; Datenlese- und Schreiblisten
+sind leer. Danach verweigerte die HTTP-Transferauswahl korrekt das inzwischen
+veraltete Hardwareprofil. Die Registrierung hatte durch physische Positionierung
+zu den Receipts länger als die Profilgültigkeit von 120 Sekunden gedauert.
+Der synchrone Abnahmeharness verwendet `run_once`, jedoch nicht die periodische
+Zwischenjob-Erkennung der normalen Workerschleife.
+
+Der korrigierte Harness führt zwischen abgeschlossenen Aufträgen bei veralteter
+Erkennung denselben echten Diagnostikscan wie der normale Worker aus. Er setzt
+keinen alten Zeitstempel neu und verlängert keine Sicherheitsfrist. Zwei neue
+Regressionstests prüfen die erforderliche echte Erkennung und das Vermeiden
+zusätzlicher Geräteabfragen bei noch aktueller Erkennung. Lokal bestehen
+175 Tests (ein plattformbedingter Skip). Der ursprüngliche Fehlerbericht und
+das Journal bleiben unverändert lokal gesichert. Web, Worker und Tunnel wurden
+nach dem Fehlende wieder aktiv; die Installation und Produktionssperre sind
+unverändert. Ein korrigierter Hardwarelauf benötigt zunächst den Debian-Nachtest.
