@@ -1,6 +1,60 @@
 # Wiederherstellung ohne OTAM
 
-Alle Eingaben sind bereits auf SSD kopierte Banddateien. Originalmedium schreibgeschützt lassen. Kein OTAM-Modul wird für dieses Verfahren benötigt.
+Die Extraktion arbeitet mit lokal kopierten Banddateien. Der erste Abschnitt beschreibt deren unabhängiges Lesen vom Band. Originalmedium schreibgeschützt lassen. Kein OTAM-Modul wird für dieses Verfahren benötigt.
+
+## Banddateien ausschließlich mit Linux-Werkzeugen lesen
+
+Am 20.10.2026 auf dem IBM HH4 mit LTO-4 geprüft: Header, erster Daten-TAR und
+Receipt wurden mit `mt-st` und GNU `dd` gelesen, anschließend mit System-Python
+ohne OTAM-Importe wiederhergestellt. Das Ergebnis stimmt mit dem ursprünglichen
+Archiv-SHA-256 überein. Dies bestätigt diesen Lesepfad; die allgemeine
+Produktionsfreigabe bleibt eine gesonderte Abnahme.
+
+Laufwerk und MAM-Medienseriennummer zuerst mit `sg_inq`/`sg_read_attr` feststellen.
+Alle Backup-/Wartungsdienste anhalten und das Gerät exklusiv verwenden. Das Medium
+möglichst mechanisch schreibschützen. Die folgenden Gerätenamen sind Platzhalter
+und müssen durch das eindeutig erkannte Non-Rewinding-Gerät ersetzt werden.
+Ausgabedateien müssen neu sein; ausreichend lokalen Platz für TARs und die
+Wiederherstellung vorhalten. Keine dieser Aktionen initialisiert ein Band.
+
+```bash
+mkdir recovery-files
+cd recovery-files
+mt -f /dev/nstX setblk 0
+mt -f /dev/nstX rewind
+mt -f /dev/nstX status
+# Nur bei bestätigtem File number=0, block number=0 fortfahren:
+dd if=/dev/nstX of=00000000.tar bs=1M conv=excl status=progress
+tar -xOf 00000000.tar media.json
+
+mt -f /dev/nstX rewind
+mt -f /dev/nstX fsf 1
+mt -f /dev/nstX status
+# File number=1, block number=0 prüfen:
+dd if=/dev/nstX of=00000001.tar bs=1M conv=excl status=progress
+
+mt -f /dev/nstX rewind
+mt -f /dev/nstX fsf 2
+mt -f /dev/nstX status
+# File number=2, block number=0 prüfen:
+dd if=/dev/nstX of=00000002.tar bs=1M conv=excl status=progress
+```
+
+Jedes Kommando muss erfolgreich enden; bei Lesefehlern oder unklarer Position
+stoppen. GNU `dd` liest mit diesem Muster bis zur ersten physischen Filemark.
+`bs=1M` ist groß genug für die vom OTAM-Profil geschriebenen 512-KiB-Records.
+Ein zu kleiner Read-Puffer kann beim Linux-st-Treiber ENOMEM verursachen, obwohl
+genügend RAM frei ist. **Keine** Optionen `sync`, `noerror` oder `fullblock`
+ergänzen: Fehler dürfen weder übergangen noch Bytes aufgefüllt werden. `conv=excl`
+verhindert das Überschreiben bereits vorhandener Ausgabedateien.
+
+Für weitere Paare die bestätigten Positionen 3/4, 5/6 usw. verwenden; jeweils von
+BOT neu positionieren. Keine zusätzliche Filemark-Positionierung aus einer bloßen
+Annahme über die Position nach Close ableiten. Medien-ID im Header und in jedem
+Receipt prüfen, Datenhash und Bytezahl vergleichen und die `previous`-Hashkette
+vom Header über alle Receipts verfolgen. Das separate, ausschließlich lesende
+Abnahmewerkzeug `tools/tape_gnu_recovery_acceptance.sh` automatisiert einen solchen
+ersten Paar-Test mit Identitäts- und Zugriffssperren, ohne ein OTAM-Modul zu laden.
 
 ## Eigenständiges Werkzeug
 

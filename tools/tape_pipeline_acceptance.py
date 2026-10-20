@@ -38,6 +38,8 @@ def main() -> int:
                         help="TEST <drive-serial> <medium-serial>; includes BOT overwrite")
     parser.add_argument("--payload-mib", type=int, default=32)
     parser.add_argument("--verify-mode", choices=("archive", "media"), default="archive")
+    parser.add_argument("--buffer-mib", type=int, default=2368)
+    parser.add_argument("--write-rate-mbps", type=int, choices=(30, 48, 66, 84, 103, 120), default=120)
     parser.add_argument("--existing-media-id", help="Append to this existing OTAM test medium instead of initializing")
     parser.add_argument("--recover-report", type=Path,
                         help="Read-only recovery of fixtures from a previous acceptance report; never initializes or appends")
@@ -97,9 +99,13 @@ def execute(config: WebConfig, args: argparse.Namespace) -> int:
             sync_dir(root)
             print(json.dumps({"phase": phase, **values}), flush=True)
 
-        tape = LinuxTape(drive, config.state, buffer_mib=2368)
+        tape = LinuxTape(drive, config.state, buffer_mib=args.buffer_mib,
+                         write_rate=args.write_rate_mbps * 1_000_000)
         service = ArchiveService(catalog, tape)
         try:
+            record("TRANSFER_POLICY", buffer_bytes=args.buffer_mib * 1024**2,
+                   write_rate_bytes_per_second=args.write_rate_mbps * 1_000_000,
+                   prefill_percent=90)
             source = root / "synthetic-source"
             source.mkdir(mode=0o700)
             with io_lock():

@@ -12,7 +12,7 @@
 | Volles Band bis EOM und vollständig zurücklesen | Der ausdrücklich freigegebene OTAM-Wartungsauftrag erreichte das echte Bandende nach 781,41 GiB rekonstruierbaren Testdaten (`eom=true`). Vollständige Rücklesung und SHA-256-Vergleich bestanden (`0ee3c3af5b6b68327c71464bca6944f520aa5373f793395b4faf7c8b045c4b68`). Kein aktives TapeAlert-Flag; die Laufwerkszähler meldeten drei korrigierte Schreibereignisse und keine unkorrigierten Schreib-/Lesefehler. Kompression war deaktiviert. Der Kapazitätswert gilt bis zum ersten gemeldeten ENOSPC/Frühwarnbereich, nicht als erzwungenes physisches EOT | Bestanden für dieses Testmedium |
 | Kontrollierter Abbruch, Neustart und Medienwechsel an echter Hardware | Position, Tail und Identität müssen vor jedem weiteren Write unabhängig geprüft werden | Offen |
 | Reguläre OTAM-Pipeline auf `/dev/nst*` | Backend-Kandidat implementiert: MAM-Bindung, bestätigte BOT/EOD/Filemarks, lokale unveränderliche TARs, `mbuffer`, gestreamte Rücklesung und persistente Sperre nach unklarem Schreibende. Zwei 32-MiB-Archive vollständig physisch verifiziert, Katalog aus leerer DB rekonstruiert und nach Korrektur der Record-Pufferung alle drei Dateien mit Ziel-Hashes wiederhergestellt. 146 Debian-Tests bestanden. Append und verzögerte Rücklesung laufen; CLI-/Webintegration, große TARs und Hardware-Fehlerfälle stehen noch aus | Kleiner Kernzyklus bestanden; Freigabe weiterhin gesperrt |
-| Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Am 20.10.2026 zwei regulär durch ArchiveService geschriebene Archive physisch exportiert und unter isoliertem Python ohne OTAM-Importe mit `tools/recover_tar.py` vollständig wiederhergestellt (2 + 1 Dateien, Archiv- und Ziel-Hashes geprüft). Zusätzlich Katalogrekonstruktion aus leerer DB und regulärer Restore bestanden. Der vollständige manuelle Geräte-Lesepfad mit ausschließlich GNU/Linux-Werkzeugen bleibt separat zu bestätigen | Daten-/Katalogwiederherstellung bestanden; manueller Gerätepfad noch offen |
+| Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Am 20.10.2026 zwei regulär durch ArchiveService geschriebene Archive physisch exportiert und unter isoliertem Python ohne OTAM-Importe mit `tools/recover_tar.py` vollständig wiederhergestellt (2 + 1 Dateien, Archiv- und Ziel-Hashes geprüft). Zusätzlich Katalogrekonstruktion aus leerer DB und regulärer Restore bestanden. Anschließend Header und erstes Paar ausschließlich mit sg3-utils, mt-st und GNU dd gelesen und mit System-Python unabhängig wiederhergestellt; Archivhash identisch, zwei Zieldateien geprüft | Für diese regulären Testarchive bestanden |
 | Eigenständiger Katalog auf Proxmox | Debian-LXC mit eigenem `otam`-Dienstkonto und Catalog-Node-Webdienst installiert. Lokaler `/healthz`, Anmeldung, geschützte Dateisuche und gesperrte Archivierungsroute geprüft. Der SSH-Tunnel blieb aktiv; der signierte Katalog-Snapshot (Sequenz 1, 98.304 Byte) wurde nach dem Bandauftrag übernommen. Bei gestopptem Bandserver-Webdienst antworteten die unabhängige Medienansicht und Dateisuche weiterhin; anschließend liefen Webdienst und Worker wieder. Nach dem Neustart des Bandservers wurde auch der Tunnel aktiv; ein expliziter Synchronisierungsauftrag `f5ee9520-0a29-4c1a-9678-e1a853c21fdf` endete `SUCCEEDED/UNCHANGED` für Sequenz 27 | Bestanden für vorhandenen Katalogstand |
 | Automatische Katalogsynchronisierung bei belegtem I/O-Lock | Während des HDD-Zonentests wurden 33 automatisch geplante Synchronisierungen in wenigen Minuten als Fehler angezeigt, weil der Scheduler die I/O-Sperre nicht beachtete. Version 0.5.4 stellt fällige automatische Aufträge bis zur Freigabe der Sperre zurück; ein Wettlauf nach dem Einplanen wird als `DEFERRED` ohne Fehlertoast abgeschlossen. Linux-Regressionstest bestanden und Version 0.5.4 auf dem Bandserver installiert. Keine der fehlgeschlagenen Veröffentlichungen änderte den gültigen Peer-Katalog. Direkt nach Ende des Zonentests um 21:03:50 MESZ lief der nächste Auftrag erfolgreich; `sync_log` bestätigt `send/SUCCEEDED`, Sequenz 27 | Fehler behoben; erfolgreicher Nachlauf bestätigt |
 | Admin-Shutdown aus der Weboberfläche | Version 0.5.5 bietet eine optional aktivierte, bestätigungspflichtige Schaltfläche für Admin-Konten. Die API prüft Rolle/CSRF/Node-Namen und sperrt neue Jobs; ein separater root-systemd-Helfer prüft I/O und Jobstatus erneut. 128 Softwaretests bestanden; systemd-Units statisch validiert. Echter Shutdown bewusst nicht im laufenden HDD-Test ausgelöst | Softwareabnahme bestanden; realer Shutdown später zu prüfen |
@@ -98,10 +98,56 @@ installierten Dienste bleiben auf Version 0.5.7; die physische reguläre Webrout
 weiter gesperrt. Die Backend-Entscheidungen und verbleibenden Sperrpunkte stehen in
 [physical-backend.md](architecture/physical-backend.md).
 
-Seit 02:21 MESZ läuft getrennt `otam-physical-pipeline-append.service` mit demselben
+Seit 02:21 MESZ lief getrennt `otam-physical-pipeline-append.service` mit demselben
 geprüften Kandidaten: zwei weitere 32-MiB-Dateien, Anhängen an dieselbe Medien-ID,
 Verifikation erst nach dem gesamten Schreibsegment und anschließend Rekonstruktion
 und Restore. Der Bericht liegt unter
 `/var/lib/otam/reports/physical-pipeline-append-20261020-0225/report.json`.
-Dieser Test darf nicht durch Codeänderung, Workerstart oder einen weiteren
-Hardwaretest gestört werden. Nach Abschluss startet systemd den regulären Worker.
+Er endete um 02:24 MESZ mit VERIFIED: Zwei neue Archive angehängt, danach alle
+vier Archive mit ihren Receipts vollständig physisch geprüft, aus leerem Katalog
+rekonstruiert und die drei neuen Dateien wiederhergestellt. Es gab keinen Tail;
+das bestehende Präfix blieb durch seine vollständigen Hashprüfungen bestätigt.
+Bericht-SHA-256: `4204d83fff9857dac9d1f57a8dbfa26ca909981f660478970432c1cff375fd76`.
+
+Der zusätzliche GNU/Linux-Gerätetest `otam-physical-gnu-recovery-r2.service`
+las Header und Banddateien 1/2 mit `dd bs=1M conv=excl`, bestätigte jeweils die
+Position aus BOT und stellte mit System-Python und dem eigenständigen Helfer zwei
+Dateien wieder her. Kein OTAM-Modul war an diesem Lesepfad beteiligt. Archivhash
+`f8d0ff98d5a8c82d9b4c2f23ede8d5912efed3ac62974471b8f28dd51a7b0101`
+ist identisch zum regulären Archiv. Bericht-SHA-256:
+`36fe463833fbc8cac1f61b38eb21ec50dbc3604967251bb7e23028705ba9286c`.
+Ein vorheriger Harness-Lauf verwendete irrtümlich `oflag=excl`; GNU dd lehnte das
+vor dem Datenlesen ab. Der korrigierte Schalter ist `conv=excl`; auch dieser
+fehlgeschlagene historische Bericht bleibt separat erhalten.
+
+## Großer Archivzyklus mit Transfersteuerung
+
+Der nächste Kandidat unter
+`/var/lib/otam/acceptance-code/physical-transfer-20261020` bestand 149/149
+Debian-Tests. Er setzt das gewählte unterstützte Host-Datenstromlimit mit mbuffer
+`-R`, füllt den Puffer vor dem Schreiben zu 90 Prozent und erhält dessen rohe
+Statuslogs dauerhaft unter `state/transfer-logs/`. Einmal pro Sekunde werden
+erkannte Füllstände in den Jobfortschritt übernommen; fehlende Samples bleiben
+unbekannt. Vor Öffnen zum Schreiben muss genügend verfügbarer RAM einschließlich
+Reserve vorhanden sein. Die gespeicherten Web-Transferwerte bleiben bis zur
+regulären Webintegration weiterhin ausdrücklich vorgemerkt, nicht global aktiv.
+Ein isolierter mbuffer-Funktionstest ohne Band bestätigte Vorfüllung, Rate und
+Logformat; 16 MiB bei 1 MiB/s benötigten 16,12 Sekunden. Der Test erzeugte und
+entfernte ausschließlich eigene temporäre Dateien.
+
+Seit 02:56 MESZ läuft `otam-physical-pipeline-large.service`: zwei synthetische
+70-GiB-Nutzdateien (zusammen rund 150,3 GB) plus README, vollständig lokales
+HDD-Staging, zwei große TARs, Append an dieselbe ausdrücklich freigegebene
+Kassette, verzögerte vollständige Rücklesung, leere Rekonstruktionsdatenbank und
+vollständiger Restore. Testwerte: 120.000.000 Byte/s Hostlimit, 2.368 MiB Puffer,
+90 Prozent Vorfüllung. Der Bericht liegt unter
+`/var/lib/otam/reports/physical-pipeline-large-20261020-0300/report.json`.
+CPU-, Speicher- und I/O-Abrechnung sind für die Unit aktiviert. Die generierten
+Quellfixtures liegen separat auf der System-SSD; **kein SSD-Staging wurde
+registriert oder verwendet**. Sie bleiben nach dem Test erhalten.
+
+Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
+weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
+angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
+Keine Produktionsfreigabe vor Auswertung dieses Laufs und der verbleibenden
+Sicherheits-/Web-/CLI-Abnahmen.

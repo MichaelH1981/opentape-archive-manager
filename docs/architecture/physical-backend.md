@@ -76,11 +76,30 @@ ein Read hinter der ersten Filemark kann beim st-Treiber zur nächsten Banddatei
 führen. Die Record-Schicht verhindert sowohl ENOMEM bei zu kleinen Read-Puffern
 als auch versehentliches Zusammenlesen benachbarter TARs.
 
+## Transfersteuerung im Kandidaten
+
+Der Adapter akzeptiert eine explizite Host-Datenstromrate nur aus dem bestätigten
+Profil des erkannten Laufwerks und Mediums. Sie wird als Byte/s-Wert an mbuffer
+`-R` übergeben; das setzt kein SCSI-Kommando für eine feste mechanische
+Bandgeschwindigkeit ab. `-P 90` sorgt für Vorfüllung; kleine vollständig gelesene
+Archive dürfen nach EOF auch unterhalb der nominellen Puffergröße ausgegeben
+werden. Die Puffergröße bleibt konfigurierbar. Vor dem Write wird verfügbarer RAM
+mit Reserve geprüft, bevor ein Schreibdeskriptor oder Pending-Marker entsteht.
+
+Jeder mbuffer-Lauf erhält ein eigenes dauerhaftes Statuslog im privaten
+State-Verzeichnis. Der Jobfortschritt enthält das angewandte Ratenlimit,
+Puffergröße, Vorfüllung, Logpfad und – falls im Log tatsächlich vorhanden – den
+zuletzt beobachteten Pufferfüllstand. Parser-Lesezugriffe sind auf einmal pro
+Sekunde und die letzten 8 KiB begrenzt. Die gespeicherten Web-Transferwerte sind
+bis zur Webintegration weiterhin als vorgemerkt markiert; die laufende
+Hardware-Abnahme übergibt ihre geprüften Werte ausdrücklich.
+
 ## Noch sperrende Abnahmen
 
-* Vollständiger physischer Dienstzyklus einschließlich Katalogverlust und Restore.
-* Größere TARs und verzögerte Verifikation; dauerhaft protokollierte Transferwerte.
-* Reales Append mit erhaltenem Präfix und konservatives Verhalten nach Neustart.
+Kleine reguläre Zyklen, Append, verzögerte Verifikation, Katalogverlust/Restore und
+unabhängige GNU/Linux-Wiederherstellung sind auf dem Testmedium bestanden.
+
+* Große TARs mit Transfersteuerung und dauerhaftem Pufferfüllstandsprotokoll.
+* Konservatives Verhalten bei realem Abbruch, Neustart und unklarem Tail.
 * CLI-/Web-Medienbindung und geprüfte Aktivierung der gespeicherten Transferwerte.
-* Unabhängige Wiederherstellung eines vom regulären Dienst geschriebenen Archivs.
 * Dokumentierte Freigabegrenzen für weitere Medien-/Laufwerksprofile.

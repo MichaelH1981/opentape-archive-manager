@@ -99,6 +99,7 @@ class PhysicalServiceFlow(TestCase):
                     stack.enter_context(patch("otam.storage.require_local", return_value={"free": 10**9}))
                     stack.enter_context(patch("otam.staging.require_local", return_value={"free": 10**9}))
                     stack.enter_context(patch("otam.service.require_qualification"))
+                    stack.enter_context(patch("otam.benchmark.available_memory", return_value=8 * 1024**3))
                     stack.enter_context(patch("subprocess.Popen", LocalProducer))
                     tape = LinuxTape(expected, root / "state")
                     with tape.locked():

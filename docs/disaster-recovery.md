@@ -1,6 +1,6 @@
 # Wiederherstellung nach Verlust von Server, Datenbank und Installation
 
-Diese Anleitung separat zusammen mit Formatbeschreibung, Exporten, Standalone-Recovery-Werkzeug und gegebenenfalls künftigen Schlüsseln offline aufbewahren. Die Banddatei 0 enthält zusätzlich RECOVERY.txt. Simulator und physisches LTO sind zu unterscheiden: ein realer Medienzyklus ist noch nicht abgenommen.
+Diese Anleitung separat zusammen mit Formatbeschreibung, Exporten, Standalone-Recovery-Werkzeug und gegebenenfalls künftigen Schlüsseln offline aufbewahren. Die Banddatei 0 enthält zusätzlich RECOVERY.txt. Kleine reguläre physische Archiv-/Restore-Zyklen und der unabhängige GNU/Linux-Lesepfad sind auf IBM HH4/LTO-4 abgenommen; die allgemeine Produktionsfreigabe und große TARs werden weiter geprüft.
 
 ## 1. Verlust begrenzen
 
@@ -10,9 +10,9 @@ Gerätezuordnung neu ermitteln; /dev/sg1 und /dev/nst0 sind keine stabilen Ident
 
 ## 2. Banddateien unabhängig auf lokale SSD lesen
 
-Nach bestätigtem Gerät und Blockmodus: zum Bandanfang positionieren und jede Banddatei in eine **neue** lokale Datei lesen. Ein mögliches lesendes Muster ist `mt -f /dev/nstX rewind`, danach ein einzelner `mbuffer -i /dev/nstX ...`-Leselauf bis zur Filemark mit passender Blockgröße. Dieses Muster ist erst nach der Hardwareabnahme ein ausführbares Rezept: Close-/EOF-Verhalten kann den Kopf vor oder hinter die nächste Filemark stellen. Nie blind zusätzlich fsf anwenden. Für die nächste Datei gegebenenfalls erneut von BOT und mit bestätigtem fsf-Zähler positionieren. Alle Rückgabecodes und Bytezahlen protokollieren. Falls Blockmodus unklar: keine EOD-Schreibversuche.
+Nach bestätigtem Gerät und Blockmodus jede Banddatei in eine **neue** lokale Datei lesen. Das auf IBM HH4/LTO-4 bestätigte Rezept mit `mt`, GNU `dd bs=1M conv=excl`, expliziter BOT/FSF-Positionierung und Prüfung der Zähler steht in [Wiederherstellung ohne OTAM](recovery-without-otam.md). Variable Records dieses Profils sind höchstens 512 KiB groß; ein Read-Puffer von 1 MiB empfängt sie vollständig. Keine Padding-/Fehlerignorier-Optionen ergänzen. Für jede Datei von BOT aus positionieren; nie blind eine zusätzliche Filemark überspringen. Rückgabecodes, Bytezahlen und Hashes protokollieren. Falls Blockmodus oder Position unklar sind, stoppen.
 
-Die physische Anleitung muss vor produktivem Erstschreiben mit konkretem Laufwerk, Kernel, Blockgröße und Filemark-Modus ergänzt und von einem zweiten Restore aus einer frischen Umgebung bestätigt werden. Bis dahin darf OTAM keine produktiven Bänder erzeugen.
+Das konkrete Laufwerks-/Block-/Filemark-Profil und die unabhängigen Restore-Ergebnisse sind in `production-readiness.md` dokumentiert. Für andere Geräte-/Kernelprofile bleibt eine eigene Abnahme erforderlich. Die noch offenen allgemeinen Freigabesperren dürfen durch diese Anleitung nicht umgangen werden.
 
 Beim Simulator einfach `.tar`-Dateien nummeriert kopieren; eine `.partial` ist kein bestätigtes Archiv. Kopien gegen versehentliche Änderungen schützen.
 

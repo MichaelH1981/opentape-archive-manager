@@ -102,6 +102,7 @@ class LinuxTapeSafety(TestCase):
                 {"file_number": 2, "block_number": 0}]))
             stack.enter_context(patch("subprocess.Popen", return_value=context))
             stack.enter_context(patch("otam.storage.require_local"))
+            stack.enter_context(patch("otam.benchmark.available_memory", return_value=8 * 1024**3))
             writer = stack.enter_context(patch("otam.tape.os.write", return_value=1 if short else 10240))
             if short:
                 with self.assertRaisesRegex(SafetyError, "Short physical"):
@@ -152,6 +153,45 @@ class LinuxTapeSafety(TestCase):
             move.assert_called_once_with("eod")
             self.assertEqual(self.tape._count(force=True), 3)
             self.assertEqual(move.call_count, 2)
+
+    def test_supported_dropdown_rate_prefill_and_log_reach_mbuffer(self):
+        expected = {**DRIVE, "vendor": "IBM", "model": "ULT3580-HH4",
+                    "status": {"online": True, "density_code": 0x46}}
+        with patch("otam.physical.LinuxMaintenance", return_value=self.device):
+            for rate in (30, 48, 66, 84, 103, 120):
+                tape = LinuxTape(expected, Path(self.root.name), buffer_mib=2368,
+                                 write_rate=rate * 1_000_000)
+                command = tape._mbuffer_command(123, Path(self.root.name) / "status.log")
+                self.assertEqual(command[command.index("-R") + 1], str(rate * 1_000_000))
+                self.assertEqual(command[command.index("-P") + 1], "90")
+                self.assertEqual(command[command.index("-m") + 1], "2368M")
+                self.assertIn("-l", command)
+            with self.assertRaises(SafetyError):
+                LinuxTape(expected, Path(self.root.name), write_rate=80_000_000)
+            with self.assertRaises(SafetyError):
+                LinuxTape(DRIVE, Path(self.root.name), write_rate=120_000_000)
+
+    def test_live_buffer_log_uses_last_sample_and_rejects_invalid_values(self):
+        log = Path(self.root.name) / "buffer.log"
+        log.write_bytes(b"mbuffer: buffer  88% full\nmbuffer: buffer   9% full\n")
+        self.assertEqual(self.tape._buffer_percent(log), 9.0)
+        log.write_bytes(b"mbuffer: buffer 101% full\n")
+        self.assertIsNone(self.tape._buffer_percent(log))
+        log.write_bytes(b"summary without a status sample\n")
+        self.assertIsNone(self.tape._buffer_percent(log))
+
+    def test_low_memory_refuses_before_opening_tape_or_creating_pending_marker(self):
+        source = Path(self.root.name) / "ready.tar"
+        source.write_bytes(b"x" * 10240)
+        source.chmod(0o400)
+        with patch.object(self.tape, "header", return_value={"media_id": "media"}), \
+                patch.object(self.tape, "_count", return_value=1), \
+                patch("otam.storage.require_local"), \
+                patch("otam.benchmark.available_memory", return_value=256 * 1024**2):
+            with self.assertRaisesRegex(SafetyError, "available RAM"):
+                self.tape.append(source, "media")
+        self.device.writer.assert_not_called()
+        self.assertFalse(self.tape._pending.exists())
 
 
 class TapeRecordReads(TestCase):

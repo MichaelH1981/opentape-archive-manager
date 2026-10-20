@@ -202,7 +202,8 @@ class LinuxTape:
     appends.  Initialization/overwriting is deliberately a separate operation.
     """
 
-    def __init__(self, expected: dict[str, Any], state: Path | None = None, *, buffer_mib: int = 512):
+    def __init__(self, expected: dict[str, Any], state: Path | None = None, *, buffer_mib: int = 512,
+                 write_rate: int | None = None):
         from .physical import LinuxMaintenance
 
         if state is None or not isinstance(expected, dict):
@@ -216,6 +217,12 @@ class LinuxTape:
         self.device = LinuxMaintenance(expected, state / "drive-locks", writable=False)
         self.state = state
         self.buffer_mib = buffer_mib
+        if write_rate is not None:
+            from .transfer import selected_speed_profile
+            profile = selected_speed_profile({"time": time.time(), "drives": [expected]}, expected["id"])
+            if type(write_rate) is not int or profile is None or write_rate not in profile["speed_steps_bytes_per_second"]:
+                raise SafetyError("Write target is not supported by the identified drive/media profile")
+        self.write_rate = write_rate
         self._locked = False
         self._monitor: Callable[[dict[str, Any]], None] | None = None
         self._metadata: list[Path] = []
@@ -431,6 +438,24 @@ class LinuxTape:
             total += value["bytes"] + receipt.stat().st_size
         return total
 
+    def _mbuffer_command(self, source_fd: int, log: Path) -> list[str]:
+        command = ["mbuffer", "-e", "-q", "-s", "256k", "-m", f"{self.buffer_mib}M",
+                   "-P", "90", "-l", str(log)]
+        if self.write_rate is not None:
+            command.extend(["-R", str(self.write_rate)])
+        return command + ["-i", f"/proc/self/fd/{source_fd}"]
+
+    @staticmethod
+    def _buffer_percent(log: Path) -> float | None:
+        with log.open("rb") as stream:
+            stream.seek(max(0, os.fstat(stream.fileno()).st_size - 8192))
+            samples = re.findall(rb"buffer\s+([0-9]+(?:\.[0-9]+)?)%\s+full", stream.read(8192))
+        if samples:
+            value = float(samples[-1])
+            if 0 <= value <= 100:
+                return value
+        return None
+
     def append(self, source: Path, expected_media: str) -> int:
         import json
         import subprocess
@@ -452,7 +477,11 @@ class LinuxTape:
                     or any(receipt.get(key) != value for key, value in self._receipt_expected.items())):
                 raise SafetyError("Receipt differs from the data just written")
         from .storage import require_local
+        from .benchmark import available_memory
         require_local(source.parent)
+        memory = available_memory()
+        if self.buffer_mib * 1024**2 > min(memory * 3 // 4, max(0, memory - 1024**3)):
+            raise SafetyError("Insufficient available RAM for the selected transfer buffer")
         size = source.stat().st_size
         used_before = self.used()
         if size <= 0 or used_before + size + 10240 > header["capacity"] * 95 // 100:
@@ -467,16 +496,25 @@ class LinuxTape:
                 or value["block_number"] != -1 or value["write_protected"]):
             raise SafetyError("Append position or write protection is unconfirmed")
         self._pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        logs = self.state / "transfer-logs"
+        logs.mkdir(mode=0o700, exist_ok=True)
+        log = logs / ("mbuffer-" + str(uuid.uuid4()) + ".log")
+        with log.open("xb"):
+            pass
         with self._pending.open("x") as marker:
             json.dump({"medium_serial": self.device.expected["medium_serial"],
                        "media_id": expected_media, "position": count,
-                       "source": str(source), "bytes": size, "started": time.time()}, marker)
+                       "source": str(source), "bytes": size, "started": time.time(),
+                       "transfer_log": str(log), "buffer_bytes": self.buffer_mib * 1024**2,
+                       "write_rate_bytes_per_second": self.write_rate}, marker)
             marker.flush()
             os.fsync(marker.fileno())
         sync_dir(self._pending.parent)
         started = time.monotonic()
         written = 0
         written_hash = hashlib.sha256()
+        last_status = 0.0
+        buffer_percent = None
         source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
             before = os.fstat(source_fd)
@@ -485,8 +523,7 @@ class LinuxTape:
                 raise SafetyError("Staged TAR changed before write")
             tape_fd = self.device.writer()
             try:
-                command = ["mbuffer", "-e", "-q", "-s", "256k", "-m",
-                           f"{self.buffer_mib}M", "-i", f"/proc/self/fd/{source_fd}"]
+                command = self._mbuffer_command(source_fd, log)
                 with tempfile.TemporaryFile(dir=self.state) as errors:
                     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors,
                                           pass_fds=(source_fd,)) as process:
@@ -501,9 +538,18 @@ class LinuxTape:
                                 written += len(chunk)
                                 written_hash.update(chunk)
                                 if self._monitor:
+                                    now = time.monotonic()
+                                    if now - last_status >= 1 or written == size:
+                                        buffer_percent = self._buffer_percent(log)
+                                        last_status = now
                                     self._monitor({"bytes": written,
                                         "bytes_per_second": written / max(time.monotonic() - started, 1e-9),
-                                        "buffer_fill": None, "drive_status": "writing", "repositions": None})
+                                        "buffer_fill": buffer_percent / 100 if buffer_percent is not None else None,
+                                        "buffer_fill_percent": buffer_percent,
+                                        "buffer_bytes": self.buffer_mib * 1024**2,
+                                        "write_rate_bytes_per_second": self.write_rate,
+                                        "prefill_percent": 90, "transfer_log": str(log),
+                                        "drive_status": "writing", "repositions": None})
                             result = process.wait()
                             errors.seek(max(0, errors.tell() - 512))
                             error = errors.read(512)
@@ -518,6 +564,8 @@ class LinuxTape:
                                 except subprocess.TimeoutExpired:
                                     process.kill()
                                     process.wait()
+                with log.open("rb") as persisted_log:
+                    os.fsync(persisted_log.fileno())
             finally:
                 os.close(tape_fd)  # st writes one filemark on close in the accepted mode.
             after = os.fstat(source_fd)
