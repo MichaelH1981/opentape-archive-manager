@@ -638,3 +638,28 @@ Der neue, ausdrücklich nach dieser Ursachenprüfung gestartete Lauf heißt
 `otam-physical-exchange-first-r2.service`, Reportroot
 `/var/lib/otam/reports/physical-exchange-20261020-r2`. Der ursprüngliche
 Reportroot r1 wird nicht wiederverwendet. Keine Schutzprüfung wurde gelockert.
+
+#### Medienwechsel, erster realer Kindauftrag bestanden
+
+`otam-physical-exchange-first-r2.service` ist erfolgreich beendet. Der erste
+Kindauftrag auf der neu initialisierten Kassette ist VERIFIED, der Parent
+`58f57007-ab95-4bda-b8b1-830cb4182184` korrekt **WAITING_MEDIA**, nächstes Medium
+die erste Testkassette. Neues TAR an Position 1 und Receipt an 2; genau ein
+Payloadread während Backup und ein weiterer während Restore. Keine alten
+Nutzdaten wurden gelesen. TAR-Größe 1.054.720 Byte, SHA-256
+`ec331f53b4daefa02f9efeec2bced6ba95aaca07577db61b27e2dc6770666c4e`.
+Ein eigener 1-MiB-Inhalt wurde wiederhergestellt. Quelle und Ziel wurden nach
+Ende der Unit nochmals unabhängig gehasht: jeweils
+`b3598e14b07eb4f83ee4ad037a28657a3acc6c5adb9f9c8d53e8044aa4d5e227`.
+Zwei tatsächliche Schreib-Samples bestätigen 120.000.000 Byte/s Hostlimit,
+2.483.027.968 Pufferbytes und 90 Prozent Vorfüllung. Für ein so kleines TAR
+liegen keine belastbaren Füllstands-/Dauerratenmessungen vor; dafür bleibt der
+große bereits bestandene Zyklus maßgeblich.
+
+Der Livekatalog enthält nun neun VERIFIED-Archive. Die bisherigen acht
+Datensätze sind unverändert. Worker, Web und Tunnel sind wieder aktiv. Der
+zweite Kindauftrag ist vollständig lokal gestaged und wartet auf den
+physischen Rückwechsel zu `HC4BELa904`. Der Medienwechsel ist erst nach dessen
+frischer Identitätsprüfung, normalem Backup-Set-Schritt und Restore vollständig
+abgenommen. Keine Produktionsfreigabe. Alle Quellen und Testausgaben bleiben
+erhalten; kein weiterer großer Restore.
