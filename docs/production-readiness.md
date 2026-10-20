@@ -271,7 +271,11 @@ zur Verifikation gelesen wird. Zusätzliche Negativtests sperren geänderte
 Receipts, unbekannte/unbestätigte Katalogsequenzen und unvollständige Tails;
 ein absichtlich beschädigtes altes Payload bleibt bei Receipt-Vorprüfung
 unentdeckt, muss aber bei expliziter Vollprüfung korrekt scheitern.
-Debian- und gezielte physische Integrationsabnahme stehen noch aus.
+Anschließend bestanden **160/160 Debian-Tests** unter dem getrennten Kandidaten
+`/var/lib/otam/acceptance-code/physical-receipts-20261020` (`a74aa8d`), mit
+isoliertem lokalem Test-TMPDIR. Gezielt physisch zu prüfen ist diese Änderung
+zusammen mit dem noch zu integrierenden regulären Web-/CLI-Archivpfad; dafür
+wurde kein weiterer Bandlauf gestartet. Installierte Dienste bleiben unverändert.
 
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende

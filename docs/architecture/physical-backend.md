@@ -70,8 +70,8 @@ erneut gelesen. Explizite Vollprüfung und Katalogrekonstruktion lesen weiterhin
 alle Nutzdaten. Eine ausdrückliche Wiederaufnahme behält vorläufig den
 konservativen vollständigen Scan bei. Damit bleibt die Sicherheit vor falschem
 Anhängen erhalten, ohne jeden regulären Job zu einem wiederholten Vollband-Scrub
-zu machen. Diese Änderung benötigt noch Debian-Nachtest und eine gezielte
-physische Integrationsabnahme.
+zu machen. Diese Änderung bestand 160 Debian-Tests; die gezielte physische
+Integrationsabnahme gemeinsam mit dem regulären Web-/CLI-Pfad steht noch aus.
 
 Daten-TARs und Receipts liegen vollständig lokal vor. Der Dienst prüft die
 Staging-Artefakte vor dem Schreiben vollständig; der Adapter verlangt zusätzlich
