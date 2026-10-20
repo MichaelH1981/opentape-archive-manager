@@ -22,6 +22,7 @@ class FileST:
         self.files = []
         self.position = 0
         self.eod = False
+        self.reads = []
 
     @contextmanager
     def locked(self):
@@ -56,6 +57,7 @@ class FileST:
         return os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
 
     def reader(self):
+        self.reads.append(self.position)
         return os.open(self.files[self.position], os.O_RDONLY)
 
 
@@ -114,14 +116,25 @@ class PhysicalServiceFlow(TestCase):
                     result = service.backup(plan["job_id"], plan["job_id"], spool)
                     self.assertEqual(result["state"], "VERIFIED")
                     self.assertEqual(len(device.files), 5)
+                    device.reads.clear()
+                    second = service.plan(source, header["media_id"], 50000, verify_mode=verification)
+                    self.assertFalse({1, 3} & set(device.reads))
+                    device.reads.clear()
+                    repeated = service.backup(second["job_id"], second["job_id"], spool)
+                    self.assertEqual(repeated["state"], "VERIFIED")
+                    self.assertFalse({1, 3} & set(device.reads))
+                    self.assertEqual([p for p in device.reads if p % 2], [5, 7])
                     # A fresh adapter and a completely empty catalog must recover
                     # the format and every payload from the medium alone.
                     recovered = Catalog(root / "recovered.sqlite")
                     stack.callback(recovered.close)
                     fresh = ArchiveService(recovered, LinuxTape(expected, root / "state"))
                     rebuilt = fresh.rebuild(header["media_id"])
-                    self.assertEqual(rebuilt["archives"], 2)
-                    report = fresh.restore(header["media_id"], root / "restored")
-                    self.assertEqual(report["files"], 2)
+                    self.assertEqual(rebuilt["archives"], 4)
+                    restored_count = 0
+                    for archive in result["archives"]:
+                        restored_count += fresh.restore(header["media_id"], root / "restored",
+                                                        archive_id=archive)["files"]
+                    self.assertEqual(restored_count, 2)
                     for name, data in payloads.items():
                         self.assertEqual((root / "restored" / name).read_bytes(), data)

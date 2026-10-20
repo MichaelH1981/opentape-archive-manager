@@ -55,6 +55,24 @@ und reserviert konservativ dessen gesamte Kapazität.
 
 ## Staging und Rücklesung
 
+Für reguläre Planung und einen neuen Append prüft der nächste Kandidat den
+exakten Header, bestätigte EOD-Dateianzahl, Pending-/Tail-Zustand und alle
+physischen Prüfbelege gegen den bereits VERIFIED geführten Katalog. Jeder Beleg
+muss zu Position, Archiv-ID, Bytezahl, SHA-256 und Vorgängerverkettung passen.
+Fehlende/unbekannte oder unbestätigte Archive sperren den Vorgang und verlangen
+eine ausdrückliche vollständige Prüfung/Rekonstruktion. Diese Vorprüfung ist
+**keine erneute Integritätsprüfung der alten Nutzdaten**.
+
+Neue TARs werden weiterhin vollständig physisch zurückgelesen. Bei verzögerter
+Prüfung werden sämtliche Archive des aktuellen Jobs gelesen und die komplette
+vorausgehende Receipt-Kette geprüft; früher verifizierte Nutzdaten werden nicht
+erneut gelesen. Explizite Vollprüfung und Katalogrekonstruktion lesen weiterhin
+alle Nutzdaten. Eine ausdrückliche Wiederaufnahme behält vorläufig den
+konservativen vollständigen Scan bei. Damit bleibt die Sicherheit vor falschem
+Anhängen erhalten, ohne jeden regulären Job zu einem wiederholten Vollband-Scrub
+zu machen. Diese Änderung benötigt noch Debian-Nachtest und eine gezielte
+physische Integrationsabnahme.
+
 Daten-TARs und Receipts liegen vollständig lokal vor. Der Dienst prüft die
 Staging-Artefakte vor dem Schreiben vollständig; der Adapter verlangt zusätzlich
 ein lokales Dateisystem, reguläre Dateien ohne Schreibbits, unveränderte

@@ -69,6 +69,44 @@ def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False,
     return found
 
 
+def inspect_catalogued_media(catalog: Catalog, tape: Tape, media: str) -> list[dict[str, Any]]:
+    """Check physical append safety without re-verifying previously verified data.
+
+    Exact header, EOD/count, pending state and every receipt must agree with
+    the VERIFIED catalog. This is not an integrity scrub of old payloads.
+    Unknown or unverified archives require an explicit full verification.
+    """
+    header = tape.header()
+    known = catalog.db.execute("SELECT header_json FROM media WHERE id=?", (media,)).fetchone()
+    if header["media_id"] != media or known is None or json.loads(known[0]) != header:
+        raise SafetyError("Wrong medium inserted")
+    positions = tape.positions()
+    if tape.has_partial() or len(positions) % 2 == 0:
+        raise SafetyError("Uncommitted/incomplete tape tail; append forbidden")
+    rows = list(catalog.db.execute("SELECT * FROM archives WHERE media_id=? ORDER BY tape_file", (media,)))
+    if [row["tape_file"] for row in rows] != list(range(1, len(positions) - 1, 2)):
+        raise SafetyError("Physical sequence differs from catalog; full verification required")
+    previous = sha256(tape.read(0))
+    result = []
+    for row in rows:
+        position = row["tape_file"]
+        if row["state"] != "VERIFIED":
+            raise SafetyError("Unverified catalog archive; full verification required")
+        path = tape.read(position + 1)
+        receipt = read_metadata(path, "receipt.json")
+        if (receipt.get("format") != FORMAT or receipt.get("previous") != previous
+                or any(receipt.get(key) != row[key] for key in
+                       ("media_id", "tape_file", "bytes", "sha256"))
+                or receipt.get("archive_id") != row["id"]):
+            raise SafetyError("Physical receipt differs from verified catalog")
+        manifest = json.loads(row["manifest_json"])
+        if manifest["media_id"] != media or manifest["archive_id"] != row["id"]:
+            raise SafetyError("Invalid catalog manifest identity")
+        result.append({"manifest": manifest, "receipt": receipt, "position": position})
+        previous = sha256(path)
+    return result
+
+
 class ArchiveService:
     def __init__(self, catalog: Catalog, tape: Tape):
         self.catalog = catalog
@@ -110,7 +148,10 @@ class ArchiveService:
             record = self._identity(media)
             if record["state"] not in ("READY", "IN_USE"):
                 raise SafetyError("Medium is not writable")
-            scan(self.tape, media)
+            if self.tape.header().get("backend") == "physical":
+                inspect_catalogued_media(self.catalog, self.tape, media)
+            else:
+                scan(self.tape, media)
             job = self.catalog.job("archive", media, "PLANNING")
             with self.catalog.db:
                 self.catalog.db.execute("UPDATE jobs SET phase='INVENTORY' WHERE id=?", (job,))
@@ -233,7 +274,9 @@ class ArchiveService:
             if record["state"] not in (("READY", "IN_USE", "SUSPECT") if resume else ("READY", "IN_USE")):
                 raise SafetyError("Medium is not writable")
             # Never resume from catalog positions. Re-read the physical sequence and all receipts.
-            found = scan(self.tape, media)
+            found = (inspect_catalogued_media(self.catalog, self.tape, media)
+                     if self.tape.header().get("backend") == "physical" and not resume
+                     else scan(self.tape, media))
             initial = plan["expected_tape_files"]
             committed = [item for item in found if item["position"] >= initial]
             if not resume and committed:
@@ -409,8 +452,12 @@ class ArchiveService:
                 store.phase(job, archive, "TAPE_READBACK", "PENDING", progress_bytes=0,
                             total_bytes=size)
             # This is the only point where deferred archives become eligible for
-            # VERIFIED. scan() reads every byte and validates the checksum chain.
-            found = [item for item in scan(self.tape, media) if item["position"] >= initial]
+            # VERIFIED. Read every byte of this job's archives and validate the
+            # receipt chain. Previously VERIFIED payloads need no repeated scrub.
+            selected_positions = ({initial + 2 * index for index in range(len(plan["archives"]))}
+                                  if self.tape.header().get("backend") == "physical" else None)
+            found = [item for item in scan(self.tape, media, data_positions=selected_positions)
+                     if item["position"] >= initial]
             if len(found) != len(plan["archives"]):
                 raise SafetyError("Media batch has incomplete archive sequence")
             for item, manifest in zip(found, plan["archives"]):

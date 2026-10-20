@@ -15,7 +15,7 @@ from typing import Any
 from .archive import MAX_META, estimate, inventory, plan_archives
 from .catalog import Catalog
 from .common import SafetyError, encode
-from .service import ArchiveService, scan
+from .service import ArchiveService, scan, inspect_catalogued_media
 from .storage import io_lock
 from .tape import Tape
 
@@ -45,7 +45,10 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape]]
                 record = ArchiveService(catalog, tape)._identity(media)
                 if record["state"] not in ("READY", "IN_USE"):
                     raise SafetyError("Medium is not writable")
-                scan(tape, media)
+                if tape.header().get("backend") == "physical":
+                    inspect_catalogued_media(catalog, tape, media)
+                else:
+                    scan(tape, media)
                 positions[media] = len(tape.positions())
                 available[media] = record["capacity"] * 95 // 100 - tape.used()
         assignments: dict[str, list[dict[str, Any]]] = {media: [] for media, _ in media_tapes}

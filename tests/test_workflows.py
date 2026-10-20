@@ -18,7 +18,7 @@ from otam.archive import add_bytes, metadata_tar, verify_archive
 from otam.catalog import Catalog
 from otam.cli import main
 from otam.common import SafetyError, encode, sha256
-from otam.service import ArchiveService, scan
+from otam.service import ArchiveService, scan, inspect_catalogued_media
 from otam.tape import LinuxTape, SimulatedTape
 
 
@@ -287,6 +287,45 @@ class Workflows(unittest.TestCase):
         self.assertEqual(self.catalog.db.execute("SELECT state FROM archives").fetchone()[0], "SUSPECT")
         with self.assertRaises(SafetyError):
             self.service.restore(self.media, self.base / "bad-restore")
+
+    def test_receipt_preflight_is_not_a_payload_verification(self) -> None:
+        self.backup()
+        with (self.tape.path / "00000001.tar").open("r+b") as stream:
+            stream.seek(-1, os.SEEK_END)
+            stream.write(b"x")
+        with self.tape.locked():
+            self.assertEqual(len(inspect_catalogued_media(self.catalog, self.tape, self.media)), 1)
+        # Only a real full verification may claim payload integrity.
+        with self.assertRaisesRegex(SafetyError, "readback"):
+            self.service.verify(self.media)
+
+    def test_receipt_preflight_rejects_unknown_or_unverified_sequence(self) -> None:
+        self.backup()
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE archives SET state='WRITING'")
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "Unverified"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+        with self.catalog.db:
+            self.catalog.db.execute("DELETE FROM files")
+            self.catalog.db.execute("DELETE FROM verifications")
+            self.catalog.db.execute("DELETE FROM archives")
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "sequence differs"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+
+    def test_receipt_preflight_rejects_changed_receipt_and_tail(self) -> None:
+        self.backup()
+        receipt_path = self.tape.path / "00000002.tar"
+        original = receipt_path.read_bytes()
+        with tarfile.open(receipt_path) as tar:
+            receipt = json.load(tar.extractfile("receipt.json"))
+        receipt["sha256"] = "0" * 64
+        metadata_tar(receipt_path, "receipt.json", receipt)
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "receipt differs"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+        receipt_path.write_bytes(original)
+        (self.tape.path / "00000003.partial").write_bytes(b"incomplete")
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "incomplete tape tail"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
 
     def test_catalog_loss_rebuild_and_restore(self) -> None:
         self.backup(target=1000)

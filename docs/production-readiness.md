@@ -253,6 +253,26 @@ der großen erfolgreichen Zyklen entsteht. Produktionsfreigabe bleibt gesperrt.
 Bericht: `/var/lib/otam/reports/physical-safety-preflight-20261020-r1/report.json`.
 Worker, Webdienst und Katalogtunnel sind nach dem Test wieder aktiv.
 
+### Vermeidung wiederholter alter Nutzdatenprüfungen
+
+Ein weiterer, noch nicht installierter Kandidat prüft vor regulärer physischer
+Planung/neuem Append nur den exakten Header, EOD/Dateianzahl, Tail und die komplette
+Prüfbeleg-Kette gegen den bereits VERIFIED geführten Katalog. Unbekannte oder
+unbestätigte Sequenzen sperren den Job. Neue Datenarchive werden weiterhin
+vollständig physisch gehasht; bei verzögerter Verifikation werden nur die Archive
+des aktuellen Jobs und ihre vorausgehende Receipt-Kette gelesen. Vollprüfung,
+Rekonstruktion und explizite Wiederaufnahme behalten den vollständigen Scan.
+Es wird kein neuer Integritätsnachweis für ungelesene alte Nutzdaten behauptet.
+
+160 lokale Tests bestanden (43 Linux-Skips). Die physische Adapter-/Service-
+Simulation prüft nun je einen zweiten Append für beide Verifikationsmodi und
+weist nach, dass keine alten Datenarchive, aber jedes neue Daten-TAR genau einmal
+zur Verifikation gelesen wird. Zusätzliche Negativtests sperren geänderte
+Receipts, unbekannte/unbestätigte Katalogsequenzen und unvollständige Tails;
+ein absichtlich beschädigtes altes Payload bleibt bei Receipt-Vorprüfung
+unentdeckt, muss aber bei expliziter Vollprüfung korrekt scheitern.
+Debian- und gezielte physische Integrationsabnahme stehen noch aus.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
