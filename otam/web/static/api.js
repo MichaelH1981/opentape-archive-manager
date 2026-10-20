@@ -73,6 +73,8 @@ async function refreshBase() {
   state.media = m.items;
   if (n.role === "archive") state.commands = (await api("/commands")).items;
   $("#node-name").textContent = n.name;
+  const version = $("#node-version");
+  if (version) version.textContent = n.version ? `v${n.version}` : "—";
   const role = n.role === "archive" ? "Archive Node" : "Catalog Node";
   $("#node-role").textContent = role;
   $("#role-pill").innerHTML = `<span class="status-dot"></span>${role}`;
