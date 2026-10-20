@@ -59,6 +59,17 @@ bestätigten Verifikationsmodus unverändert lassen; Umsetzung für 0.8 vorberei
 - [ ] Die Oberfläche erklärt den Nutzen: weniger Wechsel zwischen Schreiben und Rücklesen, nicht garantierter durchgängiger Bandtransport. Receipt-, Identitäts-, EOD- und lokale Sicherheitsprüfungen bleiben nötig. Batch-Staging gilt je Medium; nach dessen Verifikation weiter ausdrücklich zum nächsten Medium auffordern.
 - [ ] Abnahmefälle: ausreichend/zu wenig Platz, bereits vorbereitete TARs, temporäre Restdateien, veränderter Freiraum, großes Einzel-TAR, Ein-/Mehrbandjobs und beide Verifikationsmodi. Mit instrumentiertem Softwareadapter nachweisen, dass im Batch alle neuen Payload-Writes vor dem ersten Payload-Readback stattfinden; alte Nutzdaten nicht zusätzlich lesen. Fortschritt für Batch-Vorbereitung, Schreiben und Rücklesung getrennt anzeigen.
 
+## TODO für Version 0.8: lesbare Jobnamen zusätzlich zur UUID
+
+Aufgenommen am 21.10.2026 auf Nutzerwunsch; Umsetzung im 0.8-Kandidaten,
+keine Änderung der laufenden Installation.
+
+- [ ] Bei der Quellenplanung einen optionalen frei vergebbaren Namen anbieten, etwa „LP Archiv – Erstarchivierung“. Ohne Eingabe einen verständlichen Vorschlag aus Quelle/Auswahl und Erstellzeit verwenden. Auch vorhandene Jobs nachträglich benennen oder umbenennen können.
+- [ ] Den Namen auf Dashboard, Jobliste, Staging, in Details, Bestätigungsdialogen und Jobarchiv prominent anzeigen; UUID weiterhin kopierbar und eindeutig auffindbar halten. Suche nach Namen und UUID ermöglichen; doppelte Namen zulassen und über UUID/Erstellzeit unterscheidbar machen.
+- [ ] Quellenplan und daraus erzeugten verbindlichen Archivplan nachvollziehbar verbinden. Mehrband-Kindjobs mit zugehörigem Jobnamen und Mediensegment kennzeichnen. Spätere Umbenennung konsistent darstellen, ohne historische Ereignisse umzuschreiben.
+- [ ] Namen als separate Darstellungseigenschaft speichern und Änderungen nachvollziehbar protokollieren. UUID, Planhash, Medienbindungen und Bestätigungsregeln bleiben unverändert; Namen sind weder eindeutige Kennung noch Schreibfreigabe und verändern keine TAR-Manifeste oder vorhandenen Banddaten.
+- [ ] Sichere Länge/Unicode-Verarbeitung, leere Eingaben, HTML-Escaping, Rollenrechte und Migration bestehender Jobs prüfen. Web, API, CLI, Export und Katalogsynchronisation konsistent unterstützen; alte Kataloge ohne Namen lesbar halten.
+
 1. **Phase 0:** leeres Repository erfassen, Alternativen bewerten, Bandformat/Schema/Risiken festhalten. Hardware-Skripte und Linux-Inventar sind lesend erfasst. Die physische Bandintegration bleibt vorläufig.
 2. **Phase 1a:** package/CLI, migrationsfähige SQLite-Datenbank, persistenter Simulator mit Lock/Medien-ID/Append, Plan mit SHA-256, PAX-TAR/Manifest.
 3. **Phase 1b:** Rücklesung und Receipt, strikte VERIFIED-Regel, sicherer Restore, Fehler/Abbruch/Neustart, Katalogrekonstruktion; automatisierte Tests und unabhängiges tar-Lesen.
