@@ -740,3 +740,28 @@ verweigert unbekannte IDs, aktive Jobs, geänderte Katalogstände und Beziehunge
 über die ausgewählten Grenzen hinaus. Fehler rollen alle Löschungen zurück.
 Dazu kommen vier gezielte SQLite-Tests. Ein Offline-Wheel wurde gebaut; dieser
 neue Kandidat ist noch nicht unter Debian vollständig geprüft oder installiert.
+
+#### Echter physischer Schreibabbruch bestanden
+
+Die Unit ist erfolgreich beendet; Abnahmebericht **VERIFIED**. Der normale
+LinuxTape-Pfad hat genau den ersten 512-KiB-Record des eigenen vollständigen
+8-MiB-Staging-TARs angenommen, danach endete der Writerprozess per `os._exit(79)`.
+Die eigene Producer-Prozessgruppe wurde begrenzt. Ein frischer CLI-Workerprozess
+markierte Job INTERRUPTED, Archiv INCOMPLETE, Staging INTERRUPTED und Medium
+SUSPECT. Ein weiterer frischer Backendprozess verweigerte Append aufgrund des
+erhaltenen Live-Pending vor Header, EOD/BOT, Reader oder Writer; nur die normale
+Identitätsprüfung und akzeptierte Blockmodusprüfung im Lock wurden ausgeführt.
+
+Quelle, vollständiges lokales Staging-TAR und alle vorherigen Archivdatensätze
+blieben unverändert. Das dauerhafte Pending hat weiterhin SHA-256
+`699ca7db32fa213289ab1f71f2a657d002d24936d19a4cc72cd764ab7a731ef5`.
+Es wurde keine automatische Markerbereinigung, Wiederaufnahme, Neuinitialisierung
+oder weitere Vollprüfung ausgeführt. Dieser Nachweis simuliert Prozessverlust,
+keinen Stromausfall und keine Zusicherung über noch nicht verifizierte Nutzdaten.
+
+Die Kassette bleibt bewusst mit unsicherem Tail gesperrt. Das Sperrjournal muss
+auch bei der ausdrücklich autorisierten Testkatalogbereinigung erhalten bleiben.
+Worker, Web und Tunnel sind nach Testende wieder aktiv. Der nächste Schritt ist
+die abschließende Debian-Prüfung des 0.6.0-Pakets, geprüfte Installation,
+Betriebsprüfung und gezielte Katalogbereinigung mit vorherigen SQLite-Backups.
+**Noch keine abgeschlossene Betriebsfreigabe.**

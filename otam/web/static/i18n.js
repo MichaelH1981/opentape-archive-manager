@@ -1,6 +1,14 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Letzter Transfer": "Latest transfer",
+  "Unter Hardware ein vorhandenes OTAM-Medium registrieren oder eine neue Kassette ausdrücklich vorbereiten.": "In Hardware, register an existing OTAM medium or explicitly prepare a new cartridge.",
+  "Noch keine Medien im synchronisierten Katalog.": "No media in the synchronized catalog yet.",
+  "Physischer Archivbetrieb": "Physical archive operation",
+  "Physischer Bandbetrieb": "Physical tape operation",
+  "Der Moduswechsel schreibt kein Band. Initialisierung, Volltest und Löschen benötigen jeweils eine eigene Bestätigung.": "Changing mode does not write a tape. Initialization, full testing and erasure each require separate confirmation.",
+  "Diese Aktionen lesen und prüfen das zugeordnete Medium. Sie überschreiben keine vorhandenen Banddateien.": "These actions read and inspect the assigned medium. They do not overwrite existing tape files.",
+
   "Band für OTAM vorbereiten": "Prepare tape for OTAM",
   "Initialisierung ausdrücklich bestätigen": "Explicitly confirm initialization",
   "Initialisierungsplan prüfen": "Review initialization plan",
