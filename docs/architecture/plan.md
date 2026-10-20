@@ -21,6 +21,21 @@ Aufgenommen am 20.10.2026 auf Nutzerwunsch; Umsetzung erst ab Version 0.8.
 - [ ] Archivierung als separate Darstellungseigenschaft mit Zeitpunkt und nachvollziehbarem Ereignis speichern. Ursprünglichen Jobstatus, Pläne, Berichte, Fehler, Prüfsummen und Medien-/Archiv-/Dateiverknüpfungen erhalten. Kein Löschen von Daten, Quelldateien, Staging-Ausgaben oder Sicherheitssperren; Archivierung ist keine Wiederaufnahme und keine Medienfreigabe.
 - [ ] Sichtbarkeit über Web, API, CLI und Katalogsynchronisation konsistent behandeln. Migration sowie Archivieren/Zurückholen und unveränderte Nachweise testen. Automatische altersbasierte Archivierung höchstens als ausdrücklich konfigurierbare spätere Option vorsehen.
 
+## TODO für Version 0.8: durchgängiger Fortschritt
+
+Aufgenommen am 20.10.2026 auf Nutzerwunsch, einschließlich Schreiben und
+Verifikation. Lokale Vorbereitung ist freigegeben; Installation ausdrücklich
+erst nach Ende des aktuellen Produktivjobs und anschließender Leerlaufprüfung.
+
+- [ ] Fortschrittsbalken mit numerischen Prozenten und bearbeiteten/Gesamtbytes für Prüfsummenberechnung, TAR-Erstellung, lokale Validierung, Bandschreiben und Rückleseverifikation. Dateien und TARs zusätzlich zählen; Fortschritt auch innerhalb großer Einzeldateien melden.
+- [ ] Quelleninventarisierung ohne bekannte Gesamtmenge als laufende Aktivität mit gefundenen Dateien/Bytes anzeigen. Wartephasen, Bandpositionierung, Flush/Filemark und Medienwechsel ausdrücklich benennen; keine erfundenen Prozentwerte oder Restzeiten.
+- [ ] Einheitliche aktuelle Phasenanzeige in Dashboard, Jobliste, Jobdetails und Staging, einschließlich laufend aktualisierter geöffneter Jobdetails. Aggregation pro TAR, Kindjob und Medium; keinen bytegewichteten Transferbalken als gesamte Joblaufzeit ausgeben.
+- [ ] Durchsatz, vergangene Zeit, Datenalter und belastbare geschätzte Restzeit je Phase anzeigen. Pause, Fehler, Neustart und Verbindungsverlust erkennbar machen. 100 % gelesene Bytes sind noch kein erfolgreicher Integritätsnachweis; VERIFIED bleibt an sämtliche Prüfungen gebunden.
+- [ ] Gedrosselte persistente Fortschrittssnapshots statt eines dauerhaften Ereignisses je I/O-Block. Bestehende Zähler wiederverwenden, keine zusätzlichen Quell-/Bandlesevorgänge. Software- und UI-Abnahme vor Installation.
+
+Technische Vorbereitung, Phasendefinitionen und Abnahmekriterien:
+[Fortschrittsanzeige 0.8](progress-08.md). Noch keine Laufzeitänderung installiert.
+
 1. **Phase 0:** leeres Repository erfassen, Alternativen bewerten, Bandformat/Schema/Risiken festhalten. Hardware-Skripte und Linux-Inventar sind lesend erfasst. Die physische Bandintegration bleibt vorläufig.
 2. **Phase 1a:** package/CLI, migrationsfähige SQLite-Datenbank, persistenter Simulator mit Lock/Medien-ID/Append, Plan mit SHA-256, PAX-TAR/Manifest.
 3. **Phase 1b:** Rücklesung und Receipt, strikte VERIFIED-Regel, sicherer Restore, Fehler/Abbruch/Neustart, Katalogrekonstruktion; automatisierte Tests und unabhängiges tar-Lesen.
