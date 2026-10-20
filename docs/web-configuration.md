@@ -124,7 +124,8 @@ eingelegten Mediums. `/media` unterscheidet dafür `plannable`, `mounted` und
 
 Bei separat freigegebenem Mehrbandbetrieb akzeptiert `plan` geordnete
 `media_ids`. Ganze TARs werden auf die Medien verteilt; Dateien und TARs werden
-nicht bandübergreifend geteilt. `backup-set` führt genau das nächste Kind aus
+nicht bandübergreifend geteilt. Unterschiedliche UUIDs mit derselben MAM-Identität
+werden als doppelte Kassette abgewiesen. `backup-set` führt genau das nächste Kind aus
 und verlangt die bestätigte Parent-Job-ID, den Planhash und die erwartete
 Medien-UUID. Vor jedem Schritt werden Drive/MAM frisch erkannt, die gespeicherten
 Transferwerte geprüft und reale Identität, EOD/Dateianzahl, Tail und Receiptfolge

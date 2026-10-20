@@ -495,3 +495,16 @@ bisherige Testkassette ist freigegeben; andere Medien werden nicht verwendet.
 Restore bleibt je ausgewählter Medien-/Archivgruppe bestätigt; ein automatischer
 medienübergreifender Restore ist nicht als abgeschlossen zu verstehen.
 Siehe [Mehrbandarchitektur](architecture/physical-multivolume.md).
+
+Ein zusätzlicher Identitätstest schützt gegen zwei Katalog-UUIDs für dieselbe
+physische MAM-Kassette: Sie dürfen nicht als doppelte Kapazität in einen
+Mehrbandplan eingehen. HTTP-/Worker-Validierung und Kernplanung verweigern dies
+vor dem Speichern eines Plans. Der bisherige vollständige Simulator-Prüfpfad
+bei verlorenem Parent-Abschluss bleibt erhalten; nur physische bereits VERIFIED
+Kindarchive nutzen die Receipt-Rekonsolidierung ohne erneuten Payload-Scrub.
+Der abschließende Kandidat unter
+`/var/lib/otam/acceptance-code/physical-multivolume-final-20261020` besteht
+**186/186 Debian-Tests**. Lokal bestehen 186 Tests mit einem Skip; die nachfolgende
+Simulator-Abschlusskorrektur wurde gezielt mit dem vollständigen Zwei-Medien-Test
+und den drei physischen Dateigerätetests nachgeprüft. Keine Installation oder
+Bandaktion folgte daraus.

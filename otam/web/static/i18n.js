@@ -1,6 +1,7 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Medienliste enthält dieselbe physische Kassette mehrfach": "The medium list contains the same physical cartridge more than once",
   "Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme": "Physical multi-volume operation requires separate administrative workflow acceptance",
   "Physische Initialisierung benötigt die separate Workflow-Abnahme": "Physical initialization requires separate workflow acceptance",
   "Physisches Medium eingelegt": "Physical medium loaded",

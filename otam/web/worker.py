@@ -169,10 +169,15 @@ def validate_command(
                     or any(not isinstance(ident, str) for ident in ids)
                     or len(set(ids)) != len(ids)):
                 raise SafetyError("Zwei bis 32 verschiedene Medien erforderlich")
+            physical_serials = set()
             for media_id in ids:
                 require_uuid({"media_id": media_id}, "media_id")
                 if maintenance.mode(config, control) == "physical":
-                    physical_archive.planning_snapshot(config, control, media_id)
+                    snapshot = physical_archive.planning_snapshot(config, control, media_id)
+                    serial = snapshot["header"]["medium_serial"]
+                    if serial in physical_serials:
+                        raise SafetyError("Medienliste enthält dieselbe physische Kassette mehrfach")
+                    physical_serials.add(serial)
                 else:
                     mounted(config, control, media_id)
             if "media_id" in payload:

@@ -38,9 +38,14 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
             raise SafetyError("Manifest exceeds limit; reduce archive target size")
         available: dict[str, int] = {}
         positions: dict[str, int] = {}
+        physical_serials: set[str] = set()
         for media, tape in media_tapes:
             if catalogue_only:
                 snapshot = catalogue_snapshot(catalog, media)
+                serial = snapshot["header"]["medium_serial"]
+                if serial in physical_serials:
+                    raise SafetyError("Physical media IDs refer to the same cartridge")
+                physical_serials.add(serial)
                 positions[media] = snapshot["expected_tape_files"]
                 available[media] = snapshot["record"]["capacity"] * 95 // 100 - snapshot["used"]
                 continue
@@ -181,11 +186,13 @@ def backup_set_step(catalog: Catalog, parent_id: str, confirmation: str,
             # parent result against exact identity/EOD/receipts, without claiming
             # a new scrub or re-reading old physical payloads.
             with io_lock(), tape.locked():
-                if tape.header().get("backend") == "physical":
+                physical = tape.header().get("backend") == "physical"
+                if physical:
                     service._identity(media_id)
                     inspect_catalogued_media(catalog, tape, media_id)
-                else:
-                    scan(tape, media_id)
+            if not physical:
+                # Preserve the simulator's existing full reconciliation path.
+                service.verify(media_id)
         else:
             service.backup(child["job_id"], child["job_id"], spool, resume=resume)
         remaining = [c for c in plan["children"] if catalog.db.execute(

@@ -15,6 +15,9 @@ VERIFIED-Archive mit plausiblen Größen und SHA-256 sowie konservative Kapazit�
 Die Webschicht prüft zusätzlich persistente UUID/MAM/Drive-Bindungen und bekannte
 lokale Pending-Marker. Fehlende Registrierung, SUSPECT, unvollständige Folgen
 oder unplausibler Verbrauch verhindern die Planung.
+Verschiedene Katalog-UUIDs mit identischer MAM-Seriennummer dürfen nicht als
+zwei Kassetten gezählt werden. HTTP-/Worker-Validierung und Kernplanung weisen
+diese Mehrfachzuordnung unabhängig ab, bevor ein Plan gespeichert wird.
 
 Der Plan enthält die erwartete Dateianzahl und kennzeichnet seine Basis als
 Katalogschätzung. Der Kennzeichner ist Bestandteil des persistenten Planhashs.

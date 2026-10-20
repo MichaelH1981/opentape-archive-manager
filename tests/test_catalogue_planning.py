@@ -72,6 +72,22 @@ class CataloguePlanning(TestCase):
         with self.assertRaises(SafetyError):
             replace(self.config, physical_archiving=False).validate()
 
+    def test_distinct_catalogue_ids_cannot_count_one_physical_cartridge_twice(self):
+        from otam.sets import plan_set
+        second = self.media[1]
+        header = json.loads(self.catalog.db.execute("SELECT header_json FROM media WHERE id=?", (second,)).fetchone()[0])
+        header["medium_serial"] = "MAM-0"
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE media SET header_json=? WHERE id=?", (json.dumps(header), second))
+        saved = self.control.get("physical_media_bindings")
+        saved[second]["medium_serial"] = "MAM-0"
+        self.control.set("physical_media_bindings", saved)
+        with self.assertRaisesRegex(SafetyError, "dieselbe physische Kassette"):
+            execute(self.config, self.control, "plan", {"media_ids": self.media, "source_id": "source"})
+        with self.assertRaisesRegex(SafetyError, "same cartridge"):
+            plan_set(self.catalog, self.source, [(m, None) for m in self.media], 70000, catalogue_only=True)
+        self.assertEqual(self.catalog.db.execute("SELECT count(*) FROM jobs").fetchone()[0], 0)
+
     def test_changed_binding_or_known_pending_blocks_offline_plan(self):
         media = self.media[0]
         marker = self.config.state / "physical-pending" / (hashlib.sha256(b"MAM-0").hexdigest() + ".json")
