@@ -113,7 +113,13 @@ demselben Dateisystem unterstützen; Fehler bleiben ein fehlgeschlagener Restore
 Bei Prozessabsturz kann das private Verzeichnis zur ausdrücklichen Inspektion
 zurückbleiben. Es gibt keine automatische Löschung fremder Restore-Daten.
 
-Jedes Daten-TAR wird dadurch nur einmal vom Band gelesen. Bei bestätigter
+Bei gezielter Wiederherstellung werden nur ausgewählte Daten-TARs gelesen;
+die vorausgehenden Prüfbelege werden bis zum letzten ausgewählten Paar auf
+Identität und Verkettung geprüft. Unausgewählte Nutzdaten werden dabei weder
+gelesen noch als erneut verifiziert bezeichnet. Vollprüfung und Rekonstruktion
+verwenden weiterhin den vollständigen Scan aller Nutzdaten.
+
+Jedes ausgewählte Daten-TAR wird dadurch nur einmal vom Band gelesen. Bei bestätigter
 Vorwärtsposition verwendet der Adapter relative Filemarks mit anschließender
 Positionskontrolle. Unbekannte oder rückwärts liegende Positionen verwenden
 weiterhin den konservativen BOT-Pfad. Die laufende große Hardware-Abnahme nutzt

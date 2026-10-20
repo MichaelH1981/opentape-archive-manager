@@ -21,34 +21,51 @@ from .benchmark import require_qualification
 
 
 def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False,
-         payload_handler: PayloadHandler | None = None) -> list[dict[str, Any]]:
+         payload_handler: PayloadHandler | None = None,
+         data_positions: set[int] | None = None) -> list[dict[str, Any]]:
+    """Verify all pairs, or a restore selection and its preceding receipt chain.
+
+    With data_positions, unselected payloads are NOT verified and are never
+    returned. Only receipts up to the last selected archive are needed.
+    """
     header = tape.header()
     if header["media_id"] != expected_media:
         raise SafetyError("Wrong medium inserted")
     positions = tape.positions()
+    if data_positions is not None and (not data_positions or
+            not data_positions <= set(range(1, len(positions) - 1, 2))):
+        raise SafetyError("Restore archive positions are absent or incomplete")
     if not allow_tail and (tape.has_partial() or len(positions) % 2 == 0):
         raise SafetyError("Uncommitted/incomplete tape tail; append forbidden")
     previous = sha256(tape.read(0))
     found = []
     seen: set[str] = set()
-    for position in range(1, len(positions) - 1, 2):
+    end = len(positions) - 1 if data_positions is None else max(data_positions) + 1
+    for position in range(1, end, 2):
         # Read data then its receipt, in physical order. Do not seek past a
         # large data file just to obtain the expected hash before reading it.
-        with tape.open_read(position) as incoming:
-            manifest, checksum, size = inspect_stream(incoming, payload_handler=payload_handler)
+        selected = data_positions is None or position in data_positions
+        if selected:
+            with tape.open_read(position) as incoming:
+                manifest, checksum, size = inspect_stream(incoming, payload_handler=payload_handler)
         receipt_path = tape.read(position + 1)
         receipt = read_metadata(receipt_path, "receipt.json")
         if (receipt.get("format") != FORMAT or receipt.get("media_id") != expected_media
                 or receipt.get("tape_file") != position or receipt.get("previous") != previous):
             raise SafetyError(f"Receipt mismatch at tape file {position}")
+        archive_id = receipt.get("archive_id")
+        if not isinstance(archive_id, str) or archive_id in seen:
+            raise SafetyError("Invalid or duplicate receipt archive identity")
+        uuid.UUID(archive_id)
+        seen.add(archive_id)
+        previous = sha256(receipt_path)
+        if not selected:
+            continue
         if checksum != receipt["sha256"] or size != receipt["bytes"]:
             raise SafetyError("Full tape readback SHA-256/byte count mismatch")
-        if (manifest["media_id"] != expected_media or manifest["archive_id"] != receipt["archive_id"]
-                or manifest["archive_id"] in seen):
+        if manifest["media_id"] != expected_media or manifest["archive_id"] != archive_id:
             raise SafetyError("Archive identity mismatch or duplicate")
-        seen.add(manifest["archive_id"])
         found.append({"manifest": manifest, "receipt": receipt, "position": position})
-        previous = sha256(receipt_path)
     return found
 
 
@@ -551,9 +568,10 @@ class ArchiveService:
             try:
                 pending = PendingRestore(target, plan["files"])
                 try:
-                    # Extract privately while validating every TAR and receipt.
-                    # Publish only after all byte hashes and the chain pass.
-                    scan(self.tape, media, allow_tail=True, payload_handler=pending.consume)
+                    # Verify selected TARs and their receipt chain, extracting
+                    # privately in one pass. Unselected payloads are not read.
+                    scan(self.tape, media, allow_tail=True, payload_handler=pending.consume,
+                         data_positions=set(plan["tape_files"]))
                     count = pending.publish()
                 finally:
                     pending.close()

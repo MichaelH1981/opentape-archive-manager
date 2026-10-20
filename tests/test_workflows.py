@@ -348,6 +348,46 @@ class Workflows(unittest.TestCase):
         self.assertEqual([position for position in reads if position > 0], list(range(1, 7)))
         self.assertFalse(list((self.base / "sequential").glob(".otam-restore-*")))
 
+    def test_selected_restore_skips_unselected_payloads_and_stops_after_last_receipt(self) -> None:
+        first = self.backup()
+        self.backup()
+        reads = []
+        original = self.tape.read
+
+        def tracked(position):
+            reads.append(position)
+            return original(position)
+
+        with patch.object(self.tape, "read", side_effect=tracked):
+            report = self.service.restore(self.media, self.base / "only-first",
+                                          archive_id=first["archives"][0])
+        self.assertEqual(report["files"], 3)
+        self.assertEqual([p for p in reads if p > 0], [1, 2])
+
+    def test_later_selected_restore_checks_preceding_receipts_but_skips_payloads(self) -> None:
+        self.backup()
+        second = self.backup()
+        original = self.tape.read
+        reads = []
+
+        def tracked(position):
+            reads.append(position)
+            if position == 1:
+                raise AssertionError("Unselected data must not be read")
+            return original(position)
+
+        with patch.object(self.tape, "read", side_effect=tracked):
+            self.service.restore(self.media, self.base / "only-second",
+                                 archive_id=second["archives"][0])
+        self.assertEqual([p for p in reads if p > 0], [2, 3, 4])
+        with tarfile.open(self.tape.path / "00000002.tar", "r") as tar:
+            receipt = json.load(tar.extractfile("receipt.json"))
+        receipt["previous"] = "0" * 64
+        metadata_tar(self.tape.path / "00000002.tar", "receipt.json", receipt)
+        with self.assertRaisesRegex(SafetyError, "Receipt mismatch"):
+            self.service.restore(self.media, self.base / "bad-prefix",
+                                 archive_id=second["archives"][0])
+
     def test_restore_publishes_nothing_if_receipt_or_tar_padding_is_corrupt(self) -> None:
         self.backup()
         data = self.tape.path / "00000001.tar"

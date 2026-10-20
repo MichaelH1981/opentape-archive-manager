@@ -168,6 +168,51 @@ TAR-Endblöcke/Receipts, Katalogabweichungen und bestätigte Filemark-Positionie
 ab. Der Kandidat ist **nicht installiert**; Linux-Nachtest und physischer
 Read-only-Restore folgen erst nach Abschluss des unberührten laufenden Tests.
 
+### Abschluss des großen Zyklus
+
+Am 20.10.2026 um **10:00:54 MESZ** endete der gesamte Auftrag erfolgreich mit
+`VERIFIED`: drei wiederhergestellte Dateien, beide 70-GiB-Nutzdateien und README,
+mit identischen Quell-/Ziel-SHA-256. Die leere Katalogrekonstruktion fand sechs
+Archive, einschließlich der vier alten Paare, ohne unvollständigen Tail.
+Die beiden großen TARs liegen an Position 9 und 11, jeweils 75.161.937.920 Bytes.
+Ihre SHA-256-Werte sind:
+
+* `85c1417ccafcf51b0dfd5a3569daad75ba7b24cd234ad48fd9a4c237a5a19a47`
+* `2aa40eb56c15bb82cce5d241e6b057f704e4332f521faa91fddfced4e9f822ba`
+
+Je Archiv wurden 620 Schreibfortschritt-Samples gespeichert. Die abschließend
+gemeldeten mittleren Schreibraten betragen 115,76 und 116,05 MB/s einschließlich
+Anlauf/Vorfüllung. Erkannte Füllstände: 1–100 Prozent; kein Nullstand in den
+Samples. Der niedrige Endwert gehört zum Entleeren am Streamende und belegt
+keinen Engpass. Interne mechanische Laufwerkspositionierungen wurden nicht
+gemessen; aus den Samples wird keine Bewegungsfreiheit behauptet.
+
+Gesamtlaufzeit etwa 7 h 4 min 34 s, CPU-Zeit 4 h 13 min 52 s; Spitzenwert der
+systemd-Speicherabrechnung 7.380.733.952 Bytes einschließlich Dateicache.
+Lokale I/O-Abrechnung: 2.400.392.413.184 gelesene und 451.016.380.416 geschriebene
+Bytes. Die hohe Lesemenge enthält wiederholte Hash-/Validierungspassagen des
+alten Codes und ist keine reine Band-Transfermenge.
+
+Beide Staging-Archive sind erst nach Verifikation als `STAGING_CLEANUP/COMPLETE`
+bereinigt. Eigene Quellfixtures und Restore-Ausgabe bleiben erhalten. Worker,
+Web und Katalogtunnel sind aktiv; Katalogsync meldet Sequenz 95 `UNCHANGED`.
+SMART nach dem Lauf: 2.786 Stunden, keine realloc/pending/offline/CRC-Sektoren,
+historische Werte Runtime_Bad_Block 40 und Command_Timeout 1/1/5 unverändert.
+Kein langer SMART-Test durchgeführt.
+
+Berichts-SHA-256:
+`e98a0c6db89c27cae9c13b0ea815ddf277dd41d9417fd4c82c071a567c4b4b5f`.
+Bericht, Transfer-Samples/Logs, systemd-Abrechnung, Journal und SMART-Auszug sind
+lokal im ausgeschlossenen Rohdatendossier gesichert. Keine Produktionsfreigabe:
+gezielter optimierter Restore und Sicherheits-/Web-/CLI-Abnahmen stehen aus.
+
+Der sequenzielle Kandidat bestand anschließend **154/154 Debian-Tests**.
+Eine weitere lokale Erweiterung (156 Tests, 43 Linux-Skips) prüft beim gezielten
+Restore nur die ausgewählten Datenarchive und ihre vorausgehende Receipt-Kette;
+nicht ausgewählte Nutzdaten werden nicht als verifiziert ausgegeben. Nach dem
+letzten gewählten Beleg endet der Scan. So kann die physische Nachprüfung mit
+einem kleinen Archiv erfolgen, ohne die großen TARs erneut vollständig zu lesen.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
