@@ -500,7 +500,7 @@ async function hardwarePage() {
               ([op, label]) =>
                 `<button class="button subtle" data-maintenance-drive="${esc(d.id)}" data-operation="${op}" ${r.mode !== "physical" || !d.ready || Date.now() / 1000 - r.discovery.time > 30 ? "disabled" : ""}>${label}</button>`,
             )
-            .join("")}<button class="button subtle" data-register-physical="${esc(d.id)}" data-drive-serial="${esc(d.serial || "")}" data-medium-serial="${esc(d.medium_serial || "")}" ${r.mode !== "physical" || !d.status?.online || !d.serial || !d.medium_serial || Date.now() / 1000 - r.discovery.time > 120 ? "disabled" : ""}>OTAM-Medium lesend registrieren</button></td></tr>`,
+            .join("")}${r.physical_initialization_enabled ? `<button class="button subtle" data-initialize-physical="${esc(d.id)}" data-drive-serial="${esc(d.serial || "")}" data-medium-serial="${esc(d.medium_serial || "")}" ${r.mode !== "physical" || !d.ready || !d.serial || !d.medium_serial || Date.now() / 1000 - r.discovery.time > 120 ? "disabled" : ""}>Band für OTAM vorbereiten</button>` : ""}<button class="button subtle" data-register-physical="${esc(d.id)}" data-drive-serial="${esc(d.serial || "")}" data-medium-serial="${esc(d.medium_serial || "")}" ${r.mode !== "physical" || !d.status?.online || !d.serial || !d.medium_serial || Date.now() / 1000 - r.discovery.time > 120 ? "disabled" : ""}>OTAM-Medium lesend registrieren</button></td></tr>`,
       ),
       "Kein Bandlaufwerk erkannt. Einschalten und Anschluss prüfen; die Erkennung wird automatisch aktualisiert.",
     )}</section>` +

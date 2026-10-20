@@ -74,7 +74,8 @@ Schreibabbruch. Für die physische Abnahme müssen zwei konkrete Testkassetten
 ausdrücklich freigegeben sein. Gegenwärtig ist nur die bisherige Testkassette
 freigegeben. Keines der anderen vorhandenen Medien darf dafür verwendet werden.
 Der echte Tail-/Neustarttest ist anschließend gezielt klein durchzuführen.
-Unabhängige Initialisierung und ein gesonderter Medienfreigabe-/Recyclingprozess
-bleiben vor Produktivaktivierung offen. Restore-Aufträge werden weiterhin pro
+Die unabhängige [Initialisierungsabnahme](physical-initialization.md) bleibt
+vor Produktivaktivierung offen. Recycling bereits bekannter Kassetten bleibt ein
+separater gesperrter späterer Workflow. Restore-Aufträge werden weiterhin pro
 ausgewählter Medien-/Archivgruppe bestätigt; ein übergreifender automatischer
 Restore-Wechsel ist kein Teil dieses Kandidaten.

@@ -82,6 +82,48 @@ class LocalProducer:
 
 
 class PhysicalServiceFlow(TestCase):
+    def test_explicit_initialization_acceptance_harness_is_header_only(self):
+        from dataclasses import asdict
+        from otam.web.config import WebConfig
+        from otam.web.control import Control
+        from tools.tape_initialization_acceptance import main
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            config = WebConfig(str(uuid.uuid4()), "test", "archive", root / "state", root / "catalog.sqlite",
+                               root / "staging", root / "simulator", root / "restore",
+                               "pbkdf2_sha256$600000$salt$digest", physical_maintenance=True)
+            config_file = root / "node.json"
+            config_file.write_text(json.dumps(asdict(config), default=str))
+            original = config_file.read_bytes()
+            Control(config.state).set("operation_mode", "physical")
+            drive = {"id": "drive-id", "serial": "DRIVE", "medium_serial": "NEW", "ready": True,
+                     "device": "/dev/nst0", "vendor": "IBM", "model": "ULT3580-HH4",
+                     "status": {"online": True, "density_code": 0x46}}
+            device = FileST(root, drive)
+            with ExitStack() as stack:
+                stack.enter_context(patch("otam.physical.LinuxMaintenance", return_value=device))
+                stack.enter_context(patch("otam.physical.run", side_effect=device.move))
+                stack.enter_context(patch("otam.physical.status", side_effect=device.status))
+                stack.enter_context(patch.object(LinuxTape, "_driver_mode"))
+                for name in ("tools.tape_initialization_acceptance.discover_drives", "otam.web.initialization.discover_drives"):
+                    stack.enter_context(patch(name, return_value=[drive]))
+                stack.enter_context(patch("sys.argv", ["acceptance", "--config", str(config_file),
+                    "--report-root", str(root / "report"), "--drive-serial", "DRIVE", "--medium-serial", "NEW",
+                    "--confirm", "INITIALIZE DRIVE NEW"]))
+                main()
+            report = json.loads((root / "report" / "report.json").read_text())
+            self.assertEqual(report["state"], "VERIFIED")
+            self.assertEqual(report["header_reads"], [0])
+            self.assertEqual(len(device.files), 1)
+            self.assertTrue(report["archive_prefix_unchanged"])
+            self.assertEqual(config_file.read_bytes(), original)
+            catalog = Catalog(config.catalog)
+            try:
+                self.assertEqual(catalog.db.execute("SELECT count(*) FROM archives").fetchone()[0], 0)
+                self.assertEqual(catalog.db.execute("SELECT count(*) FROM media").fetchone()[0], 1)
+            finally:
+                catalog.close()
+
     def test_two_physical_backends_offline_plan_and_guarded_media_exchange(self):
         from otam.common import SafetyError
         from otam.web.config import WebConfig, Resource
@@ -209,7 +251,7 @@ class PhysicalServiceFlow(TestCase):
             config = WebConfig(str(uuid.uuid4()), "test", "archive", root / "state",
                                root / "catalog.sqlite", staging, root / "media", root / "restore",
                                "pbkdf2_sha256$600000$salt$hash", sources=(Resource("source-1", "source", source),),
-                               physical_maintenance=True, physical_archiving=True)
+                               physical_maintenance=True, physical_archiving=True, physical_initialization=True)
             control = Control(config.state)
             control.set("operation_mode", "physical")
             drive = {"id": "test", "serial": "drive", "medium_serial": "cartridge", "ready": True,
@@ -224,6 +266,7 @@ class PhysicalServiceFlow(TestCase):
                 stack.enter_context(patch("otam.physical.status", side_effect=device.status))
                 stack.enter_context(patch("otam.physical.discover_drives", return_value=[drive]))
                 stack.enter_context(patch("otam.web.physical_archive.discover_drives", return_value=[drive]))
+                stack.enter_context(patch("otam.web.initialization.discover_drives", return_value=[drive]))
                 stack.enter_context(patch.object(LinuxTape, "_driver_mode"))
                 for name in ("otam.storage.require_local", "otam.staging.require_local",
                              "otam.web.resources.require_local", "otam.web.physical_archive.require_local"):
@@ -231,9 +274,15 @@ class PhysicalServiceFlow(TestCase):
                 stack.enter_context(patch("otam.service.require_qualification"))
                 stack.enter_context(patch("otam.benchmark.available_memory", return_value=8 * 1024**3))
                 producer = stack.enter_context(patch("subprocess.Popen", side_effect=LocalProducer))
-                tape = LinuxTape(drive, config.state)
-                with tape.locked():
-                    tape.initialize("Existing test tape", 10**9, "rotation", "INITIALIZE cartridge")
+                from otam.web import initialization
+                import time
+                control.set("hardware_inventory", {"time": time.time(), "drives": [drive]})
+                grant = initialization.prepare(config, control, {
+                    "drive_id": "test", "drive_serial": "drive", "medium_serial": "cartridge",
+                    "label": "Reviewed physical test", "media_class": "rotation"})
+                initialized = execute(config, control, "initialize-physical", {
+                    "approval_id": grant["id"], "confirmation": grant["confirmation"], "destructive_confirmed": True})
+                self.assertEqual(initialized["state"], "INITIALIZED")
                 registered = execute(config, control, "register-physical", {
                     "drive_id": "test", "drive_serial": "drive", "medium_serial": "cartridge"})
                 media = registered["media_id"]

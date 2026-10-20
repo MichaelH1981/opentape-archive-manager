@@ -25,7 +25,7 @@ from .config import WebConfig
 from .control import Control
 from .replication import push
 from .targets import enabled_targets
-from . import resources, maintenance, physical_archive
+from . import resources, maintenance, physical_archive, initialization
 from . import diagnostics
 
 COMMANDS = {
@@ -43,6 +43,7 @@ COMMANDS = {
     "hardware-scan",
     "staging-speedtest",
     "register-physical",
+    "initialize-physical",
 }
 
 
@@ -82,6 +83,9 @@ def validate_command(
     config = resources.effective(config, control)
     if kind == "register-physical":
         physical_archive.validate_registration(config, control, payload)
+        return
+    if kind == "initialize-physical":
+        initialization.approval(config, control, payload)
         return
     if kind == "tape-maintenance":
         maintenance.approval(config, control, payload)
@@ -307,6 +311,8 @@ def execute(
     config = resources.effective(config, control)
     if kind == "register-physical":
         return physical_archive.register_existing(config, control, payload)
+    if kind == "initialize-physical":
+        return initialization.execute(config, control, payload)
     if kind == "tape-maintenance":
         return maintenance.execute(config, control, payload)
     if kind == "hardware-scan":

@@ -76,6 +76,7 @@ class WebConfig:
     trusted_proxy_ips: tuple[str, ...] = ()
     allow_host_shutdown: bool = False
     physical_multivolume: bool = False
+    physical_initialization: bool = False
 
     def validate(self) -> None:
         uuid.UUID(self.node_id)
@@ -152,6 +153,9 @@ class WebConfig:
         if (type(self.physical_multivolume) is not bool
                 or (self.physical_multivolume and not self.physical_archiving)):
             raise SafetyError("Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme")
+        if (type(self.physical_initialization) is not bool
+                or (self.physical_initialization and not self.physical_archiving)):
+            raise SafetyError("Physische Initialisierung benötigt eine separate administrative Freigabe")
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources

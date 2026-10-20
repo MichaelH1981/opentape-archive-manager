@@ -116,7 +116,7 @@ def overview(control: Control) -> dict[str, Any]:
     present = {d["id"]: d for d in inventory["drives"]}
     known = control.get("hardware_last_seen", {})
     active_maintenance = None
-    if active and active["kind"] == "tape-maintenance":
+    if active and active["kind"] in ("tape-maintenance", "initialize-physical"):
         payload = json.loads(active["payload"])
         progress = control.get(
             "maintenance_progress:" + payload.get("approval_id", ""), {}

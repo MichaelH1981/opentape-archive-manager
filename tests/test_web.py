@@ -74,6 +74,34 @@ class AccountMigration(unittest.TestCase):
 
 @unittest.skipUnless(WEB_AVAILABLE, "Optional [web] dependencies not installed")
 class WebAcceptance(unittest.TestCase):
+    def test_initialization_prepare_requires_admin_csrf_and_only_queues_a_sealed_grant(self):
+        from fastapi.testclient import TestClient
+        from otam.web.app import create_app
+        config = replace(self.config, physical_maintenance=True, physical_archiving=True, physical_initialization=True)
+        drive = {"id": "drive-id", "serial": "DRIVE", "medium_serial": "NEW-MAM", "ready": True,
+                 "device": "/dev/nst0", "vendor": "IBM", "model": "ULT3580-HH4",
+                 "status": {"online": True, "density_code": 0x46}}
+        self.control.set("operation_mode", "physical")
+        self.control.set("hardware_inventory", {"time": time.time(), "drives": [drive]})
+        data = {"drive_id": "drive-id", "drive_serial": "DRIVE", "medium_serial": "NEW-MAM",
+                "label": "REVIEWED", "media_class": "permanent"}
+        with patch("otam.web.initialization.LinuxTape") as tape, \
+                patch("otam.web.initialization.discover_drives") as discovery, TestClient(create_app(config)) as client:
+            signed = client.post("/api/v1/login", json={"username": "admin", "password": PASSWORD}).json()
+            self.assertEqual(client.post("/api/v1/initialization/prepare", json=data).status_code, 403)
+            headers = {"X-CSRF-Token": signed["csrf"], "Idempotency-Key": "reviewed-initialization"}
+            response = client.post("/api/v1/initialization/prepare", json=data, headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+            grant = response.json()
+            payload = {"approval_id": grant["id"], "confirmation": grant["confirmation"], "destructive_confirmed": True}
+            refused = client.post("/api/v1/commands", json={"kind": "initialize-physical", "payload": {**payload, "capacity": 1}}, headers=headers)
+            self.assertEqual(refused.status_code, 409, refused.text)
+            accepted = client.post("/api/v1/commands", json={"kind": "initialize-physical", "payload": payload}, headers=headers)
+            self.assertEqual(accepted.status_code, 202, accepted.text)
+            self.assertEqual(self.control.get("initialization_approval:" + grant["id"])["state"], "PREPARED")
+            tape.assert_not_called()
+            discovery.assert_not_called()
+
     def test_unloaded_registered_physical_medium_is_plannable_without_hardware_io(self):
         from fastapi.testclient import TestClient
         from otam.web.app import create_app
@@ -525,6 +553,13 @@ class WebAcceptance(unittest.TestCase):
         ).status_code, 403)
         self.assertEqual(operator.post(
             "/api/v1/commands", json={"kind": "register-physical", "payload": {}},
+            headers=headers,
+        ).status_code, 403)
+        self.assertEqual(operator.post(
+            "/api/v1/initialization/prepare", json={}, headers=headers,
+        ).status_code, 403)
+        self.assertEqual(operator.post(
+            "/api/v1/commands", json={"kind": "initialize-physical", "payload": {}},
             headers=headers,
         ).status_code, 403)
         self.assertEqual(operator.post(

@@ -44,6 +44,7 @@ def drive_speed_profiles(inventory: dict[str, Any] | None, *, now: float | None 
             "model": "ULT3580-HH4",
             "medium_density_code": 0x46,
             "profile_id": PROFILE_IBM_HH4_LTO4,
+            "native_capacity_bytes": 800_000_000_000,
             "speed_steps_bytes_per_second": [rate * 1_000_000 for rate in IBM_HH4_LTO4_MBPS],
             "source": "https://www.ibm.com/docs/en/announcement_archive/ENUS108-464/ENUS108-464.PDF",
             "observed_at": observed,

@@ -508,3 +508,59 @@ Der abschließende Kandidat unter
 Simulator-Abschlusskorrektur wurde gezielt mit dem vollständigen Zwei-Medien-Test
 und den drei physischen Dateigerätetests nachgeprüft. Keine Installation oder
 Bandaktion folgte daraus.
+
+### Initialisierungskandidat bereit für zweite Testkassette
+
+`physical_initialization=false` bleibt das separate Default-Gate. Der neue
+Adminworkflow umfasst einen sichtbaren Review unter Hardware, DE/EN-Texte,
+Admin-/CSRF-geschützte Vorbereitung und den dauerhaften Workerauftrag
+`initialize-physical`. Die CLI kann denselben Auftrag einreihen. Die installierte
+Konfiguration und Version 0.5.7 wurden nicht verändert.
+
+Grants sind fünf Minuten gültig, einmalig und transaktional reserviert; Node,
+Drive/MAM, Profil, native Kapazität, Label und Medienklasse sind versiegelt.
+Die Schreibanforderung akzeptiert keine neuen Metadaten. Native Kapazität stammt
+aus einem bestätigten Profil (hier LTO-4: 800.000.000.000 Byte); unbekannte Dichte
+oder Profile werden ohne Annahmen abgewiesen. Vor Gerätezugriff wird der Grant
+verbraucht, danach Hardware frisch erkannt und unter I/O-/Laufwerkssperre erneut
+geprüft. Lokale bekannte Kassetten sämtlicher Klassen und Zustände sowie
+ungeklärte Writes/Initialisierungsintents bleiben gesperrt. Dies ist kein
+Recyclingworkflow. Lokal unbekannt bedeutet nicht leer: Der Review warnt vor
+Verlust aller unbekannten vorhandenen Inhalte und verweist bei Katalogverlust
+auf lesende Registrierung/Rekonstruktion.
+
+Der bestehende LinuxTape-Kern bestätigt BOT, schreibt den lokalen vollständigen
+Header mit dauerhaftem Pending und prüft Dateimarke, Dateianzahl, Inhalt und
+vollständigen physischen Header-SHA-256. Erst danach werden UUID, MAM-Seriennummer,
+native Kapazität und Drive-Bindung registriert. INITIALIZED bestätigt nur den
+Header, keine Datenarchive oder Vollqualifikation. Nach einem möglichen Write
+bleibt die Kassette auch bei Fehler der Katalogpublikation reserviert; kein
+automatisches erneutes Formatieren oder Entfernen von Markern.
+
+**198 lokale Tests (ein Skip) und 198/198 Debian-Tests** unter
+`/var/lib/otam/acceptance-code/physical-initialization-20261020` bestanden.
+JavaScript-Syntaxprüfungen und Harness-Syntaxprüfung bestanden. Zusätzliche
+Tests prüfen Native-Kapazitätsherkunft, bekannte Medien inklusive ARCHIVED/RETIRED,
+Default-Gate, Admin/CSRF, Einmaligkeit bei mehreren vorbereiteten Grants, Ablauf,
+veränderte Reviewdaten, falsches Medium, Pending-Symlink, erhaltene Reservation
+nach tatsächlichem Ende eines Softwareprozesses, falschen Header und fehlgeschlagene
+Katalogpublikation. Die LinuxTape-Dateigeräteprüfung umfasst den regulären
+Initialisierungs-Workerpfad mit Header-Readback und anschließendem Archivieren/
+Restore. Der neue Abnahmeharness wurde ebenfalls hinter dem Dateigerät geprüft:
+ein Headerread an Position 0, kein Append und unveränderte installierte Konfiguration.
+
+`tools/tape_initialization_acceptance.py` ist für die reale Headerabnahme
+vorbereitet. Er verlangt konkrete Drive-/MAM-Seriennummern und die exakte
+destruktive Bestätigung, verwendet Live-Katalog/Control/Locks/Pending zur
+dauerhaften Sichtbarkeit von Unsicherheit und erhält alle vorhandenen
+Archivdatensätze. Gates werden nur im Speicher des Kandidaten aktiviert.
+Der Hauptworker muss für die kurze Hardwareunit kontrolliert angehalten und
+nach ihrem Ende über OnSuccess/OnFailure wieder gestartet werden.
+
+Es wurde **keine reale Initialisierung gestartet**. Die bisherige Testkassette
+ist bereits katalogisiert und bleibt unverändert. Für den nächsten Nachweis wird
+eine zweite konkret identifizierte Testkassette benötigt, deren vollständiger
+Inhaltsverlust ausdrücklich freigegeben werden muss. Zunächst nur lesend
+identifizieren; keine unbekannte Kassette eigenmächtig beschreiben. Danach
+bleiben reale Mehrbandwechsel und abschließend der kleine Schreibabbruch/Tail-
+Neustartnachweis offen. [Ablauf und Grenzen](architecture/physical-initialization.md).

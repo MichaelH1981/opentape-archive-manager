@@ -44,7 +44,7 @@ let renderId = 0;
 function applyPermissions(root) {
   const role = state.account?.role || "viewer";
   if (role !== "admin")
-    $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-register-physical], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
+    $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-register-physical], [data-initialize-physical], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
       .forEach((element) => (element.hidden = true));
   if (role === "viewer")
     $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group]", root)
@@ -299,6 +299,36 @@ async function sourceSelectionDialog() {
   $("#source-picker-save").addEventListener("click", save);
   await browse();
 }
+async function initializationDialog(button) {
+  const identity = { drive_id: button.dataset.initializePhysical,
+    drive_serial: button.dataset.driveSerial, medium_serial: button.dataset.mediumSerial };
+  const warning = "DESTRUKTIV: Auch unbekannte vorhandene Daten auf dieser Kassette werden unbrauchbar. Bei verlorenem Katalog zuerst lesend registrieren und rekonstruieren.";
+  modal("Band für OTAM vorbereiten", `${note(warning, "warning")}<dl class="detail-list"><dt>Laufwerk</dt><dd>${esc(identity.drive_serial)}</dd><dt>Medium</dt><dd>${esc(identity.medium_serial)}</dd></dl><p>Bereits bekannte Kassetten und ungeklärte Schreibvorgänge sind gesperrt. Dies ist kein Recycling- oder Löschverfahren.</p><form id="initialization-review-form"><label>Medienbezeichnung<input name="label" required maxlength="100" autocomplete="off"></label><label>Medienklasse<select name="media_class"><option value="permanent">Dauerarchiv</option><option value="rotation">Rotierende Sicherung</option></select></label><div class="form-actions"><button class="button primary" type="submit">Initialisierungsplan prüfen</button></div></form>`);
+  $("#initialization-review-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(event.target), submit = $("button[type=submit]", event.target);
+    submit.disabled = true;
+    try {
+      const grant = await api("/initialization/prepare", { method: "POST", body: JSON.stringify({ ...identity,
+        label: data.get("label"), media_class: data.get("media_class") }) });
+      modal("Initialisierung ausdrücklich bestätigen", `${note(warning, "warning")}<dl class="detail-list"><dt>Laufwerk</dt><dd>${esc(grant.drive.serial)}</dd><dt>Medium</dt><dd>${esc(grant.drive.medium_serial)}</dd><dt>Medienbezeichnung</dt><dd>${esc(grant.label)}</dd><dt>Medienklasse</dt><dd>${grant.media_class === "permanent" ? "Dauerarchiv" : "Rotierende Sicherung"}</dd><dt>Native Kapazität</dt><dd>${bytes(grant.capacity)}</dd></dl><p>Die Freigabe gilt einmalig für fünf Minuten. Der Header wird nach dem Schreiben vollständig zurückgelesen; dies ist keine Vollbandqualifikation.</p><p class="mono">${esc(grant.confirmation)}</p><form id="initialization-confirm-form"><label>Bestätigung<input name="confirmation" required autocomplete="off"></label><label class="check-label"><input name="destructive_confirmed" type="checkbox" required>Ich gebe genau diese Kassette zur destruktiven Initialisierung frei.</label><div class="form-actions"><button class="button primary" type="submit">Kassette initialisieren</button></div></form>`);
+      $("#initialization-confirm-form").addEventListener("submit", async (confirm) => {
+        confirm.preventDefault();
+        const values = new FormData(confirm.target), action = $("button[type=submit]", confirm.target);
+        action.disabled = true;
+        try {
+          await enqueue("initialize-physical", { approval_id: grant.id, confirmation: values.get("confirmation"),
+            destructive_confirmed: values.has("destructive_confirmed") });
+          closeModal();
+          await render();
+        } catch (error) { toast(error.message, true); }
+        finally { action.disabled = false; }
+      });
+    } catch (error) { toast(error.message, true); }
+    finally { submit.disabled = false; }
+  });
+}
+
 async function maintenanceDialog(drive, operation) {
   const approval = await api("/maintenance/prepare", {
     method: "POST",
@@ -650,6 +680,8 @@ document.addEventListener("click", async (e) => {
       toast("Medienregistrierung eingeplant.");
       await render();
     }
+    else if (b.dataset.initializePhysical)
+      await initializationDialog(b);
     else if (b.dataset.maintenanceDrive)
       await maintenanceDialog(b.dataset.maintenanceDrive, b.dataset.operation);
     else if (b.id === "request-poweroff") {

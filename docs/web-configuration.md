@@ -111,8 +111,27 @@ Planung auch ohne eingelegtes Medium möglich.
 `physical_multivolume`: Standard `false`, nur zusammen mit
 `physical_archiving=true` zulässig. Separates Gate des neuen physischen
 Mehrbandkandidaten. Bis zur realen Medienwechselabnahme nicht aktivieren.
-Simulator-Mehrbandjobs bleiben verfügbar. Physische Initialisierung bleibt
-unabhängig davon gesperrt; es wird niemals automatisch formatiert.
+Simulator-Mehrbandjobs bleiben verfügbar. Physische Initialisierung hat
+unabhängig davon ein eigenes Gate; es wird niemals automatisch formatiert.
+
+`physical_initialization`: Standard `false`, nur zusammen mit
+`physical_archiving=true` zulässig. Der neue Adminworkflow initialisiert
+ausschließlich lokal nicht registrierte MAM-Kassetten nach separatem Review.
+Auch deren unbekannter vorhandener Inhalt wird unbrauchbar. Bekannte Kassetten
+aller Klassen/Zustände und ungeklärte Schreibintents sind gesperrt. Nach
+Katalogverlust zuerst lesend registrieren und rekonstruieren.
+
+`POST /api/v1/initialization/prepare` verlangt Admin/CSRF und
+`{drive_id, drive_serial, medium_serial, label, media_class}`. Native Kapazität
+kommt aus dem bestätigten Profil, nicht aus einem Eingabefeld. Rückgabe enthält
+konkreten Review, Grant-ID, fünf Minuten Gültigkeit und Phrase
+`INITIALIZE <Drive-SN> <MAM-SN>`. Der Adminauftrag `initialize-physical` benötigt
+anschließend nur `{approval_id, confirmation, destructive_confirmed: true}`.
+Einmalige transaktionale Reservation, frische Identität, Geräte-/I/O-Sperren,
+bestätigtes BOT und vollständiger Header-Readback sind verbindlich. INITIALIZED
+bedeutet Headerinitialisierung, keine Datenarchivierung oder Vollqualifikation.
+Keine automatische Wiederholung nach unsicherem Write. Gate bis zur realen
+Abnahme geschlossen lassen. [Initialisierungsarchitektur](architecture/physical-initialization.md).
 
 Physische Planung verwendet nun registrierte Katalogstände, ohne Gerät zu öffnen
 oder das Band zu bewegen. Quelle, SHA-256 und vollständige TAR-Aufteilung werden
@@ -149,7 +168,7 @@ otam physical-command-status --config /etc/otam/node.json --command-id <command-
 
 `plan.json` enthält z.B. `{ "media_id": "<media-uuid>", "source_id": "source-1",
 "staging_id": "default-staging", "verify_mode": "media" }`.
-Weitere erlaubte Arten: `register-physical`, `stage`, `backup`, `backup-set`, `verify`, `restore`,
+Weitere erlaubte Arten: `register-physical`, `initialize-physical`, `stage`, `backup`, `backup-set`, `verify`, `restore`,
 `recover`, `rebuild`. Für Backup sind `{job_id, confirm: job_id, plan_hash}` nach
 Prüfung des persistenten Archivplans erforderlich. Restore akzeptiert
 `{media_id, target_name, paths?, archive_id?}`. Wiederholte Aufrufe können denselben
