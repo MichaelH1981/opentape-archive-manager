@@ -12,6 +12,15 @@ Aufgenommen am 20.10.2026 auf Nutzerwunsch; Umsetzung erst ab Version 0.8.
 
 Die aktuelle Version erhält hierfür weder neue Datensammlung noch ein Modell.
 
+## TODO für Version 0.8: Job-Archiv und übersichtliche Standardansichten
+
+Aufgenommen am 20.10.2026 auf Nutzerwunsch; Umsetzung erst ab Version 0.8.
+
+- [ ] Abgeschlossene sowie endgültig abgebrochene Jobs ausdrücklich archivieren können, einzeln und als Mehrfachauswahl. Laufende, wartende oder noch zur Wiederaufnahme vorgesehene Jobs nicht versehentlich aus dem Arbeitsablauf entfernen; zulässige Zustände und abhängige Ein-/Mehrbandjobs prüfen.
+- [ ] Archivierte Jobs aus den normalen Jobübersichten und entsprechenden Standardzählungen ausblenden. Eine getrennte, paginierte und durchsuchbare Archivansicht mit Filtern und vollständigen Jobdetails anbieten; Jobs bei Bedarf wieder in die Übersicht zurückholen.
+- [ ] Archivierung als separate Darstellungseigenschaft mit Zeitpunkt und nachvollziehbarem Ereignis speichern. Ursprünglichen Jobstatus, Pläne, Berichte, Fehler, Prüfsummen und Medien-/Archiv-/Dateiverknüpfungen erhalten. Kein Löschen von Daten, Quelldateien, Staging-Ausgaben oder Sicherheitssperren; Archivierung ist keine Wiederaufnahme und keine Medienfreigabe.
+- [ ] Sichtbarkeit über Web, API, CLI und Katalogsynchronisation konsistent behandeln. Migration sowie Archivieren/Zurückholen und unveränderte Nachweise testen. Automatische altersbasierte Archivierung höchstens als ausdrücklich konfigurierbare spätere Option vorsehen.
+
 1. **Phase 0:** leeres Repository erfassen, Alternativen bewerten, Bandformat/Schema/Risiken festhalten. Hardware-Skripte und Linux-Inventar sind lesend erfasst. Die physische Bandintegration bleibt vorläufig.
 2. **Phase 1a:** package/CLI, migrationsfähige SQLite-Datenbank, persistenter Simulator mit Lock/Medien-ID/Append, Plan mit SHA-256, PAX-TAR/Manifest.
 3. **Phase 1b:** Rücklesung und Receipt, strikte VERIFIED-Regel, sicherer Restore, Fehler/Abbruch/Neustart, Katalogrekonstruktion; automatisierte Tests und unabhängiges tar-Lesen.
