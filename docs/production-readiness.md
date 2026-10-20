@@ -299,7 +299,11 @@ Restore gegen die Dateigeräteemulation, mit Prüfung von `-R 120000000` und
 `-m 2368M`, physischer Serienbindung bei wechselndem nst-Namen, veralteter/falscher
 Erkennung, geändertem Dateisystem, ungültigen Transferwerten, CLI-Idempotenz und
 standardmäßig gesperrtem Write-Gate. JavaScript-Syntaxprüfung bestanden.
-Debian-Nachtest und ein kleiner echter Web-/CLI-Integrationszyklus stehen aus.
+Anschließend bestanden **170/170 Debian-Tests** unter dem getrennten Kandidaten
+`/var/lib/otam/acceptance-code/physical-web-integration-20261020` (`88086de`).
+Ein kleiner echter Web-/CLI-Integrationszyklus steht noch aus und soll die
+Receipt-Vorprüfung und wirksamen Transferwerte gemeinsam prüfen. Die bereits
+bestandenen großen Datenzyklen werden dafür nicht wiederholt.
 
 Scope dieses Kandidaten: ein bereits initialisiertes physisches Medium. Physische
 Initialisierung und Mehrbandplanung bleiben gesperrt und benötigen eigene sichere
