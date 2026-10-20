@@ -1,6 +1,22 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Kassette zurücksetzen": "Reset cartridge",
+  "Bandpflege und destruktive Tests": "Tape maintenance and destructive tests",
+  "Diese Aktionen verändern Bandinhalte. Jeder Vorgang verlangt eine eigene Bestätigung.": "These actions change tape contents. Each operation requires separate confirmation.",
+  "Keine aktiven TapeAlert-Flags bei aktueller Abfrage.": "No active TapeAlert flags in the current sample.",
+  "TapeAlert: aktuelle Abfrage für dieses Medium steht aus.": "TapeAlert: a current sample for this medium is pending.",
+  "Frühere TapeAlert-Hinweise (Verlauf)": "Earlier TapeAlert notices (history)",
+  "Mindestens ein Zielmedium für den Plan wählen. Für Planung und Staging muss keine Kassette eingelegt sein. OTAM verteilt vollständige TARs in dieser Reihenfolge; vor jedem weiteren Medium wird angehalten.": "Choose at least one destination medium for the plan. No cartridge needs to be loaded for planning or staging. OTAM distributes complete TARs in this order and pauses before each additional medium.",
+  "Initialisierung gesperrt:": "Initialization blocked:",
+  "Kein Bandlaufwerk erkannt. Einschalten und Anschluss prüfen.": "No tape drive detected. Check power and connection.",
+
+  "Unterbrochenes Medium zurücksetzen": "Reset interrupted medium",
+  "Zurücksetzen ausdrücklich bestätigen": "Explicitly confirm reset",
+  "Vorherige Medien-ID": "Previous media ID",
+  "Pending-SHA-256": "Pending journal SHA-256",
+  "Nur nicht katalogisierte Kassetten mit erhaltenem Pending-Journal können ausdrücklich zurückgesetzt werden. Die bisherigen Inhalte werden unbrauchbar; das alte Journal bleibt als Beleg erhalten.": "Only uncatalogued cartridges with a preserved pending journal can be explicitly reset. Existing contents become unusable; the old journal is retained as evidence.",
+
   "Letzter Transfer": "Latest transfer",
   "Unter Hardware ein vorhandenes OTAM-Medium registrieren oder eine neue Kassette ausdrücklich vorbereiten.": "In Hardware, register an existing OTAM medium or explicitly prepare a new cartridge.",
   "Noch keine Medien im synchronisierten Katalog.": "No media in the synchronized catalog yet.",

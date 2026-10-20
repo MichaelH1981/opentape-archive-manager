@@ -26,6 +26,20 @@ PREFIX = "initialization_approval:"
 REVIEW_FIELDS = ("id", "node_id", "drive", "profile_id", "capacity", "label", "media_class", "created", "expires", "confirmation")
 
 
+def availability(config: WebConfig, control: Control, drive: dict) -> dict:
+    """Explain the same cached, read-only gates used by the admin review."""
+    try:
+        require_enabled(config, control)
+        validate = {"drive_id":drive.get("id"), "drive_serial":drive.get("serial"), "medium_serial":drive.get("medium_serial")}
+        physical_archive.validate_registration(config,control,validate)
+        _profile(control.get("hardware_inventory"),drive)
+        with control.connect() as db:
+            _unused(config,control,drive["medium_serial"],db)
+        return {"enabled":True,"reason":""}
+    except (SafetyError, ValueError, KeyError) as error:
+        return {"enabled":False,"reason":str(error)}
+
+
 def require_enabled(config: WebConfig, control: Control) -> None:
     physical_archive.require_mode(config, control)
     if not config.physical_initialization:
@@ -57,6 +71,9 @@ def _unused(config: WebConfig, control: Control, serial: str, db, *, own: str = 
     pending = config.state / "physical-pending" / (hashlib.sha256(serial.encode()).hexdigest() + ".json")
     if pending.exists() or pending.is_symlink():
         raise SafetyError("Ungeklärter Schreibvorgang: Initialisierung gesperrt")
+    reset = config.state / "physical-reset" / pending.name
+    if reset.exists() or reset.is_symlink():
+        raise SafetyError("Ungeklärtes Zurücksetzen: Initialisierung gesperrt")
     for row in db.execute("SELECT value FROM settings WHERE key LIKE ?", (PREFIX + "%",)):
         other = json.loads(row[0])
         if (other.get("id") != own and other.get("drive", {}).get("medium_serial") == serial

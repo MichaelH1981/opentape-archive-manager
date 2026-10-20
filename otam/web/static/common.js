@@ -112,6 +112,9 @@ const kindLabel = (k) =>
     sync: "Katalog synchronisieren",
     "hardware-scan": "Status und Diagnose abfragen",
     "tape-maintenance": "Bandwartung",
+    "reset-physical": "Unterbrochenes Medium zurücksetzen",
+    "initialize-physical": "Band für OTAM vorbereiten",
+    "register-physical": "OTAM-Medium lesend registrieren",
     "staging-speedtest": "Staging-Speedtest",
     "create-medium": "Testmedium erstellen",
   })[k] || k;

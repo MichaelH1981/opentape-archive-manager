@@ -190,3 +190,23 @@ Der POST auf `/api/v1/system/poweroff` benötigt eine Admin-Sitzung, gültiges C
 - Workerauftrag `hardware-scan`: `{}`. Automatische Erkennung erfolgt daneben etwa alle zehn Sekunden.
 
 Optionale Workerrechte: `packaging/udev/70-otam-tape.rules` und `packaging/systemd/otam-worker-physical.conf`, eigene Gruppe `otam-tape`. Web bleibt mit privaten Geräten abgeschottet. Kein root-Webprozess, keine Disk-Gruppenmitgliedschaft. [Ablauf, Sicherheitsgrenzen und Abnahme](architecture/physical-maintenance.md).
+
+## Ab 0.6.1: Abbruch-Reset und Hardwareansicht
+
+`physical_reset: false` ist ein eigener Admin-Schalter und verlangt
+`physical_initialization`. Der eng begrenzte [Resetworkflow](architecture/physical-reset.md)
+entsperrt ausdrücklich bestätigte, nicht katalogisierte Pending-Kassetten;
+registrierte Archive bleiben geschützt. `POST /api/v1/reset/prepare` und der
+Workerauftrag `reset-physical` verwenden denselben Review-/Queuepfad wie die
+Initialisierung. Es gibt keine automatische Markerbereinigung.
+
+Die Hardwareansicht gruppiert Medienaktionen und klappt destruktive Bandpflege
+separat auf. Sie zeigt den gleichen konkreten Initialisierungssperrgrund wie
+die API. Nach Medienwechsel werden Diagnosewerte einer anderen MAM als veraltet
+behandelt. Aktuelle TapeAlert-Flags und dauerhaft gespeicherte Historie sind
+getrennt; ein alter Hinweis ist kein aktueller Alarm.
+
+Planung und Staging benötigen ein gewähltes katalogisiertes Zielmedium, aber
+keine eingelegte Kassette. Das heutige unveränderliche TAR enthält bereits die
+Medien-UUID. Vollständig medienunabhängiges Vorstaging ist deshalb noch nicht
+implementiert und würde einen eigenen Format-/Bindungsworkflow benötigen.

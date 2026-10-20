@@ -53,7 +53,7 @@ from .targets import (
 )
 from .security import cookie_name, SecurityMiddleware, login, session, require_admin
 from .worker import mounted, validate_command
-from . import initialization
+from . import initialization, reset
 from . import resources, maintenance, physical_archive
 from . import diagnostics
 from . import accounts, power
@@ -293,6 +293,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 "physical_tape": config.physical_archiving,
                 "physical_multivolume": config.physical_multivolume,
                 "physical_initialization": config.physical_initialization,
+                "physical_reset": config.physical_reset,
                 "physical_maintenance": config.physical_maintenance,
             },
             "snapshot": active,
@@ -538,7 +539,7 @@ def create_app(config: WebConfig) -> FastAPI:
             idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
             request: Request,
         ):
-            if data.kind in ("tape-maintenance", "staging-speedtest", "register-physical", "initialize-physical"):
+            if data.kind in ("tape-maintenance", "staging-speedtest", "register-physical", "initialize-physical", "reset-physical"):
                 require_admin(request)
             validate_command(config, control, data.kind, data.payload)
             result = control.enqueue(data.kind, data.payload, idempotency_key)
@@ -658,6 +659,10 @@ def create_app(config: WebConfig) -> FastAPI:
         def initialization_prepare(data: dict[str, Any] = Body()):
             return initialization.prepare(config, control, data)
 
+        @archive.post("/reset/prepare", dependencies=[Depends(require_admin)])
+        def reset_prepare(data: dict[str, Any] = Body()):
+            return reset.prepare(config, control, data)
+
         @archive.post("/maintenance/prepare", dependencies=[Depends(require_admin)])
         def maintenance_prepare(data: dict[str, Any] = Body()):
             if set(data) != {"drive_id", "operation"} or not isinstance(
@@ -699,6 +704,11 @@ def create_app(config: WebConfig) -> FastAPI:
                 "physical_tape_enabled": config.physical_archiving,
                 "physical_maintenance_enabled": config.physical_maintenance,
                 "physical_initialization_enabled": config.physical_initialization,
+                "physical_reset_enabled": config.physical_reset,
+                "media_actions": {d["id"]: {
+                    "initialization": initialization.availability(config,control,d),
+                    "reset": reset.availability(config,control,d)}
+                    for d in control.get("hardware_inventory", {"drives":[]}).get("drives",[])},
                 "mode": maintenance.mode(config, control),
                 "discovery": control.get(
                     "hardware_inventory", {"time": 0, "drives": []}

@@ -52,6 +52,9 @@ def planning_snapshot(config: WebConfig, control: Control, media: str) -> dict[s
         hashlib.sha256(binding["medium_serial"].encode()).hexdigest() + ".json")
     if pending.exists() or pending.is_symlink():
         raise SafetyError("Unvollständiger physischer Schreibvorgang; Planung gesperrt")
+    reset = config.state / "physical-reset" / pending.name
+    if reset.exists() or reset.is_symlink():
+        raise SafetyError("Unvollständiges physisches Zurücksetzen; Planung gesperrt")
     return snapshot
 
 

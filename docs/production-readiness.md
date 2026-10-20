@@ -1,8 +1,8 @@
 # Produktionsfreigabe: Stand 20.10.2026
 
-**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.6.0** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
+**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.6.1** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
 
-Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die Abbruchtestkassette bleibt gesperrt; Katalogbereinigung löscht keine Banddaten und macht dieses Medium nicht wieder beschreibbar.
+Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt ein READY-Medium, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
@@ -829,3 +829,42 @@ Bandbewegung geprüft: Abbruchmedium durch das unveränderte Live-Pending,
 zweites Testmedium durch die erhaltene verbrauchte Initialisierungsreservation.
 Der endgültige betriebliche Freigabestatus ist in der Live-Control als READY
 mit Version 0.6.0 und den abschließenden Zählern gespeichert.
+
+## 20.10.2026: 0.6.1 – expliziter Abbruch-Reset und Hardwareansicht
+
+0.6.1 wurde nach 218/218 Debian-Tests (isoliertes Test-TMPDIR), 218 lokalen
+Tests mit einem Skip und JavaScript-Syntaxprüfung installiert. Neue Tests
+prüfen echten Softwareprozessverlust nach Reservation und nach durablem
+Journalübergang, Schutz aller katalogisierten Medienklassen/-zustände,
+Medienverwechslung, veränderte Reviews, Symlinks, Publikationsfehler und den
+regulären Workerzyklus nach Reset einschließlich Archiv-/Restorehashes.
+HTTP-Admin-/CSRF-Schutz und verweigerte Operatoraktionen sind abgedeckt.
+
+Der reale, ausdrücklich autorisierte Reset der ehemaligen Abbruchtestkassette
+endete VERIFIED nach 18,76 Sekunden. Neues produktives Medium „LTO-4 Archiv 01“,
+800.000.000.000 native Bytes, Dauerarchiv, Zustand READY. Genau ein Headerread
+an Position 0; Bewegungsbefehle REWIND/EOD/REWIND, keine Nutzdatenreads und
+keine erneute Vollqualifikation. Der alte Pending-SHA-256 ist im dauerhaften
+Historienjournal unverändert nachgewiesen. Der neue Guard wurde erst nach
+Headerprüfung, Katalogpublikation und Bindung abgeschlossen. Reales Testband B
+blieb unverändert. Dies ist logische Neuinitialisierung, kein sicheres Löschen.
+
+Bericht: `/var/lib/otam/reports/physical-reset-061-20261020-r1/report.json`,
+SHA-256 `ad753dac8f43b6dbc52aa05f94cbf2509fed7e2bd4bd84ad06e906109eb25c57`.
+Finales Wheel-SHA-256:
+`8519c394c50804b6c48173decf73f354ca8d2b685e1dc0e57c46230e993f7d2f`.
+Guardfähige Version wurde vor dem Reset installiert; keine Rückkehr zu alten
+Workern während eines ungeklärten Reset-Guards. Reset-Flag nach physischer
+Abnahme aktiviert. Live-HTTP prüfte Authentifizierung, Version/Gates,
+ausgelieferte Karten/CSS und Resetdialog, lesende Planbarkeit und Katalog:
+ein READY-Medium, null Archive und null Dateieinträge. Web, Worker und Tunnel
+aktiv; signierter Peerstand Sequenz 196 bestätigt (UNCHANGED beim expliziten
+Nachlauf). Vorherige SQLite-/Konfigurations-/Pending-Backups separat erhalten.
+
+Hardwareaktionen stehen jetzt in umbruchfähigen Gruppen; destruktive Bandpflege
+ist aufklappbar. Die API liefert den tatsächlichen Initialisierungssperrgrund.
+Nach Medienwechsel gilt eine Diagnose anderer MAM nicht als aktuelle Messung.
+Aktuell keine TapeAlert-Flags; ein historischer Hinweis bleibt ausdrücklich als
+Verlauf erhalten. Ein ausgewähltes Zielmedium ist für das bestehende TAR-Format
+nötig, muss für Planung/Staging aber nicht eingelegt sein. Medienunabhängiges
+Vorstaging ist nicht implementiert.

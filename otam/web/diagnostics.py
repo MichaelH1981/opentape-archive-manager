@@ -116,7 +116,7 @@ def overview(control: Control) -> dict[str, Any]:
     present = {d["id"]: d for d in inventory["drives"]}
     known = control.get("hardware_last_seen", {})
     active_maintenance = None
-    if active and active["kind"] in ("tape-maintenance", "initialize-physical"):
+    if active and active["kind"] in ("tape-maintenance", "initialize-physical", "reset-physical"):
         payload = json.loads(active["payload"])
         progress = control.get(
             "maintenance_progress:" + payload.get("approval_id", ""), {}
@@ -181,7 +181,12 @@ def overview(control: Control) -> dict[str, Any]:
             or not fresh
             or drive["contact_state"] != "CURRENT"
             or now - sample.get("started", 0) > 120
+            or sample.get("medium_serial") != drive.get("medium_serial")
         )
+        alert = sample.get("pages", {}).get("2e", {}) if sample else {}
+        drive["diagnostics"]["current_alerts"] = (
+            alert.get("decoded", {}).get("active_flags")
+            if not drive["diagnostics"]["stale"] and alert.get("state") == "AVAILABLE" else None)
         drives.append(drive)
     return {
         "time": now,

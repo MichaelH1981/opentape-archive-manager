@@ -230,6 +230,7 @@ class LinuxTape:
         self._count_cache: int | None = None
         self._pending = state / "physical-pending" / (hashlib.sha256(
             expected["medium_serial"].encode()).hexdigest() + ".json")
+        self._reset = state / "physical-reset" / self._pending.name
         self._next_receipt: int | None = None
         self._pending_used: int | None = None
         self._receipt_expected: dict[str, Any] | None = None
@@ -317,7 +318,7 @@ class LinuxTape:
         return list(range(self._count()))
 
     def has_partial(self) -> bool:
-        return self._pending.exists() or self._count() % 2 == 0
+        return self._pending.exists() or self._reset.exists() or self._reset.is_symlink() or self._count() % 2 == 0
 
     def read(self, position: int) -> Path:
         """Materialize only the small header/receipt TARs used by the service."""
@@ -364,6 +365,12 @@ class LinuxTape:
     def initialize(self, label: str, capacity: int, media_class: str,
                    confirmation: str) -> dict[str, Any]:
         """Explicit destructive initialization, separate from ordinary append."""
+        if self._reset.exists() or self._reset.is_symlink():
+            raise SafetyError("Physical reset is unresolved")
+        return self._initialize_header(label, capacity, media_class, confirmation)
+
+    def _initialize_header(self, label: str, capacity: int, media_class: str,
+                           confirmation: str) -> dict[str, Any]:
         import json
         from .physical import status
 
@@ -424,6 +431,67 @@ class LinuxTape:
         finally:
             path.unlink(missing_ok=True)
 
+    def reset_interrupted(self, label: str, capacity: int, media_class: str,
+                          pending_sha256: str, approval_id: str, confirmation: str) -> dict[str, Any]:
+        """Explicit BOT replacement under a durable separate reset guard.
+
+        The worker must independently authorize an uncatalogued MAM identity.
+        Old uncertainty is archived, never discarded; the reset guard remains
+        until the worker publishes and confirms the new header/catalog binding.
+        """
+        import json
+        self._check()
+        uuid.UUID(approval_id)
+        serial = self.device.expected["medium_serial"]
+        if confirmation != f"RESET {self.device.expected['serial']} {serial}":
+            raise SafetyError("Explicit drive/MAM reset confirmation required")
+        if self._reset.exists() or self._reset.is_symlink():
+            raise SafetyError("Physical reset is unresolved")
+        if (not self._pending.is_file() or self._pending.is_symlink()
+                or self._pending.stat().st_size > 65536 or sha256(self._pending) != pending_sha256):
+            raise SafetyError("Reviewed pending journal changed or is unsafe")
+        original = json.loads(self._pending.read_bytes())
+        if original.get("medium_serial") != serial:
+            raise SafetyError("Pending journal belongs to another cartridge")
+        history = self.state / "physical-reset-history"
+        for folder in (self._reset.parent, history):
+            folder.mkdir(mode=0o700, exist_ok=True)
+            if folder.is_symlink():
+                raise SafetyError("Unsafe reset journal directory")
+        sync_dir(self.state)
+        old = history / (approval_id + "-previous-pending.json")
+        if old.exists() or old.is_symlink():
+            raise SafetyError("Reset audit already exists")
+        with self._reset.open("x") as stream:
+            json.dump({"operation": "reset", "approval_id": approval_id, "medium_serial": serial,
+                       "drive_serial": self.device.expected["serial"], "started": time.time(),
+                       "previous_sha256": pending_sha256, "previous_pending": original}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        sync_dir(self._reset.parent)
+        # The durable reset guard now blocks normal initialization/append even
+        # if the process dies after moving the old, immutable audit evidence.
+        os.rename(self._pending, old)
+        sync_dir(history)
+        sync_dir(self._pending.parent)
+        return self._initialize_header(label, capacity, media_class, "INITIALIZE " + serial)
+
+    def complete_reset(self, approval_id: str, media_id: str) -> None:
+        import json
+        self._check()
+        guard = json.loads(self._reset.read_bytes())
+        if (guard.get("approval_id") != approval_id or guard.get("medium_serial") != self.device.expected["medium_serial"]
+                or self._pending.exists() or self._pending.is_symlink() or self.header()["media_id"] != media_id):
+            raise SafetyError("Reset completion is not confirmed")
+        history = self.state / "physical-reset-history"
+        target = history / (approval_id + "-completed.json")
+        if target.exists() or target.is_symlink():
+            raise SafetyError("Reset completion audit already exists")
+        # The original intent and old pending bytes remain permanently in history.
+        os.rename(self._reset, target)
+        sync_dir(history)
+        sync_dir(self._reset.parent)
+
     def used(self) -> int:
         count = self._count()
         if count == 0:
@@ -467,7 +535,7 @@ class LinuxTape:
         self._check()
         # An unresolved write cannot be made safe by repositioning. Refuse
         # before reading the header or moving to EOD/BOT on every retry.
-        if self._pending.exists():
+        if self._pending.exists() or self._reset.exists() or self._reset.is_symlink():
             raise SafetyError("Incomplete or uncertain physical tape tail")
         self._driver_mode()
         header = self.header()

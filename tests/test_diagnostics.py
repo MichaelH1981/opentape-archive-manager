@@ -152,6 +152,23 @@ class Diagnostics(unittest.TestCase):
                 )
             read.assert_called_once()
 
+    def test_medium_change_invalidates_alerts_but_preserves_history(self):
+        now=time.time();d=drive()
+        self.control.set("worker_heartbeat",now)
+        self.control.set("hardware_inventory",{"time":now,"drives":[d]})
+        observation={"drive_id":d["id"],"drive_serial":"DRIVE","medium_serial":"TAPE","started":now,
+                     "page_sample":{"page":46,"time":now,"state":"AVAILABLE","raw_hex":page(46,[(3,b"\1")]).hex(),"decoded":{"active_flags":[3]}}}
+        save_sample(self.control,observation)
+        self.assertEqual(overview(self.control)["drives"][0]["diagnostics"]["current_alerts"],[3])
+        self.control.set("hardware_inventory",{"time":now,"drives":[{**d,"medium_serial":"OTHER"}]})
+        diag=overview(self.control)["drives"][0]["diagnostics"]
+        self.assertTrue(diag["stale"]);self.assertIsNone(diag["current_alerts"])
+        observation.update(medium_serial="OTHER",started=now+1)
+        observation["page_sample"]={"page":46,"time":now+1,"state":"AVAILABLE","raw_hex":page(46,[(3,b"\0")]).hex(),"decoded":{"active_flags":[]}}
+        save_sample(self.control,observation)
+        diag=overview(self.control)["drives"][0]["diagnostics"]
+        self.assertEqual(diag["current_alerts"],[]);self.assertEqual(len(diag["warning_history"]),1)
+
     def test_offline_and_stale_status_never_claim_current_medium(self):
         now = time.time()
         d = drive()

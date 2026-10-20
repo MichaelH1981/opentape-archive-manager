@@ -2229,3 +2229,16 @@ dialog::backdrop {
 .media-choice-list{display:grid;gap:7px;margin:8px 0}
 .media-choice-list label{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid var(--line,#e4e8df);border-radius:9px;cursor:pointer}
 .media-choice-list input{flex:none}
+
+/* Hardware actions stay readable on narrow screens. */
+.hardware-panel { margin-top:22px; }
+.hardware-drive-list { display:grid; gap:18px; padding:22px; }
+.hardware-drive-card { min-width:0; border:1px solid var(--border, #dce5df); border-radius:12px; padding:20px; }
+.hardware-drive-heading { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; margin-bottom:18px; }
+.hardware-drive-heading h3 { margin:0 0 6px; }
+.hardware-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.hardware-actions .button { white-space:normal; text-align:left; height:auto; min-height:40px; max-width:100%; }
+.hardware-action-reason { margin:12px 0 0; overflow-wrap:anywhere; }
+.hardware-maintenance { border-top:1px solid var(--border, #dce5df); margin-top:18px; padding-top:14px; }
+.hardware-maintenance summary { cursor:pointer; font-weight:600; }
+@media(max-width:600px) { .hardware-drive-list { padding:12px; } .hardware-drive-card { padding:14px; } .hardware-actions { flex-direction:column; align-items:stretch; } }
