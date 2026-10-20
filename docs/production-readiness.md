@@ -365,4 +365,21 @@ zusätzlicher Geräteabfragen bei noch aktueller Erkennung. Lokal bestehen
 175 Tests (ein plattformbedingter Skip). Der ursprüngliche Fehlerbericht und
 das Journal bleiben unverändert lokal gesichert. Web, Worker und Tunnel wurden
 nach dem Fehlende wieder aktiv; die Installation und Produktionssperre sind
-unverändert. Ein korrigierter Hardwarelauf benötigt zunächst den Debian-Nachtest.
+unverändert.
+
+Der korrigierte Kandidat `59422e5` bestand anschließend **175/175 Debian-Tests**
+im eigenen zugänglichen Code-Arbeitsverzeichnis und mit isoliertem Test-TMPDIR.
+Eine zuvor versehentlich aus dem für `otam` unzugänglichen Home-Verzeichnis
+des SSH-Benutzers gestartete Softwaremessung scheiterte an Zugriffsrechten auf
+das Arbeitsverzeichnis; auch deren Log bleibt erhalten. Das ist kein bestandener
+Testlauf und kein physischer Bandfehler.
+
+Seit **12:54:15 MESZ** läuft der korrigierte kleine Integrationszyklus als
+`otam-physical-http-cli-r2.service` mit unveränderlichem Code unter
+`/var/lib/otam/acceptance-code/physical-http-cli-inventory-20261020`.
+Neuer Bericht: `/var/lib/otam/reports/physical-http-cli-20261020-r2/report.json`.
+Die Test-ID ist `0d579a37-aad6-4371-9867-1797da07a5c3`; anfänglich sind weiterhin
+13 Banddateien vorhanden. Der Hauptworker bleibt bis zum Ende dieses Laufs
+angehalten und wird über OnSuccess/OnFailure wieder gestartet. Keine parallelen
+Gerätejobs oder intensiven Servertests starten. Ergebnis und Livekatalogimport
+dieses Laufs sind noch offen; die Produktionssperre bleibt aktiv.
