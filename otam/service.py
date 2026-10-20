@@ -65,6 +65,15 @@ class ArchiveService:
             raise SafetyError("Media identity is unknown or differs from catalog")
         return dict(row)
 
+    def _failed_used(self, job: str, media: str) -> int:
+        """A broken drive must not prevent durable recording of the original error."""
+        try:
+            return self.tape.used()
+        except Exception as error:
+            self.catalog.event(job, "capacity_unknown_after_failure", error=str(error))
+            # Conservatively reserve the entire medium until independent inspection.
+            return self.catalog.db.execute("SELECT capacity FROM media WHERE id=?", (media,)).fetchone()[0]
+
     def plan(self, source: Path, media: str, target: int = 75_000_000_000,
              selected: list[str] | None = None, verify_mode: str = "archive") -> dict[str, Any]:
         if verify_mode not in ("archive", "media"):
@@ -281,6 +290,7 @@ class ArchiveService:
                                "previous": previous, "verified_at": time.time()}
                     receipt_path = store.metadata_path(job, archive)
                     metadata_tar(receipt_path, "receipt.json", receipt)
+                    receipt_path.chmod(0o400)
                     receipt_hash = sha256(receipt_path)
                     receipt_position = self.tape.append(receipt_path, media)
                     if (receipt_position != position + 1
@@ -305,10 +315,11 @@ class ArchiveService:
                 self.catalog.finish(job, "VERIFIED", report=report)
                 return report
             except BaseException as error:
+                used_after_failure = self._failed_used(job, media) if tape_attempted else None
                 with self.catalog.db:
                     self.catalog.db.execute("UPDATE archives SET state='INCOMPLETE' WHERE job_id=? AND state='WRITING'", (job,))
                     if tape_attempted:
-                        self.catalog.db.execute("UPDATE media SET state='SUSPECT',used=? WHERE id=?", (self.tape.used(), media))
+                        self.catalog.db.execute("UPDATE media SET state='SUSPECT',used=? WHERE id=?", (used_after_failure, media))
                 if current:
                     state = "INTERRUPTED" if isinstance(error, (KeyboardInterrupt, SystemExit)) else "FAILED"
                     store.phase(job, current, store.row(job, current)["phase"], state, str(error))
@@ -370,6 +381,7 @@ class ArchiveService:
                            "written_at": time.time()}
                 receipt_path = store.metadata_path(job, archive)
                 metadata_tar(receipt_path, "receipt.json", receipt)
+                receipt_path.chmod(0o400)
                 if self.tape.append(receipt_path, media) != position + 1:
                     raise SafetyError("Receipt position changed unexpectedly")
                 store.phase(job, archive, "TAPE_READBACK", "PENDING", progress_bytes=0,
@@ -430,11 +442,12 @@ class ArchiveService:
             self.catalog.finish(job, "VERIFIED", report=report)
             return report
         except BaseException as error:
+            used_after_failure = self._failed_used(job, media) if attempted else None
             with self.catalog.db:
                 self.catalog.db.execute("UPDATE archives SET state='INCOMPLETE' WHERE job_id=? AND state='WRITING'", (job,))
                 if attempted:
                     self.catalog.db.execute("UPDATE media SET state='SUSPECT',used=? WHERE id=?",
-                                            (self.tape.used(), media))
+                                            (used_after_failure, media))
             if current:
                 row = store.row(job, current)
                 store.phase(job, current, row["phase"],

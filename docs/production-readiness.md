@@ -1,6 +1,6 @@
-# Produktionsfreigabe: Stand 19.10.2026
+# Produktionsfreigabe: Stand 20.10.2026
 
-**Status: NICHT FREIGEGEBEN.** Version 0.5.7 ist für Simulatorbetrieb, Katalogsuche und ausdrücklich bestätigte physische Wartung geeignet. Der reguläre Archivdienst sperrt physische Bandzugriffe in `LinuxTape` weiterhin absichtlich. Ein bestandener Wartungstest darf diese Sperre nicht umgehen.
+**Status: NICHT FREIGEGEBEN.** Installiert bleibt Version 0.5.7 für Simulatorbetrieb, Katalogsuche und ausdrücklich bestätigte physische Wartung. Ein physischer Backend-Kandidat wird seit 20.10.2026 separat geprüft; die regulären CLI-/Webrouten sind weiterhin gesperrt. Ein bestandener Wartungstest darf diese Sperre nicht umgehen.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
@@ -11,7 +11,7 @@
 | 256-GiB-Medientest | Vollständiger Schreib-/Rücklesezyklus mit SHA-256; kein echtes Bandende erreicht | Teilabnahme |
 | Volles Band bis EOM und vollständig zurücklesen | Der ausdrücklich freigegebene OTAM-Wartungsauftrag erreichte das echte Bandende nach 781,41 GiB rekonstruierbaren Testdaten (`eom=true`). Vollständige Rücklesung und SHA-256-Vergleich bestanden (`0ee3c3af5b6b68327c71464bca6944f520aa5373f793395b4faf7c8b045c4b68`). Kein aktives TapeAlert-Flag; die Laufwerkszähler meldeten drei korrigierte Schreibereignisse und keine unkorrigierten Schreib-/Lesefehler. Kompression war deaktiviert. Der Kapazitätswert gilt bis zum ersten gemeldeten ENOSPC/Frühwarnbereich, nicht als erzwungenes physisches EOT | Bestanden für dieses Testmedium |
 | Kontrollierter Abbruch, Neustart und Medienwechsel an echter Hardware | Position, Tail und Identität müssen vor jedem weiteren Write unabhängig geprüft werden | Offen |
-| Reguläre OTAM-Pipeline auf `/dev/nst*` | Backend fehlt; `LinuxTape` löst absichtlich `SafetyError` aus. Inklusive `mbuffer`, Staging, Receipt, Scan, gezieltem Restore und vollständiger Rückleseprüfung zu implementieren und separat abzunehmen | Sperrend |
+| Reguläre OTAM-Pipeline auf `/dev/nst*` | Backend-Kandidat implementiert: MAM-Bindung, bestätigte BOT/EOD/Filemarks, lokale unveränderliche TARs, `mbuffer`, gestreamte Rücklesung und persistente Sperre nach unklarem Schreibende. Softwaretests verbinden den Adapter mit ArchiveService einschließlich Katalogverlust und Restore. Der erste physische Funktionstest mit zwei 32-MiB-Nutzdateien läuft separat von der installierten Anwendung. CLI-/Webintegration, großer Archivzyklus und Hardware-Fehlerfälle stehen noch aus | Sperrend; Hardware-Abnahme läuft |
 | Wiederherstellung eines regulär durch OTAM erzeugten physischen Archivs nach Verlust von Installation und Katalog | Testlayout-Wiederherstellung ersetzt diesen End-to-End-Test nicht | Offen |
 | Eigenständiger Katalog auf Proxmox | Debian-LXC mit eigenem `otam`-Dienstkonto und Catalog-Node-Webdienst installiert. Lokaler `/healthz`, Anmeldung, geschützte Dateisuche und gesperrte Archivierungsroute geprüft. Der SSH-Tunnel blieb aktiv; der signierte Katalog-Snapshot (Sequenz 1, 98.304 Byte) wurde nach dem Bandauftrag übernommen. Bei gestopptem Bandserver-Webdienst antworteten die unabhängige Medienansicht und Dateisuche weiterhin; anschließend liefen Webdienst und Worker wieder. Nach dem Neustart des Bandservers wurde auch der Tunnel aktiv; ein expliziter Synchronisierungsauftrag `f5ee9520-0a29-4c1a-9678-e1a853c21fdf` endete `SUCCEEDED/UNCHANGED` für Sequenz 27 | Bestanden für vorhandenen Katalogstand |
 | Automatische Katalogsynchronisierung bei belegtem I/O-Lock | Während des HDD-Zonentests wurden 33 automatisch geplante Synchronisierungen in wenigen Minuten als Fehler angezeigt, weil der Scheduler die I/O-Sperre nicht beachtete. Version 0.5.4 stellt fällige automatische Aufträge bis zur Freigabe der Sperre zurück; ein Wettlauf nach dem Einplanen wird als `DEFERRED` ohne Fehlertoast abgeschlossen. Linux-Regressionstest bestanden und Version 0.5.4 auf dem Bandserver installiert. Keine der fehlgeschlagenen Veröffentlichungen änderte den gültigen Peer-Katalog. Direkt nach Ende des Zonentests um 21:03:50 MESZ lief der nächste Auftrag erfolgreich; `sync_log` bestätigt `send/SUCCEEDED`, Sequenz 27 | Fehler behoben; erfolgreicher Nachlauf bestätigt |
@@ -36,3 +36,33 @@ Der erste SATA-Test verwendete noch die 0.5.2-Einzelfensterregel; sein historisc
 | 1,60 TB | 10 min | 131,63 MB/s | 95,67 MB/s | 10,03 % | 24,53 MB | Bestanden |
 
 Der Zonenbericht liegt auf dem Bandserver unter `/var/lib/otam/reports/hdd-zones-20261019.json`. Für 120 MB/s Zielrate empfiehlt das Modell im inneren Bereich 2.483.027.968 Byte Puffer (rund 2.368 MiB); die 30-Minuten-Prüfung des äußeren Bereichs empfahl 2.304 MiB. Die SSD-Schwäche und die früheren SMART-Historienwerte der HDD bleiben dokumentiert. Die HDD ist nur ein temporärer Staging-Puffer und ersetzt keine Sicherung. Der reguläre physische OTAM-Zyklus und dessen Sicherheitssperren bleiben vor einer Produktionsfreigabe offen.
+
+## Backend-Abnahme am 20.10.2026
+
+Der separat bereitgestellte Kandidat unter
+`/var/lib/otam/acceptance-code/physical-20261020` bestand auf Debian eine vollständige
+Suite mit 141 Tests und anschließend zwei zusätzliche Fehlerpfadtests. Ein erster
+Testlauf kollidierte mit der I/O-Sperre der laufenden automatischen Synchronisation;
+der erfolgreiche Softwarelauf verwendete daher einen eigenen lokalen Test-TMPDIR,
+ohne die gemeinsame Sperre echter Archivierungsaktionen zu verändern. Die lokale
+Weiterentwicklung mit nur innerhalb einer Laufwerkssperre gültigem Metadaten-/EOD-
+Cache bestand 144 Tests (43 Linux-spezifische Tests unter macOS ausgelassen). Diese
+Optimierung ist noch nicht Teil des laufenden Hardwareprozesses.
+
+Der erste reguläre physische Funktionstest startete um 01:56 MESZ als
+`otam-physical-pipeline-smoke.service`. Er verwendet den echten ArchiveService und
+LinuxTape, ausschließlich generierte Testdateien (zweimal 32 MiB plus README), das
+qualifizierte HDD-Staging und die ausdrücklich freigegebene Kassette. Die
+Initialisierung inklusive vollständiger Header-Rücklesung ist bestätigt. Der
+unveränderte Plan enthält zwei TARs und 67.108.909 Nutzbytes; beide TARs wurden
+vollständig lokal vorbereitet. Archiv-Readback, Katalogrekonstruktion und Restore
+laufen als weitere Schritte desselben Testprozesses. Der Bericht wird unter
+`/var/lib/otam/reports/physical-pipeline-smoke-20261020-0158/report.json` gespeichert.
+Ein aktiver Testprozess darf nicht durch Deployment oder Workerstart unterbrochen
+werden. Der reguläre Worker wurde für diesen getrennten Hardwaretest kontrolliert
+angehalten und muss nach dessen Ende wieder gestartet werden.
+
+Dies ist keine Produktionsfreigabe und kein Leistungstest großer TARs. Die
+installierten Dienste bleiben auf Version 0.5.7; die physische reguläre Webroute ist
+weiter gesperrt. Die Backend-Entscheidungen und verbleibenden Sperrpunkte stehen in
+[physical-backend.md](architecture/physical-backend.md).

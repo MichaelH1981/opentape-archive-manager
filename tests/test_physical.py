@@ -62,6 +62,16 @@ class MemoryDrive:
 
 
 class PhysicalBoundary(unittest.TestCase):
+    def test_write_protected_identified_media_remain_readable(self):
+        from otam.physical import verify_identity
+        drive = {"id": "drive", "device": "/dev/nst0", "sg": "/dev/sg0",
+                 "serial": "drive-serial", "medium_serial": "medium-serial",
+                 "ready": False, "status": {"online": True, "write_protected": True}}
+        with patch("otam.physical.discover_drives", return_value=[drive]):
+            self.assertEqual(verify_identity(drive, writable=False), drive)
+            with self.assertRaises(SafetyError):
+                verify_identity(drive)
+
     def test_mam_requires_complete_unambiguous_medium_serial(self):
         value = b"CARTRIDGE-123"
         record = b"\x04\x01\x01" + len(value).to_bytes(2, "big") + value

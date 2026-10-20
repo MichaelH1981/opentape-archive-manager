@@ -178,11 +178,12 @@ def discover_drives() -> list[dict[str, Any]]:
     return result
 
 
-def verify_identity(expected: dict[str, Any]) -> dict[str, Any]:
+def verify_identity(expected: dict[str, Any], *, writable: bool = True) -> dict[str, Any]:
     drive = next((d for d in discover_drives() if d["id"] == expected["id"]), None)
     if (
         drive is None
-        or not drive["ready"]
+        or not drive.get("status", {}).get("online")
+        or (writable and not drive["ready"])
         or drive["device"] != expected["device"]
         or drive.get("sg") != expected.get("sg")
         or drive["serial"] != expected["serial"]
@@ -197,10 +198,11 @@ def verify_identity(expected: dict[str, Any]) -> dict[str, Any]:
 class LinuxMaintenance:
     """No root shell, no arbitrary device names or commands, no automatic retry."""
 
-    def __init__(self, expected: dict[str, Any], lock_root: Path):
+    def __init__(self, expected: dict[str, Any], lock_root: Path, *, writable: bool = True):
         self.expected = expected
         self.device = expected["device"]
         self.lock_root = lock_root
+        self.writable = writable
 
     @contextmanager
     def locked(self):
@@ -215,13 +217,13 @@ class LinuxMaintenance:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
                 raise SafetyError("Laufwerk wird bereits von OTAM verwendet") from error
-            verify_identity(self.expected)
+            verify_identity(self.expected, writable=self.writable)
             yield
         finally:
             os.close(fd)
 
     def check(self):
-        verify_identity(self.expected)
+        verify_identity(self.expected, writable=self.writable)
 
     def mt(self, operation: str, *args: str):
         if operation not in ("rewind", "setblk", "compression", "erase"):
@@ -232,6 +234,7 @@ class LinuxMaintenance:
         )
 
     def writer(self):
+        verify_identity(self.expected, writable=True)
         fd = os.open(self.device, os.O_WRONLY | os.O_NOFOLLOW)
         if (
             not stat.S_ISCHR(os.fstat(fd).st_mode)
@@ -242,7 +245,14 @@ class LinuxMaintenance:
         return fd
 
     def reader(self):
-        return os.open(self.device, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(self.device, os.O_RDONLY | os.O_NOFOLLOW)
+        if (
+            not stat.S_ISCHR(os.fstat(fd).st_mode)
+            or os.major(os.fstat(fd).st_rdev) != 9
+        ):
+            os.close(fd)
+            raise SafetyError("Ungültiges Bandgerät")
+        return fd
 
     def write(self, fd: int, block: bytes) -> int:
         return os.write(fd, block)

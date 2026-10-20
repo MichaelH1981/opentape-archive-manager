@@ -248,6 +248,34 @@ class Workflows(unittest.TestCase):
                 self.service.backup(plan["job_id"], plan["job_id"], self.spool)
         self.assertEqual(self.catalog.db.execute("SELECT state FROM archives").fetchone()[0], "INCOMPLETE")
 
+    def failed_position_query(self, mode):
+        plan = self.service.plan(self.source, self.media, verify_mode=mode)
+        original_used = self.tape.used
+        failed = False
+        def write(*args):
+            nonlocal failed
+            failed = True
+            raise OSError("primary tape write failure")
+        def used():
+            if failed:
+                raise OSError("position no longer available")
+            return original_used()
+        with patch.object(self.tape, "append", side_effect=write), patch.object(self.tape, "used", side_effect=used):
+            with self.assertRaisesRegex(OSError, "primary tape write failure"):
+                self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        row = self.catalog.db.execute("SELECT state,error FROM jobs WHERE id=?", (plan["job_id"],)).fetchone()
+        self.assertEqual(row["state"], "FAILED")
+        self.assertEqual(row["error"], "primary tape write failure")
+        media = self.catalog.db.execute("SELECT state,used,capacity FROM media WHERE id=?", (self.media,)).fetchone()
+        self.assertEqual(media["state"], "SUSPECT")
+        self.assertEqual(media["used"], media["capacity"])
+
+    def test_position_failure_after_write_error_remains_durable(self):
+        self.failed_position_query("archive")
+
+    def test_position_failure_after_batch_write_error_remains_durable(self):
+        self.failed_position_query("media")
+
     def test_corruption_demotes_verified_and_restore_fails(self) -> None:
         self.backup()
         path = self.tape.path / "00000001.tar"
