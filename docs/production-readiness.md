@@ -1,12 +1,12 @@
 # Produktionsfreigabe: Stand 20.10.2026
 
-**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.7.2** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
+**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.7.3** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
 
 Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt zwei READY-Produktivmedien, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests | Aktueller Stand 0.7.2: 238/238 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 238 Tests mit einem Skip; JavaScript-Syntax geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
+| Automatisierte Softwaretests | Aktueller Stand 0.7.3: 242/242 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 242 Tests mit einem Skip; JavaScript-Syntax geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
@@ -988,3 +988,34 @@ weitere Medien zu. Signierter Peer-Katalog Sequenz 203 (17.600.512 Byte) bestät
 `0846901415255e64e7a6879ab7e0ce6155e253676c07b4dbd6859828de8379cf`.
 Alle Rohberichte, historische Fehlversuche, Testergebnisse und Syncbelege lokal
 ignoriert mit SHA256SUMS gesichert; keine Rohdaten im Git-Upload.
+
+## 0.7.3: native Kapazität ohne feste Prozentreserve
+
+Die pauschale 5-%-Grenze war eine Softwarevorgabe ohne gerätespezifischen
+Nachweis. Sie entfällt konsistent in Quellen-/Ein-/Mehrbandplanung, Webanzeige,
+Service-Schreibvorprüfung und LinuxTape. Native Kapazität bleibt Obergrenze;
+Komprimierungsgewinne werden nicht geplant. Konservative TAR-/Metadaten- und
+Receiptabschätzungen sowie echte frühe EOM-/Pending-/Tail-Sperren bleiben erhalten.
+Eine gemeinsame Largest-first/Best-fit-Heuristik verteilt vollständige TARs,
+mit bisheriger geordneter Zuordnung als Rückfall. Kein mathematischer
+Optimalitätsanspruch; pro Kassette bleibt die ursprüngliche TAR-Reihenfolge.
+
+242/242 Debian-Tests in 71,441 s bestanden; lokal 242 mit einem Skip,
+JavaScript-Syntax geprüft. Neue Tests prüfen native Grenze, zu große TARs,
+Umverteilung ohne unnötiges drittes Medium, den konkreten LP-Schätzbedarf und
+reguläre Quellenbindung/Staging oberhalb der alten 95-%-Grenze. Der erste
+Debianlauf enthielt versehentlich keine tools-Testhilfen; sein unveränderter
+Fehlerbericht bleibt lokal, der vollständige korrigierte Lauf ist bestanden.
+
+0.7.3 wurde nach Leerlaufkontrolle und SQLite-/Konfigurationsbackup installiert;
+Dienstkontoimport, Webhealth, Worker und Katalogtunnel sind geprüft. Livekonfiguration,
+Quelldaten, Medieninhalte und versiegelter LP-Quellenplan unverändert.
+Live-Kapazitätsprüfung ohne Bandaktionen: beide Medien je 799.999.989.760 Byte
+frei, TAR-Verteilung 762.465.735.322 / 760.268.000.068 neue Byte; Rest
+37.534.254.438 / 39.731.989.692 Byte. Plan weiterhin WAITING_MEDIA, keine
+Inhaltshashes berechnet, keine Archive erzeugt. Beide Kassetten können jetzt
+zugeordnet werden; Bindung prüft weiterhin Dateifingerprints vor jedem Hash.
+Report /var/lib/otam/reports/native-capacity-073-20261020-r1/report.json,
+SHA256 735675981b37872fdfca901b465df3a92dfcb3772cce6bea5adb723d68c2217c.
+Wheel SHA256 e42caf3ebc1edd33f2fff7ac2c74830b3e5b7e475320541cadea7e22bd8b05ec.
+Rohdaten ausschließlich im lokal ignorierten Dossier; kein neuer physischer Test.

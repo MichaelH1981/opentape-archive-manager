@@ -559,8 +559,8 @@ class LinuxTape:
             raise SafetyError("Insufficient available RAM for the selected transfer buffer")
         size = source.stat().st_size
         used_before = self.used()
-        if size <= 0 or used_before + size + 10240 > header["capacity"] * 95 // 100:
-            raise SafetyError("Archive exceeds conservative physical capacity")
+        if size <= 0 or used_before + size + 10240 > header["capacity"]:
+            raise SafetyError("Archive exceeds native physical capacity")
         # Recheck identity and exact EOD immediately before opening for write.
         self.device.mt("setblk", "0")
         self.device.mt("compression", "0")

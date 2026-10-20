@@ -8,6 +8,7 @@ from ..catalog import Catalog
 from ..common import SafetyError, encode, safe_path
 from ..service import ArchiveService
 from ..sets import plan_set
+from ..allocation import allocate
 from ..storage import io_lock
 from . import maintenance, resources, physical_archive
 
@@ -89,7 +90,7 @@ def snapshots(config,control,catalog,ids):
             if json.loads(record['header_json']).get('backend')!='simulator':
                 raise SafetyError('Physische Medien benötigen physischen Betriebsmodus')
             used=record['used']
-        result.append(record['capacity']*95//100-used)
+        result.append(record['capacity']-used)
     return result
 
 
@@ -127,19 +128,18 @@ def _prepare(config,control,kind,payload):
             state,draft=load(c,payload['job_id'])
             # Recheck after acquiring the global lock, not only at queue time.
             validate(config,control,kind,payload)
-            available=snapshots(config,control,c,payload['media_ids']);remaining=available.copy();index=0
-            for size in draft['archive_sizes']:
-                while index<len(remaining) and remaining[index]<size:index+=1
-                if index==len(remaining):
-                    result={'state':'WAITING_MEDIA','job_id':payload['job_id'],'required_estimate':draft['required_estimate'],
-                            'available':sum(available),'largest_archive':draft['largest_archive'],
-                            'message':'Ausgewählte Medien reichen nicht für alle vollständigen TARs. Weitere Medien wählen; Quellenplan bleibt erhalten.'}
-                    if draft['largest_archive'] > max(available):
-                        result['message']='Ein vollständiges TAR passt auf keines der ausgewählten Medien. Größeres oder ausreichend freies Medium wählen; Einzeldateien werden nicht geteilt.'
-                    with c.db:c.db.execute('UPDATE jobs SET report_json=?,updated=? WHERE id=?',(encode(result).decode(),time.time(),payload['job_id']))
-                    c.event(payload['job_id'],'more_media_required',**result)
-                    return result
-                remaining[index]-=size
+            available=snapshots(config,control,c,payload['media_ids'])
+            try:
+                allocate(draft['archive_sizes'], available)
+            except SafetyError:
+                result={'state':'WAITING_MEDIA','job_id':payload['job_id'],'required_estimate':draft['required_estimate'],
+                        'available':sum(available),'largest_archive':draft['largest_archive'],
+                        'message':'Keine passende Verteilung vollständiger TARs auf die ausgewählten Medien gefunden. Andere oder zusätzliche Medien wählen; Quellenplan bleibt erhalten.'}
+                if draft['largest_archive'] > max(available):
+                    result['message']='Ein vollständiges TAR passt auf keines der ausgewählten Medien. Größeres oder ausreichend freies Medium wählen; Einzeldateien werden nicht geteilt.'
+                with c.db:c.db.execute('UPDATE jobs SET report_json=?,updated=? WHERE id=?',(encode(result).decode(),time.time(),payload['job_id']))
+                c.event(payload['job_id'],'more_media_required',**result)
+                return result
             root=Path(draft['source'])
             if inventory(root,draft['selected_paths'],metadata_only=True,excluded=draft.get('excluded_paths'))!=draft['source_entries']:
                 raise SafetyError('Quelle seit Planung verändert; zuerst neuen Quellenplan erstellen')

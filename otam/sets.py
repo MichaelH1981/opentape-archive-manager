@@ -19,6 +19,7 @@ from .service import ArchiveService, scan, inspect_catalogued_media
 from .storage import io_lock
 from .tape import Tape
 from .planning import catalogue_snapshot
+from .allocation import allocate
 
 
 def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape | None]],
@@ -49,7 +50,7 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                     raise SafetyError("Physical media IDs refer to the same cartridge")
                 physical_serials.add(serial)
                 positions[media] = snapshot["expected_tape_files"]
-                available[media] = snapshot["record"]["capacity"] * 95 // 100 - snapshot["used"]
+                available[media] = snapshot["record"]["capacity"] - snapshot["used"]
                 continue
             if tape is None:
                 raise SafetyError("Loaded medium required for device-based planning")
@@ -65,16 +66,12 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                 else:
                     scan(tape, media)
                 positions[media] = len(tape.positions())
-                available[media] = record["capacity"] * 95 // 100 - tape.used()
+                available[media] = record["capacity"] - tape.used()
         assignments: dict[str, list[dict[str, Any]]] = {media: [] for media, _ in media_tapes}
         remaining = available.copy()
-        index = 0
-        for manifest in manifests:
-            required = estimate(manifest["files"]) + 10240
-            while index < len(media_tapes) and required > remaining[media_tapes[index][0]]:
-                index += 1
-            if index == len(media_tapes):
-                raise SafetyError("Selected media cannot hold every complete TAR; no medium was written")
+        sizes = [estimate(manifest["files"]) + 10240 for manifest in manifests]
+        allocation = allocate(sizes, [available[media] for media, _ in media_tapes])
+        for manifest, required, index in zip(manifests, sizes, allocation):
             media = media_tapes[index][0]
             manifest["media_id"] = media
             assignments[media].append(manifest)

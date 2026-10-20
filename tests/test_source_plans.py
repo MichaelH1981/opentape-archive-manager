@@ -64,6 +64,15 @@ class SourcePlans(TestCase):
         finally:c.close()
         with self.assertRaises(SafetyError):self.bind(draft,[one,two])
 
+    def test_native_capacity_above_old_percentage_binds_and_stages(self):
+        draft=self.preview()
+        capacity=draft['required_estimate']+10240+1
+        medium=execute(self.config,self.control,'create-medium',{'label':'near-native','capacity':capacity,'media_class':'rotation'})['media_id']
+        self.assertGreater(draft['required_estimate']+10240,capacity*95//100)
+        bound=self.bind(draft,[medium])
+        self.assertEqual(bound['state'],'PLANNED')
+        execute(self.config,self.control,'stage',{'job_id':bound['job_id']})
+
     def test_changed_source_and_tampered_draft_refuse_before_hashing(self):
         one=self.medium('one');two=self.medium('two');draft=self.preview()
         p=self.root/'source/one';before=p.stat();p.write_bytes(b'x'*before.st_size);os.utime(p,ns=(before.st_atime_ns,before.st_mtime_ns))

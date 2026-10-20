@@ -156,7 +156,7 @@ class ArchiveService:
             else:
                 scan(self.tape, media)
             return self._plan_inventory(root, media, target, selected, verify_mode,
-                                        record["capacity"] * 95 // 100 - self.tape.used(),
+                                        record["capacity"] - self.tape.used(),
                                         len(self.tape.positions()), expected=expected, excluded=excluded)
 
     def plan_catalogued(self, source: Path, media: str, target: int = 75_000_000_000,
@@ -173,7 +173,7 @@ class ArchiveService:
         with io_lock():
             snapshot = catalogue_snapshot(self.catalog, media)
             return self._plan_inventory(root, media, target, selected, verify_mode,
-                                        snapshot["record"]["capacity"] * 95 // 100 - snapshot["used"],
+                                        snapshot["record"]["capacity"] - snapshot["used"],
                                         snapshot["expected_tape_files"], catalogue_only=True, expected=expected, excluded=excluded)
 
     def _plan_inventory(self, root: Path, media: str, target: int, selected: list[str] | None,
@@ -190,14 +190,14 @@ class ArchiveService:
             if any(len(encode(m)) > MAX_META for m in preflight):
                 raise SafetyError("Manifest exceeds limit; reduce archive target size")
             if sum(estimate(m['files']) + 10240 for m in preflight) > available:
-                raise SafetyError("Plan exceeds conservative capacity; select additional media before hashing")
+                raise SafetyError("Plan exceeds native capacity; select additional media before hashing")
             entries = inventory(root, selected, expected=expected, excluded=excluded)
             manifests = plan_archives(entries, media, target)
             if any(len(encode(m)) > MAX_META for m in manifests):
                 raise SafetyError("Manifest exceeds limit; reduce archive target size")
             required = sum(estimate(m["files"]) + 10240 for m in manifests)
             if required > available:
-                raise SafetyError("Plan exceeds conservative capacity; use another medium or smaller selection")
+                raise SafetyError("Plan exceeds native capacity; use another medium or smaller selection")
             plan = {"media_id": media, "source": str(root), "archives": manifests,
                     "required_estimate": required, "available": available,
                     "payload_bytes": sum(e["size"] for e in entries), "file_count": len(entries),
@@ -365,7 +365,7 @@ class ArchiveService:
                     data = store.validate_ready(job, manifest)
                     ready = store.row(job, archive)
                     data_hash, size = ready["sha256"], ready["bytes"]
-                    if self.tape.used() + size + 10240 > record["capacity"] * 95 // 100:
+                    if self.tape.used() + size + 10240 > record["capacity"]:
                         raise SafetyError("Insufficient remaining capacity for complete archive and receipt")
                     position = len(self.tape.positions())
                     previous = sha256(self.tape.read(position - 1))
@@ -461,7 +461,7 @@ class ArchiveService:
                 data = store.validate_ready(job, manifest)
                 ready = store.row(job, archive)
                 data_hash, size = ready["sha256"], ready["bytes"]
-                if self.tape.used() + size + 10240 > record["capacity"] * 95 // 100:
+                if self.tape.used() + size + 10240 > record["capacity"]:
                     raise SafetyError("Insufficient remaining capacity for complete archive and receipt")
                 position = len(self.tape.positions())
                 previous = sha256(self.tape.read(position - 1))

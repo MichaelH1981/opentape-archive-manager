@@ -10,7 +10,7 @@ keine Medien-UUID und kein erzeugtes TAR.
 Ein dauerhaft gespeicherter `source-plan` wartet in `WAITING_MEDIA`. Die
 Oberfläche fordert danach Zielmedien an. `bind-plan` bindet die unveränderte
 Quellenplan-SHA-256 und die geordnete Medienliste. Die konservative Kapazität
-(95 Prozent native Kapazität minus Belegung) wird einschließlich kompletter
+(native Kapazität minus Belegung; ab 0.7.3 ohne pauschale Prozentreserve) wird einschließlich kompletter
 TARs und Receipts vor jedem Inhaltsread geprüft. Reicht sie nicht, bleibt
 der Quellenplan mit verständlichem Hinweis erhalten. Zusätzliche oder andere
 Medien lassen sich ohne erneutes Hashen wählen. Große Einzeldateien werden
@@ -47,3 +47,21 @@ Ab 0.7.2 zählt die Gruppierung den bytegenauen Schätzbedarf linear je Eintrag,
 statt beim Hinzufügen jeweils die bisherige Gruppe erneut zu serialisieren.
 Die Kapazitätsgrenzen bleiben unverändert. Grenzwerte, Unicode-Pfade und lineare
 Arbeit sind softwaregeprüft; der echte 30.800-Dateien-Quellenplan brauchte 11,59 s.
+
+## Ab 0.7.3: native Kapazität und vollständige TAR-Verteilung
+
+Die feste 5-%-Reserve entfällt in Vorplanung, verbindlicher Planung und
+Schreibprüfung gleichermaßen. Hardwarekomprimierung bringt keinen geplanten
+Kapazitätsbonus. Header, bestehende Belegung sowie konservativ geschätzte TAR-,
+Metadaten- und Receiptbytes bleiben berücksichtigt. Native Kapazität ist keine
+Garantie für ein verschlissenes oder fehlerhaftes Medium: frühes EOM bleibt ein
+Fehler mit dauerhaftem Pending und gesperrtem unbestätigtem Tail.
+
+Eine gemeinsame deterministische Largest-first/Best-fit-Zuordnung verteilt ganze
+TARs vor dem Hashen; pro Medium bleibt deren ursprüngliche Reihenfolge erhalten.
+Die gewählte Medienreihenfolge bleibt die Wechselreihenfolge. Ordered Next-fit
+bleibt Rückfall, falls diese Heuristik scheitert. Ein Fehlschlag ist kein Beweis,
+dass mathematisch keine andere Packung existiert; die Oberfläche benennt dies.
+Der gespeicherte LP-Quellenplan mit 17 TARs und 1.522.733.735.390 geschätzten Bytes
+passt softwareseitig auf zwei native 800-GB-Medien ohne Komprimierungsannahme.
+Keine Bandbewegung oder neue Bandqualifikation für diese Änderung erforderlich.

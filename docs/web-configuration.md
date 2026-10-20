@@ -236,3 +236,9 @@ Ab 0.7.1 sind explizite `excluded_paths` möglich. Exakte relative Pfade je
 Zeile, Ordner einschließlich Unterbaum, keine Muster. Sie gelten unverändert
 für Quellenplan, Hashberechnung und Staging und erscheinen im Review. Symlinks
 werden niemals automatisch verfolgt oder stillschweigend übersprungen.
+
+Ab 0.7.3 zeigt die Medienauswahl native freie Kapazität ohne pauschale 5-%-Reserve.
+Die gemeinsame TAR-Verteilung prüft vollständige Archive einschließlich
+Receiptbedarf; Komprimierungsgewinne werden nicht angerechnet. Schreibprüfungen
+verwenden dieselbe native Grenze. Frühes physisches EOM wird weiterhin gesperrt
+als unvollständiger Tail behandelt, nicht automatisch fortgesetzt.
