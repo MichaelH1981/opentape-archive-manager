@@ -10,6 +10,9 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
+import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -36,6 +39,8 @@ def main() -> int:
     parser.add_argument("--payload-mib", type=int, default=32)
     parser.add_argument("--verify-mode", choices=("archive", "media"), default="archive")
     parser.add_argument("--existing-media-id", help="Append to this existing OTAM test medium instead of initializing")
+    parser.add_argument("--recover-report", type=Path,
+                        help="Read-only recovery of fixtures from a previous acceptance report; never initializes or appends")
     parser.add_argument("--report-root", required=True, type=Path)
     args = parser.parse_args()
     if args.confirm != f"TEST {args.drive_serial} {args.medium_serial}":
@@ -58,13 +63,16 @@ def main() -> int:
 def execute(config: WebConfig, args: argparse.Namespace) -> int:
     drives = [drive for drive in discover_drives()
               if drive.get("serial") == args.drive_serial
-              and drive.get("medium_serial") == args.medium_serial and drive.get("ready")]
+              and drive.get("medium_serial") == args.medium_serial
+              and (drive.get("ready") or (args.recover_report and drive.get("status", {}).get("online")))]
     if len(drives) != 1:
         raise SafetyError("The explicitly authorized drive/cartridge pair is not uniquely present")
     drive = drives[0]
     if (drive.get("vendor") != "IBM" or drive.get("model") != "ULT3580-HH4"
             or drive.get("status", {}).get("density_code") != 0x46):
         raise SafetyError("This hardware acceptance covers IBM HH4 with LTO-4 only")
+    if args.recover_report:
+        return recover_only(config, args, drive)
     catalog = Catalog(config.catalog)
     try:
         require_qualification(catalog, config.staging)
@@ -153,6 +161,83 @@ def execute(config: WebConfig, args: argparse.Namespace) -> int:
             report.update(state="FAILED", error=str(error), finished=time.time())
             record("FAILED", error=str(error))
             raise
+    finally:
+        catalog.close()
+
+
+def recover_only(config: WebConfig, args: argparse.Namespace, drive: dict) -> int:
+    """Keep the failed historical report intact and recover its existing medium."""
+    previous = json.loads(args.recover_report.read_text())
+    if any(previous["drive"][key] != drive[key] for key in ("serial", "medium_serial")):
+        raise SafetyError("Recovery report belongs to a different drive/cartridge")
+    media = next(event["media_id"] for event in previous["events"] if event["phase"] == "HEADER_VERIFIED")
+    checksums = next(event["checksums"] for event in previous["events"] if event["phase"] == "FIXTURES_READY")
+    root = args.report_root.resolve()
+    if (root.is_relative_to(config.staging.resolve())
+            or config.staging.resolve().is_relative_to(root)
+            or config.catalog.resolve().is_relative_to(root)):
+        raise SafetyError("Recovery report root must be separate from staging and catalog")
+    root.mkdir(mode=0o700, parents=True, exist_ok=False)
+    report = {"state": "RUNNING", "started": time.time(), "drive": drive,
+              "media_id": media, "previous_report": str(args.recover_report), "events": [],
+              "scope": "READ ONLY tape access: catalog reconstruction, restore and independent recovery"}
+
+    def record(phase: str, **values):
+        report["events"].append({"time": time.time(), "phase": phase, **values})
+        temporary = root / "report.json.tmp"
+        with temporary.open("w") as stream:
+            json.dump(report, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, root / "report.json")
+        sync_dir(root)
+        print(json.dumps({"phase": phase, **values}), flush=True)
+
+    catalog = Catalog(root / "reconstructed.sqlite")
+    try:
+        tape = LinuxTape(drive, config.state)
+        service = ArchiveService(catalog, tape)
+        record("REBUILD_START")
+        record("REBUILT", result=service.rebuild(media))
+        target = config.staging / ("acceptance-recovery-" + str(uuid.uuid4()))
+        restored = service.restore(media, target, paths=list(checksums))
+        for name, checksum in checksums.items():
+            if sha256(target / name) != checksum:
+                raise SafetyError("Recovery destination checksum mismatch")
+        record("RESTORE_VERIFIED", result=restored, checksums=checksums)
+        # Isolated Python invocation: the recovery utility imports no OTAM code
+        # and receives only standard TAR files physically read from this medium.
+        for archive in catalog.db.execute("SELECT * FROM archives WHERE media_id=?", (media,)).fetchall():
+            if archive["bytes"] > 256 * 1024**2:
+                record("INDEPENDENT_EXPORT_SKIPPED", archive_id=archive["id"], reason="small-test limit")
+                continue
+            data = root / (archive["id"] + ".tar")
+            receipt = root / (archive["id"] + "-receipt.tar")
+            with io_lock(), tape.locked():
+                with tape.open_read(archive["tape_file"]) as incoming, data.open("xb") as output:
+                    count = 0
+                    while chunk := incoming.read(1024**2):
+                        count += len(chunk)
+                        if count > archive["bytes"]:
+                            raise SafetyError("Independent export exceeds verified archive size")
+                        output.write(chunk)
+                    output.flush()
+                    os.fsync(output.fileno())
+                if count != archive["bytes"] or sha256(data) != archive["sha256"]:
+                    raise SafetyError("Independent export archive checksum mismatch")
+                shutil.copyfile(tape.read(archive["tape_file"] + 1), receipt)
+            result = subprocess.run([sys.executable, "-I", str(Path(__file__).with_name("recover_tar.py")),
+                                     str(data), str(receipt), str(root / ("independent-" + archive["id"]))],
+                                    capture_output=True, text=True, check=True)
+            record("INDEPENDENT_RECOVERY_VERIFIED", archive_id=archive["id"],
+                   sha256=archive["sha256"], result=json.loads(result.stdout))
+        report.update(state="VERIFIED", finished=time.time())
+        record("COMPLETE")
+        return 0
+    except BaseException as error:
+        report.update(state="FAILED", error=str(error), finished=time.time())
+        record("FAILED", error=str(error))
+        raise
     finally:
         catalog.close()
 

@@ -67,6 +67,15 @@ Archivhash, Bytezahl, Manifest und Nutzdatei-Hashes. Die gesondert bestätigte
 Initialisierung prüft auch den Header physisch zurück. VERIFIED und Staging-Cleanup
 bleiben an die vollständige erfolgreiche Rücklesung gebunden.
 
+`TapeRecordReader` liest physisch stets mit einem ausreichend großen Puffer,
+bedient daraus auch kleine Byte-Anforderungen (etwa den TAR-Standardpuffer von
+10 KiB) und merkt sich die erste gelesene Filemark. Weitere Leseaufrufe auf
+derselben offenen Banddatei geben dann ausschließlich EOF zurück. Ein gewöhnlicher
+BufferedReader direkt auf dem st-Deskriptor würde diese Garantie nicht liefern:
+ein Read hinter der ersten Filemark kann beim st-Treiber zur nächsten Banddatei
+führen. Die Record-Schicht verhindert sowohl ENOMEM bei zu kleinen Read-Puffern
+als auch versehentliches Zusammenlesen benachbarter TARs.
+
 ## Noch sperrende Abnahmen
 
 * Vollständiger physischer Dienstzyklus einschließlich Katalogverlust und Restore.

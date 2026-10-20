@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import io
 import os
 import re
 import stat
@@ -155,6 +156,45 @@ class SimulatedTape:
         return position
 
 
+class TapeRecordReader(io.RawIOBase):
+    """Adapt st records to byte reads, latching the first physical filemark.
+
+    A small os.read buffer cannot receive a larger variable tape record. Also,
+    after returning EOF, st can advance into the next tape file on another read.
+    The latch prevents a BufferedReader from silently crossing that boundary.
+    """
+
+    def __init__(self, fd: int):
+        super().__init__()
+        self.fd = fd
+        self.pending = b""
+        self.eof = False
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target) -> int:
+        if self.closed:
+            raise ValueError("Read from closed tape file")
+        if not len(target):
+            return 0
+        if not self.pending and not self.eof:
+            self.pending = os.read(self.fd, BLOCK)
+            if not self.pending:
+                self.eof = True
+        count = min(len(target), len(self.pending))
+        target[:count] = self.pending[:count]
+        self.pending = self.pending[count:]
+        return count
+
+    def close(self) -> None:
+        if not self.closed:
+            try:
+                os.close(self.fd)
+            finally:
+                super().close()
+
+
 class LinuxTape:
     """Conservative Linux st backend for an already initialized OTAM medium.
 
@@ -297,12 +337,8 @@ class LinuxTape:
     def open_read(self, position: int) -> Iterator[BinaryIO]:
         self._seek(position)
         fd = self.device.reader()
-        try:
-            with os.fdopen(fd, "rb", buffering=0) as stream:
-                yield stream
-        finally:
-            # fdopen owns the descriptor, including exceptional exits.
-            pass
+        with io.BufferedReader(TapeRecordReader(fd), buffer_size=BLOCK) as stream:
+            yield stream
 
     def header(self) -> dict[str, Any]:
         header = read_metadata(self.read(0), "media.json", recovery=True)

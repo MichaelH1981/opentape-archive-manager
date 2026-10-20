@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from otam.common import FORMAT, SafetyError
 from otam.archive import metadata_tar
-from otam.tape import LinuxTape
+from otam.tape import LinuxTape, TapeRecordReader
 
 
 DRIVE = {"id": "test-drive", "device": "/dev/nst0", "serial": "DRIVE-1",
@@ -152,3 +152,27 @@ class LinuxTapeSafety(TestCase):
             move.assert_called_once_with("eod")
             self.assertEqual(self.tape._count(force=True), 3)
             self.assertEqual(move.call_count, 2)
+
+
+class TapeRecordReads(TestCase):
+    def test_small_reads_receive_large_records_and_never_cross_filemark(self):
+        records = [b"a" * (512 * 1024), b"b" * 10240, b"", b"NEXT TAPE FILE"]
+        with patch("otam.tape.os.read", side_effect=records) as read, \
+                patch("otam.tape.os.close") as close:
+            with io.BufferedReader(TapeRecordReader(123), buffer_size=1024**2) as incoming:
+                payload = bytearray()
+                while chunk := incoming.read(10240):
+                    payload.extend(chunk)
+                self.assertEqual(bytes(payload), records[0] + records[1])
+                self.assertEqual(incoming.read(10240), b"")
+                self.assertEqual(incoming.read(), b"")
+                self.assertEqual(read.call_count, 3)
+                self.assertTrue(all(call.args == (123, 1024**2) for call in read.call_args_list))
+            close.assert_called_once_with(123)
+
+    def test_read_error_propagates_instead_of_becoming_eof(self):
+        with patch("otam.tape.os.read", side_effect=OSError("medium read failure")), \
+                patch("otam.tape.os.close"):
+            with io.BufferedReader(TapeRecordReader(123), buffer_size=1024**2) as incoming:
+                with self.assertRaisesRegex(OSError, "medium read failure"):
+                    incoming.read(10240)
