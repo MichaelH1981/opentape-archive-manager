@@ -83,6 +83,9 @@ const labels = {
   ARCHIVED: "Schreibgeschützt",
   UNKNOWN: "Unbekannt",
   RETIRED: "Ausgemustert",
+  BOUND: "Medien zugeordnet",
+  MEDIA_SELECTION: "Zielmedien auswählen",
+  HASHING: "Dateiprüfsummen berechnen",
   TESTING: "In Prüfung",
   COMPLETE: "Abgeschlossen",
   PENDING: "Ausstehend",
@@ -96,12 +99,15 @@ const labels = {
   STAGING_CLEANUP: "Bereinigt",
 };
 const badge = (s) =>
-  `<span class="badge ${["VERIFIED", "SUCCEEDED", "READY", "COMPLETE"].includes(s) ? "good" : ["RUNNING", "PLANNING", "WRITING", "IN_USE"].includes(s) ? "running" : ["FAILED", "INTERRUPTED", "INCOMPLETE", "SUSPECT"].includes(s) ? "bad" : ["PLANNED", "STAGED", "QUEUED", "WAITING_MEDIA"].includes(s) ? "blue" : "neutral"}">${esc(labels[s] || s || "Unbekannt")}</span>`;
+  `<span class="badge ${["VERIFIED", "SUCCEEDED", "READY", "COMPLETE"].includes(s) ? "good" : ["RUNNING", "PLANNING", "WRITING", "IN_USE"].includes(s) ? "running" : ["FAILED", "INTERRUPTED", "INCOMPLETE", "SUSPECT"].includes(s) ? "bad" : ["PLANNED", "STAGED", "QUEUED", "WAITING_MEDIA", "MEDIA_SELECTION"].includes(s) ? "blue" : "neutral"}">${esc(labels[s] || s || "Unbekannt")}</span>`;
 const kindLabel = (k) =>
   ({
     archive: "Archivierung",
     "archive-set": "Mehrbandarchivierung",
     plan: "Archiv planen",
+    "plan-source": "Quellenumfang ermitteln",
+    "bind-plan": "Zielmedien zuordnen",
+    "source-plan": "Quellenplan",
     stage: "Staging vorbereiten",
     backup: "Archivieren",
     "backup-set": "Nächstes Medium archivieren",

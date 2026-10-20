@@ -46,6 +46,8 @@ COMMANDS = {
     "initialize-physical",
     "reset-physical",
     "reinitialize-physical",
+    "plan-source",
+    "bind-plan",
 }
 
 
@@ -83,6 +85,10 @@ def validate_command(
     if config.role != "archive" or kind not in COMMANDS:
         raise SafetyError("Dieser Node erlaubt keine Archivierungsaufträge")
     config = resources.effective(config, control)
+    if kind in ("plan-source","bind-plan"):
+        from . import source_plans
+        source_plans.validate(config,control,kind,payload)
+        return
     if kind == "register-physical":
         physical_archive.validate_registration(config, control, payload)
         return
@@ -147,7 +153,7 @@ def validate_command(
             raise SafetyError("Ungültige Medienklasse")
         return
     allowed = {
-        "plan": {"media_id", "media_ids", "source_id", "target", "staging_id", "selected_paths", "verify_mode"},
+        "plan": {"media_id", "media_ids", "source_id", "target", "staging_id", "selected_paths", "excluded_paths", "verify_mode"},
         "stage": {"job_id", "revalidate_ready", "confirm"},
         "backup": {"job_id", "confirm", "plan_hash", "resume", "prepare_all"},
         "backup-set": {"job_id", "confirm", "plan_hash", "media_id", "resume"},
@@ -168,6 +174,11 @@ def validate_command(
                 raise SafetyError("Ungültige Dateiauswahl")
             for path in selected:
                 safe_path(path)
+        if 'excluded_paths' in payload:
+            paths=payload['excluded_paths']
+            if not isinstance(paths,list) or len(paths)>10000 or any(not isinstance(p,str) or len(p)>4096 for p in paths):
+                raise SafetyError('Ungültige Ausschlüsse')
+            for path in paths:safe_path(path)
         resources.staging_for(
             config, control, selected_staging_id(config, control, payload)
         )
@@ -317,6 +328,9 @@ def execute(
         control.set("hardware_inventory", {"time": time.time(), "drives": discover_drives()})
     validate_command(config, control, kind, payload)
     config = resources.effective(config, control)
+    if kind in ("plan-source","bind-plan"):
+        from . import source_plans
+        return source_plans.execute(config,control,kind,payload)
     if kind == "register-physical":
         return physical_archive.register_existing(config, control, payload)
     if kind == "initialize-physical":
@@ -392,11 +406,11 @@ def execute(
                 plan = plan_set(catalog, source,
                     [(ident, None if offline_plan else mounted(config, control, ident)) for ident in payload["media_ids"]],
                     payload.get("target", 75_000_000_000), payload.get("selected_paths"),
-                    payload.get("verify_mode", "archive"), catalogue_only=offline_plan)
+                    payload.get("verify_mode", "archive"), catalogue_only=offline_plan, excluded=payload.get("excluded_paths"))
             else:
                 planner = service.plan_catalogued if offline_plan else service.plan
                 plan = planner(source, media, payload.get("target", 75_000_000_000),
-                                    payload.get("selected_paths"), payload.get("verify_mode", "archive"))
+                                    payload.get("selected_paths"), payload.get("verify_mode", "archive"), excluded=payload.get("excluded_paths"))
             control.set(
                 "job_storage:" + plan["job_id"],
                 {

@@ -197,13 +197,19 @@ def execute(config: WebConfig, control: Control, payload: dict[str, Any], *, rei
                             raise SafetyError('Initialisierungshistorie hat sich geändert')
                     else:
                         _unused(config, control, drive["medium_serial"], db, own=grant["id"])
-                if reinitialize:
+                previous_header_state = "not_requested"
+                if reinitialize and tape.positions():
+                    previous_header_state = "matched_previous_uuid"
                     old = tape.header()
                     if (old.get('media_id') != grant['previous_initializations'][-1]['media_id']
                             or old.get('medium_serial') != drive['medium_serial'] or old.get('backend') != 'physical'):
                         raise SafetyError('Vorhandener Header stimmt nicht mit der geprüften Initialisierung überein')
+                elif reinitialize:
+                    # positions() confirms physical EOD with file_number=0;
+                    # initialize() still verifies BOT and fresh MAM before write.
+                    previous_header_state = "confirmed_eod_zero"
                 job = catalog.job("reinitialize" if reinitialize else "initialize", None)
-                catalog.event(job, "initialization_confirmed", previous_initializations=grant.get("previous_initializations"), approval_id=grant["id"],
+                catalog.event(job, "initialization_confirmed", previous_header_state=previous_header_state, previous_initializations=grant.get("previous_initializations"), approval_id=grant["id"],
                               review_hash=grant["review_hash"], drive_serial=drive["serial"],
                               medium_serial=drive["medium_serial"], label=grant["label"],
                               native_capacity=grant["capacity"], media_class=grant["media_class"])

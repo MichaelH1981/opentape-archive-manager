@@ -47,7 +47,7 @@ function applyPermissions(root) {
     $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-register-physical], [data-initialize-physical], [data-reset-physical], [data-reinitialize-physical], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
       .forEach((element) => (element.hidden = true));
   if (role === "viewer")
-    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group]", root)
+    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group], #bind-source-plan-form", root)
       .forEach((element) => (element.hidden = true));
 }
 async function render() {
@@ -85,7 +85,16 @@ async function render() {
 async function showJob(id) {
   const j = await api("/jobs/" + encodeURIComponent(id)),
     p = j.plan;
-  let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.phase] || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
+  let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.kind === "source-plan" && j.state === "WAITING_MEDIA" ? "MEDIA_SELECTION" : j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.phase] || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
+  if (j.kind === "source-plan" && p) {
+    html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Die Dateiprüfsummen werden jetzt berechnet." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die Hashberechnung.", "info")}`;
+    if (j.state === "WAITING_MEDIA") {
+      if (j.report?.message) html += note(j.report.message, "warning");
+      if (typeof j.report?.available === "number") html += `<p class="hint">Ausgewählte konservative Kapazität: ${bytes(j.report.available)} · Bedarf: ${bytes(p.required_estimate)}</p>`;
+      html += `<form id="bind-source-plan-form"><strong>Zielmedien in Schreibreihenfolge</strong><div class="media-choice-list">${state.media.filter(m=>m.plannable).map(m=>`<label><input type="checkbox" name="media_ids" value="${esc(m.id)}"><span>${esc(m.label)} · konservativ ${bytes(Math.max(0, Math.floor(m.capacity * 0.95) - m.used))} verfügbar</span></label>`).join("")}</div><p class="hint">Die angezeigte Reihenfolge gilt für den Bandwechsel. Größere Einzeldateien bleiben zusammen. Bei unzureichender Kapazität bleibt dieser Quellenplan erhalten.</p><div class="form-actions"><button class="button primary" type="submit">Kapazität prüfen & Medien zuordnen</button></div></form>`;
+    }
+    if (j.state === "BOUND" && j.report?.job_id) html += `<button class="button primary" data-job="${esc(j.report.job_id)}">Verbindlichen Archivplan öffnen</button>`;
+  }
   if (p?.archives) {
     html += `<h3>Geprüfter Archivplan</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Staging</dt><dd>${esc(j.storage_binding?.staging_path || "Bisheriges Standard-Staging")}</dd><dt>Medium</dt><dd>${esc(mediaName(p.media_id))}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>Bedarf mit Reserve</dt><dd>${bytes(p.required_estimate)}</dd><dt>Verfügbar</dt><dd>${bytes(p.available)}</dd><dt>Plan-SHA-256</dt><dd class="mono">${esc(p.sha256)}</dd></dl><h3>Vorgesehene TAR-Archive</h3>${table(
       ["Archiv", "Dateien", "Nutzdaten"],
@@ -103,12 +112,14 @@ async function showJob(id) {
     const next = p.children.find((c) => c.state !== "VERIFIED");
     if (next) html += note(`Nächstes Medium: ${esc(mediaName(next.media_id))}. Vor dem nächsten Schritt wird die Identität erneut geprüft.`, "info");
   }
+  if (p?.excluded_paths?.length)
+    html += `<h3>Ausdrücklich ausgeschlossene Pfade</h3><div class="code-block">${p.excluded_paths.map(path=>`<div>${esc(path)}</div>`).join("")}</div>`;
   if (p?.selected_paths?.length)
     html += `<h3>Ausgewählte Quellen</h3><p>${num(p.selected_paths.length)} Dateien oder Ordner</p><div class="code-block">${p.selected_paths.slice(0, 50).map((path) => `<div>${esc(path)}</div>`).join("")}${p.selected_paths.length > 50 ? `<div>… ${num(p.selected_paths.length - 50)} weitere</div>` : ""}</div>`;
   if (j.staging?.length)
     html += `<h3>Vorbereitung und Transfer</h3>${j.staging.map((s) => `<div class="progress-meta"><span>${esc(short(s.archive_id))} · ${esc(labels[s.phase] || s.phase)}</span>${badge(s.state)}</div>${progress((s.progress_bytes / Math.max(1, s.total_bytes)) * 100)}`).join("")}`;
   if (j.error) html += `<p class="error-text">${esc(j.error)}</p>`;
-  if (j.report)
+  if (j.report && j.kind !== "source-plan")
     html += `<h3>Abschlussbericht</h3><pre class="code-block">${esc(JSON.stringify(j.report, null, 2))}</pre>`;
   if (p?.children && state.node.role === "archive" && ["PLANNED", "WAITING_MEDIA", "FAILED", "INTERRUPTED"].includes(j.state)) {
     const next = p.children.find((c) => c.state !== "VERIFIED");
@@ -122,6 +133,19 @@ async function showJob(id) {
     html += `<div class="button-row">${["PLANNED", "STAGED"].includes(j.state) ? `<button class="button" data-stage="${esc(j.id)}">${icon("layers")}Lokal vorbereiten</button><button class="button primary" data-backup="${esc(j.id)}">${icon("tape")}Archivierung bestätigen</button>` : `<button class="button" ${j.tape_attempted ? "data-resume" : "data-revalidate"}="${esc(j.id)}">${icon("restore")}${j.tape_attempted ? "Wiederaufnahme prüfen" : "Staging erneut prüfen"}</button>`}</div>`;
   }
   modal(kindLabel(j.kind) + " · " + short(j.id), html);
+  const bindForm = $("#bind-source-plan-form");
+  if (bindForm) bindForm.addEventListener("submit",async event=>{
+    event.preventDefault();const ids=new FormData(bindForm).getAll("media_ids");
+    if (!ids.length) { toast("Bitte mindestens ein Zielmedium auswählen.",true);return; }
+    const button=$("button[type=submit]",bindForm);button.disabled=true;
+    try {
+      const queued = await enqueue("bind-plan",{job_id:j.id,source_plan_hash:p.sha256,media_ids:ids});
+      closeModal();await render();
+      const completed = state.commands.find(c=>c.id === queued.id);
+      if (completed?.state === "SUCCEEDED" && completed.result?.job_id) await showJob(completed.result.job_id);
+    } catch(error) { toast(error.message,true); }
+    finally {button.disabled=false;}
+  });
 }
 async function confirmBackup(id, resume = false) {
   const j = await api("/jobs/" + encodeURIComponent(id));
@@ -499,21 +523,17 @@ function bindForms(root = $("#content")) {
     toast("Betriebsart übernommen. Es wurde kein Band verändert.");
   });
   on("#plan-form", async (d) => {
-    const mediaIds = d.getAll("media_ids");
-    if (!mediaIds.length) throw new Error("Bitte mindestens ein Zielmedium auswählen.");
-    if (mediaIds.length > 1 && state.node.operation_mode === "physical" && !state.node.capabilities.physical_multivolume)
-      throw new Error("Physischer Mehrbandbetrieb benötigt die separate administrative Workflow-Abnahme");
     const request = {
       source_id: d.get("source_id"),
       target: Math.round(Number(d.get("target")) * 1e9),
       staging_id: d.get("staging_id"),
       verify_mode: d.get("verify_mode"),
     };
-    if (mediaIds.length === 1) request.media_id = mediaIds[0];
-    else request.media_ids = mediaIds;
     if (state.sourceSelection.sourceId === request.source_id && state.sourceSelection.paths.length)
       request.selected_paths = state.sourceSelection.paths;
-    await enqueue("plan", request);
+    const exclusions = String(d.get("excluded_paths") || "").split("\n").map(p=>p.trim()).filter(Boolean);
+    if (exclusions.length) request.excluded_paths = exclusions;
+    await enqueue("plan-source", request);
     location.hash = "jobs";
   });
   on("#speedtest-form", async (d) => {
@@ -965,3 +985,10 @@ setInterval(async () => {
 })();
 
 document.addEventListener("otam:unauthorized", showLogin);
+document.addEventListener("otam:plan-ready", async event => {
+  if (state.planNoticePending || $("#modal").open || !["planning","jobs"].includes(state.page)) return;
+  state.planNoticePending = true;
+  try { await showJob(event.detail.job_id); }
+  catch(error) { toast(error.message,true); }
+  finally { state.planNoticePending = false; }
+});

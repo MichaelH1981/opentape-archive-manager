@@ -243,9 +243,9 @@ def remove(config: WebConfig, control: Control, ident: str) -> None:
             )
         with closing(sqlite3.connect(config.catalog)) as catalog:
             for plan, state in catalog.execute(
-                "SELECT plan_json,state FROM jobs WHERE kind='archive'"
+                "SELECT plan_json,state FROM jobs WHERE kind IN ('archive','source-plan')"
             ):
-                if state not in ("VERIFIED", "CANCELLED") and plan:
+                if state not in ("VERIFIED", "CANCELLED", "BOUND") and plan:
                     parsed = json.loads(plan)
                     if (
                         resource["kind"] == "source"
@@ -274,7 +274,7 @@ def remove(config: WebConfig, control: Control, ident: str) -> None:
                     job = catalog.execute(
                         "SELECT state FROM jobs WHERE id=?", (job_id,)
                     ).fetchone()
-                    if job is None or job[0] not in ("VERIFIED", "CANCELLED"):
+                    if job is None or job[0] not in ("VERIFIED", "CANCELLED", "BOUND"):
                         raise SafetyError(
                             "Verzeichnis ist an einen noch nicht abgeschlossenen Job gebunden"
                         )

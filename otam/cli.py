@@ -27,7 +27,7 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="Read-only environment inventory; does not open tape devices")
     physical = sub.add_parser("physical-command", help="Queue a reviewed physical-node command through the durable worker")
     physical.add_argument("--config", required=True, type=Path)
-    physical.add_argument("--kind", required=True, choices=("register-physical", "initialize-physical", "reset-physical", "reinitialize-physical", "plan", "stage", "backup", "backup-set", "verify", "restore", "recover", "rebuild"))
+    physical.add_argument("--kind", required=True, choices=("register-physical", "initialize-physical", "reset-physical", "reinitialize-physical", "plan-source", "bind-plan", "plan", "stage", "backup", "backup-set", "verify", "restore", "recover", "rebuild"))
     physical.add_argument("--payload-file", required=True, type=Path)
     physical.add_argument("--idempotency-key", default=None)
     physical_status = sub.add_parser("physical-command-status", help="Inspect a queued physical command without device access")

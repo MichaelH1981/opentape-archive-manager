@@ -1,6 +1,29 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Ausgeschlossene Pfade (optional)": "Excluded paths (optional)",
+  "Ein exakter Pfad je Zeile, relativ zur Quelle; Unterordner sind eingeschlossen. Keine Platzhalter.": "One exact source-relative path per line; includes its descendants. No wildcards.",
+  "Ausdrücklich ausgeschlossene Pfade": "Explicitly excluded paths",
+  "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan.": "Media are assigned. File checksums and confirmation are available in the committed archive plan.",
+  "Kapazität geprüft. Die Dateiprüfsummen werden jetzt berechnet.": "Capacity checked. File checksums are now being calculated.",
+
+  "Quellenumfang ermitteln": "Determine source size",
+  "Quellenplan": "Source plan",
+  "Zielmedien zuordnen": "Assign target media",
+  "Quellenplan ohne Medienbindung": "Source plan without assigned media",
+  "Zielmedien auswählen": "Select target media",
+  "Geschätzter Bandbedarf": "Estimated tape space required",
+  "Größtes vollständiges TAR": "Largest complete TAR",
+  "Kapazität prüfen & Medien zuordnen": "Check capacity and assign media",
+  "Verbindlichen Archivplan öffnen": "Open committed archive plan",
+  "Noch nicht zugeordnet": "Not yet assigned",
+  "Medien zugeordnet": "Media assigned",
+  "Dateiprüfsummen berechnen": "Calculating file checksums",
+  "Zuerst Quelle und TAR-Bedarf planen. Zielmedien wählst du anschließend im gespeicherten Quellenplan aus. Dafür muss keine Kassette eingelegt sein.": "Plan source size and TAR requirements first. Select target media afterwards in the saved source plan. No cartridge needs to be loaded.",
+  "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die Hashberechnung.": "File contents have not been hashed yet. Choose enough media in write order; hashing starts afterwards.",
+  "OTAM ermittelt zuerst Dateigrößen und TAR-Bedarf ohne Inhaltslesung. Danach wählst du genügend Zielmedien. Erst bei ausreichender Kapazität folgen SHA-256 und der verbindliche Archivplan.": "OTAM first determines file sizes and TAR requirements without reading contents. Then select enough target media. SHA-256 and a committed archive plan follow only once sufficient capacity is available.",
+  "Die angezeigte Reihenfolge gilt für den Bandwechsel. Größere Einzeldateien bleiben zusammen. Bei unzureichender Kapazität bleibt dieser Quellenplan erhalten.": "The displayed order determines media changes. Large individual files remain intact. Insufficient capacity preserves this source plan.",
+
   "Kassette ausdrücklich neu initialisieren": "Explicitly reinitialize cartridge",
   "Kassette neu initialisieren": "Reinitialize cartridge",
   "Neuinitialisierung ausdrücklich bestätigen": "Explicitly confirm reinitialization",

@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .archive import MAX_META, estimate, inventory, plan_archives
+from .archive import MAX_META, estimate, inventory, plan_archives, estimate_entries
 from .catalog import Catalog
 from .common import SafetyError, encode
 from .service import ArchiveService, scan, inspect_catalogued_media
@@ -23,7 +23,9 @@ from .planning import catalogue_snapshot
 
 def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape | None]],
              target: int, selected: list[str] | None = None,
-             verify_mode: str = "archive", *, catalogue_only: bool = False) -> dict[str, Any]:
+             verify_mode: str = "archive", *, catalogue_only: bool = False,
+             expected: list[dict[str, Any]] | None = None,
+             excluded: list[str] | None = None) -> dict[str, Any]:
     if not 2 <= len(media_tapes) <= 32 or len({m for m, _ in media_tapes}) != len(media_tapes):
         raise SafetyError("Choose two to 32 distinct media in order")
     if verify_mode not in ("archive", "media") or target <= 0:
@@ -32,8 +34,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
     if catalog.path.is_relative_to(root):
         raise SafetyError("Catalog must be outside source tree")
     with io_lock():
-        entries = inventory(root, selected)
-        manifests = plan_archives(entries, media_tapes[0][0], target)
+        expected = expected if expected is not None else inventory(root, selected, metadata_only=True, excluded=excluded)
+        manifests = plan_archives(estimate_entries(expected), media_tapes[0][0], target)
         if any(len(encode(m)) > MAX_META for m in manifests):
             raise SafetyError("Manifest exceeds limit; reduce archive target size")
         available: dict[str, int] = {}
@@ -77,6 +79,12 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
             manifest["media_id"] = media
             assignments[media].append(manifest)
             remaining[media] -= required
+        # Only after every complete TAR fits the selected media, hash sources.
+        entries = inventory(root, selected, expected=expected, excluded=excluded)
+        hashes = {e['path']: e for e in entries}
+        for group in assignments.values():
+            for manifest in group:
+                manifest['files'] = [hashes[e['path']] for e in manifest['files']]
         parent_id = str(uuid.uuid4())
         children = []
         child_plans = []
@@ -94,6 +102,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                      "parent_job": parent_id}
             if selected is not None:
                 child["selected_paths"] = sorted(set(selected))
+            if excluded is not None:
+                child["excluded_paths"] = sorted(set(excluded))
             if catalogue_only:
                 child["planning_basis"] = "catalogue; physical preflight required before write"
             child["sha256"] = hashlib.sha256(encode(child)).hexdigest()
@@ -109,6 +119,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                   "file_count": len(entries)}
         if selected is not None:
             parent["selected_paths"] = sorted(set(selected))
+        if excluded is not None:
+            parent["excluded_paths"] = sorted(set(excluded))
         if catalogue_only:
             parent["planning_basis"] = "catalogue; physical preflight required before write"
         parent["sha256"] = hashlib.sha256(encode(parent)).hexdigest()

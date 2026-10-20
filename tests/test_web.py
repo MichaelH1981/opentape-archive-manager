@@ -163,6 +163,20 @@ class WebAcceptance(unittest.TestCase):
             tape.assert_not_called()
             discovery.assert_not_called()
 
+    def test_source_first_http_queue_preserves_draft_without_payload_reads(self):
+        headers={"X-CSRF-Token":self.csrf,"Idempotency-Key":"source-first-preview"}
+        response=self.client.post('/api/v1/commands',json={'kind':'plan-source','payload':{'source_id':'source-1'}},headers=headers)
+        self.assertEqual(response.status_code,202,response.text)
+        with patch('otam.archive.digest',side_effect=AssertionError('preview must not read payload')):
+            self.assertTrue(run_once(self.config,self.control))
+        command=self.control.commands()[0]
+        draft=command['result'];self.assertEqual(draft['state'],'WAITING_MEDIA')
+        shown=self.client.get('/api/v1/jobs/'+draft['job_id']).json()
+        self.assertNotIn('source_entries',shown['plan'])
+        self.assertFalse(shown['plan']['hashes_calculated'])
+        self.assertNotIn('media_id',shown['plan'])
+        self.assertEqual(self.client.post('/api/v1/commands',json={'kind':'stage','payload':{'job_id':draft['job_id']}},headers={**headers,'Idempotency-Key':'cannot-stage-source-preview'}).status_code,409)
+
     def test_unloaded_registered_physical_medium_is_plannable_without_hardware_io(self):
         from fastapi.testclient import TestClient
         from otam.web.app import create_app

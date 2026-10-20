@@ -62,3 +62,11 @@ Medieninitialisierung. Historische Abnahmeberichte bleiben unabhängig erhalten.
 Venvs nicht verschieben: Launcher enthalten absolute Interpreterpfade. Bei
 Aktualisierungen ausdrücklich `python -m pip` des Zielinterpreters verwenden
 und danach Version sowie Importpfad aus genau dieser Umgebung kontrollieren.
+
+Beim Installieren als root muss die Programmdatei-Umask 0022 gelten, z. B.
+`(umask 022; /opt/otam/venv/bin/python -m pip install ...)`. Eine private
+Backup-/Konfigurations-Umask 0077 darf nicht ungeprüft auf die Paketinstallation
+übertragen werden. Vor Dienststart Import und CLI ausdrücklich als Dienstkonto
+prüfen (`sudo -u otam /opt/otam/venv/bin/python -I -c 'import otam.cli'`).
+Programmverzeichnisse 0755/Programmdateien 0644; private Konfiguration,
+Steuerkatalog, Schlüssel und Journale behalten ihre restriktiven Rechte.

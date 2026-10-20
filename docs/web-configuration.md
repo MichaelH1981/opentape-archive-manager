@@ -220,3 +220,19 @@ Die Hardwareansicht nennt alte Medien-ID/Zeit und bietet getrennt lesende
 Registrierung oder destruktive Neuinitialisierung an. Ungeklärte Writes werden
 nicht freigegeben. Simulatoridentitäten allein blockieren kein reales Medium.
 Details: [Workflow und Grenzen](architecture/physical-reinitialization.md).
+
+## Ab 0.7: zuerst Quelle, danach Zielmedien
+
+Die Planung erstellt mit `plan-source` einen gespeicherten, medienfreien
+Größenplan und fordert danach Medien an. `bind-plan` benötigt `job_id`,
+`source_plan_hash` und `media_ids`. Bei zu wenig Kapazität bleibt der Plan
+`WAITING_MEDIA`; es werden keine Inhalte gehasht und keine TARs geschrieben.
+Erst bei ausreichender Kapazität entsteht der verbindliche Archivplan.
+Der frühere `plan`-Aufruf bleibt kompatibel, prüft Kapazität jetzt ebenfalls
+vor dem Hashen. Staging erfolgt weiterhin erst nach Medienzuordnung; dafür
+muss kein Band eingelegt sein. [Ablauf und Grenzen](architecture/source-first-planning.md).
+
+Ab 0.7.1 sind explizite `excluded_paths` möglich. Exakte relative Pfade je
+Zeile, Ordner einschließlich Unterbaum, keine Muster. Sie gelten unverändert
+für Quellenplan, Hashberechnung und Staging und erscheinen im Review. Symlinks
+werden niemals automatisch verfolgt oder stillschweigend übersprungen.

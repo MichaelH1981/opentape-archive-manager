@@ -109,7 +109,7 @@ c=WebConfig.load(Path(sys.argv[1]));approval(c,Control(c.state),json.loads(sys.a
     def test_wrong_old_header_is_refused_without_writer(self):
         self.prior();g=self.grant()
         with patch('otam.web.initialization.discover_drives',return_value=[self.drive]),patch('otam.web.initialization.LinuxTape') as constructor:
-            tape=constructor.return_value;tape.header.return_value={**self.header,'media_id':str(uuid.uuid4())}
+            tape=constructor.return_value;tape.positions.return_value=[0];tape.header.return_value={**self.header,'media_id':str(uuid.uuid4())}
             with self.assertRaises(SafetyError):init.execute(self.config,self.control,self.payload(g),reinitialize=True)
             tape.initialize.assert_not_called()
         self.assertFalse(self.control.get(reinit.PREFIX+g['id'])['write_attempted'])
@@ -146,3 +146,20 @@ c=WebConfig.load(Path(sys.argv[1]));approval(c,Control(c.state),json.loads(sys.a
             self.assertEqual(report['state'],'VERIFIED');self.assertEqual(report['header_reads'],[0,0])
             self.assertTrue(report['archive_prefix_unchanged']);self.assertEqual(config.read_bytes(),before)
             self.assertEqual(self.control.get(init.PREFIX+saved['id']),saved)
+
+    def test_confirmed_zero_logical_files_allows_explicit_reinitialization(self):
+        device=FileST(self.root,self.drive)
+        with ExitStack() as stack:
+            stack.enter_context(patch('otam.physical.LinuxMaintenance',return_value=device))
+            stack.enter_context(patch('otam.physical.run',side_effect=device.move))
+            stack.enter_context(patch('otam.physical.status',side_effect=device.status))
+            stack.enter_context(patch.object(LinuxTape,'_driver_mode'))
+            stack.enter_context(patch('otam.web.initialization.discover_drives',return_value=[self.drive]))
+            self.prior();g=self.grant()
+            result=execute(self.config,self.control,'reinitialize-physical',self.payload(g))
+            self.assertEqual(result['state'],'INITIALIZED');self.assertEqual(device.reads,[0])
+            c=Catalog(self.config.catalog)
+            try:
+                row=c.db.execute("SELECT details_json FROM events WHERE event='initialization_confirmed'").fetchone()
+                self.assertEqual(json.loads(row[0])['previous_header_state'],'confirmed_eod_zero')
+            finally:c.close()

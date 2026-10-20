@@ -1,12 +1,12 @@
 # Produktionsfreigabe: Stand 20.10.2026
 
-**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.6.1** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
+**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.7.2** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
 
-Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt ein READY-Medium, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
+Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt zwei READY-Produktivmedien, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests | Release-Kandidat: 207/207 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 207 Tests mit einem Skip; JavaScript-Syntax geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
+| Automatisierte Softwaretests | Aktueller Stand 0.7.2: 238/238 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 238 Tests mit einem Skip; JavaScript-Syntax geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
@@ -895,3 +895,96 @@ keine Nutzdatenreads. JavaScript-Syntax und Hardwareansicht im Browser geprüft.
 Die reale Belegprüfung der zweiten Kassette bleibt offen und benötigt deren
 bestätigtes Einlegen bei freiem Laufwerk. Kein Bandwrite dieses Kandidaten
 wurde durchgeführt; die erste produktive Kassette bleibt unangetastet.
+
+## 20.10.2026: zweite Produktivkassette und Quellenplanung vor Medienauswahl
+
+Der Benutzer bestätigte den Abbruch der zu großen Einbandplanung. Vor dem
+Beenden wurde der reine INVENTORY-Zustand bei angehaltenem Prozess erneut
+geprüft: genau ein Planungsauftrag, keine schreibenden Archive, keine offenen
+Bandgeräte und keine Kindprozesse. Nur dieser lesende Prozess wurde beendet;
+SQLite-Zustände wurden unter Worker-/I/O-Sperre konsolidiert, Quellen und Band
+blieben unverändert. Bericht: `usb-single-plan-cancel-20261020-r1/report.json`.
+
+Die reale Neuinitialisierung der zweiten freigegebenen Kassette scheiterte im
+0.6.2-Nachweis sicher vor jedem Write: bestätigtes EOD mit null logischen
+Banddateien statt des alten Headers. `write_attempted=false`; ursprünglicher
+Report/Grant unverändert erhalten. 0.6.3 ergänzt den ausdrücklich bestätigten
+Null-Datei-EOD-Fall, ohne ungeklärte Intents zu übergehen. 228 Debian-Tests und
+neun gezielte Neuinitialisierungstests bestanden. Neuer separater Hardwarelauf
+`physical-reinitialization-063-20261020-r1/report.json` endete VERIFIED: vorher
+null Banddateien, genau ein vollständiger neuer Headerread an Position 0,
+keine Nutzdatenreads. Produktivmedium „LTO-4 Archiv 02“, 800.000.000.000 native
+Bytes, Dauerarchiv, READY. „LTO-4 Archiv 01“ blieb unverändert. Beide stehen im
+Produktivkatalog; keine Testarchive oder Testdateien wurden wieder importiert.
+
+0.7.0 führt den Quellenplan vor Medienzuordnung ein; 235 Debian-Tests bestanden,
+nach letzten kleinen Validierungskorrekturen sieben gezielte Debian-Tests erneut
+bestanden. Der echte lokale Browser-/HTTP-/Workerablauf mit getrennten synthetischen
+Fixtures bestätigt: ohne Medium Größenplan erstellen, mit einer zu kleinen
+Medienauswahl den gleichen Quellenplan behalten und mit einem zweiten Medium
+den verbindlichen Mehrbandplan erstellen. Keine Geräteaktionen in diesem UI-Test.
+Auch der bisherige direkte Planungsaufruf prüft Größen/Kapazität vor Hashberechnung.
+
+Bei der root-Paketinstallation wurde versehentlich Umask 0077 auf Programmdateien
+übertragen. Web/Worker starteten dadurch vorübergehend nicht. Korrektur auf
+Programmverzeichnisse 0755/Dateien 0644, Import als Dienstkonto und Live-HTTP
+geprüft; private Konfiguration/Journale behalten restriktive Rechte. Der erste
+Live-HTTP-Versuch scheiterte vor Einreihung eines Auftrags; separates Outcome
+unter `source-first-070-live-20261020-r1/` erhalten. Installation verlangt künftig
+Umask 0022 und einen Importcheck als `otam` vor Aktivierung.
+
+Der anschließende schnelle Quellenplan stieß vor Inhaltslesung auf externe
+Symlinks in `LP Archiv/.@__thumb`. Auswahl war bislang die gesamte USB-Platte.
+Der Benutzer autorisierte ausdrücklich nur `LP Archiv`, ohne diesen
+NAS-Vorschaubereich. 0.7.1 ergänzt versiegelte exakte `excluded_paths` in
+Quellenplan, Hashberechnung, verbindlichen Kindplänen und Staging. Keine Links
+werden stillschweigend verfolgt oder ausgelassen; der konkrete Ausschluss ist
+in der Oberfläche sichtbar. Der unveränderte ursprüngliche Fehlversuch bleibt
+als Beleg erhalten. Details und Grenzen: [Quellenplanung](architecture/source-first-planning.md).
+
+
+0.7.1 ist nach 237/237 Debian-Tests und 237 lokalen Tests mit einem Skip
+installiert. Ein zuvor veränderter Symlink-Exceptiontyp wurde während der
+Regressionstests erkannt und vor Freigabe kompatibel korrigiert; 52 gezielte
+Workflow-/Quellenplantests sowie anschließend alle 237 Tests unter Debian
+bestanden. Der zusätzliche Ausschlusstest bindet denselben Quellenplan und
+führt echtes lokales TAR-Staging mit ausschließlich den freigegebenen regulären
+Dateien aus; die externen Vorschaulinks werden nicht geöffnet. Im Produktivsystem
+wird der neue LP-Quellenplan mit der ausdrücklich bestätigten Auswahl aufgebaut,
+noch ohne Medienzuordnung und ohne Inhalts-/Band-I/O. Kein großer Bandtest wurde
+für diese Änderung wiederholt. Der vollständige physische Kernnachweis der
+vorherigen Freigabe bleibt erhalten.
+
+
+### 0.7.2: lineare Gruppierung und echter LP-Quellenplan
+
+Die echte Quelle hat 30.800 Dateien. Die bisherige TAR-Gruppierung berechnete
+beim Hinzufügen jeder Datei die komplette bisherige Gruppe neu und verursachte
+quadratische CPU-Arbeit. Der eigene reine Metadatenlauf wurde nach erneuter
+Prüfung ohne Bandgeräte/Kindprozesse beendet; Quellen unverändert. Die Gruppierung
+zählt jetzt den exakt gleichen JSON-/TAR-Schätzbedarf einmal je Eintrag, inklusive
+UTF-8, Listenklammern und Kommas. Ein Grenzwerttest und 2.000 Einträge prüfen
+identische Größenbedingungen sowie lineare Serialisierungsarbeit. 53 gezielte
+Workflow-/Quellenplantests und anschließend 238/238 Debian-Tests bestanden.
+Lokal 238 mit einem Skip; JS-Syntax bestanden. 0.7.2 ist installiert, Import vor
+Dienststart als `otam` bestätigt, Web/Worker/Tunnel aktiv.
+
+Der echte neue Quellenplan für ausschließlich `LP Archiv`, ohne
+`LP Archiv/.@__thumb`, endete nach 11,59 Sekunden erfolgreich in WAITING_MEDIA:
+30.800 Dateien, 1.522.565.501.226 Nutzbytes, 17 TARs, konservativer Gesamtbedarf
+1.522.733.735.390 Byte. Größtes vollständiges TAR 388.772.424.710 Byte; einzelne
+Dateien werden nicht geteilt. Keine Dateihashes, kein Staging-TAR, kein Band-I/O.
+Mit 95-Prozent-Grenze und der bestehenden TAR-Reihenfolge werden drei frische
+LTO-4-Medien projektiert. Zwei vorhandene READY-Medien sind dafür nicht genug;
+Reserve wurde nicht gelockert. Der Plan wartet dauerhaft auf Medienzuordnung.
+Bericht: `/var/lib/otam/reports/source-first-072-live-20261020-r1/report.json`.
+
+Der reale Kapazitätscheck mit beiden vorhandenen Produktivmedien endete erfolgreich
+mit Ergebnis WAITING_MEDIA: verfügbar 1.519.999.979.520 Byte, Bedarf
+1.522.733.735.390 Byte. Quellenplan-SHA-256 unverändert, keine Archive/Dateireihen
+angelegt und keine Inhaltslesung gestartet. Der unveränderte Quellenplan lässt
+weitere Medien zu. Signierter Peer-Katalog Sequenz 203 (17.600.512 Byte) bestätigt,
+`peer_updated=true`. Wheel-SHA-256 0.7.2:
+`0846901415255e64e7a6879ab7e0ce6155e253676c07b4dbd6859828de8379cf`.
+Alle Rohberichte, historische Fehlversuche, Testergebnisse und Syncbelege lokal
+ignoriert mit SHA256SUMS gesichert; keine Rohdaten im Git-Upload.

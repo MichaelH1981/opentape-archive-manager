@@ -235,6 +235,8 @@ class CatalogView:
                     ).fetchone() or {"state": "MISSING"})["state"]}
                     for child in plan["children"]
                 ]}
+            if isinstance(plan,dict) and 'source_entries' in plan:
+                plan={k:v for k,v in plan.items() if k!='source_entries'}
             result["plan"] = plan
             result["report"] = json.loads(result.pop("report_json") or "null")
             result["tape_attempted"] = (

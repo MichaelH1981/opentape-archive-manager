@@ -81,7 +81,7 @@ async function refreshBase() {
   $("#footer-mode").textContent =
     n.role === "archive"
       ? n.operation_mode === "physical"
-        ? "Physische Bandwartung"
+        ? (n.capabilities.physical_tape ? "Physischer Archivbetrieb" : "Physische Bandwartung")
         : "Simulatorbetrieb"
       : role;
   $$("[data-archive]").forEach((e) => (e.hidden = n.role !== "archive"));
@@ -99,6 +99,13 @@ async function refreshBase() {
   $("#connection-label").textContent = "Mit Node verbunden";
   $("#connection-dot").classList.remove("off");
   for (const c of state.commands) {
+    if (!state.notified.has(c.id) && c.state === "SUCCEEDED" && ["plan-source", "bind-plan"].includes(c.kind)) {
+      state.notified.add(c.id);
+      if (Date.now() / 1000 - c.updated < 20 && c.result?.job_id) {
+        if (c.result.message) toast(c.result.message, true);
+        document.dispatchEvent(new CustomEvent("otam:plan-ready", { detail: {job_id:c.result.job_id} }));
+      }
+    }
     if (
       !state.notified.has(c.id) &&
       ["FAILED", "INTERRUPTED"].includes(c.state)

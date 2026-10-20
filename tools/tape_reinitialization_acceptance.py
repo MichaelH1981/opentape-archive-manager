@@ -66,6 +66,12 @@ def main() -> None:
             save()
             return super()._move(operation, count)
 
+        def positions(self):
+            result = super().positions()
+            report.setdefault("initial_tape_files", len(result))
+            save()
+            return result
+
         def initialize(self, *values, **options):
             if (self.device.expected["serial"] != args.drive_serial
                     or self.device.expected["medium_serial"] != args.medium_serial):
@@ -118,7 +124,7 @@ def main() -> None:
             with patch("otam.web.initialization.LinuxTape", ObservedTape):
                 result = execute(config, control, "reinitialize-physical", {
                     "approval_id": grant["id"], "confirmation": args.confirm, "destructive_confirmed": True})
-            if result["state"] != "INITIALIZED" or report["header_reads"] != [0, 0]:
+            if result["state"] != "INITIALIZED" or report["header_reads"] != ([0] if report["initial_tape_files"] == 0 else [0, 0]):
                 raise SafetyError("Old/new header reinitialization proof is incomplete")
             if baseline != [tuple(row) for row in catalog.db.execute(
                     "SELECT id,media_id,tape_file,state,sha256 FROM archives ORDER BY id")]:

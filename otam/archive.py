@@ -84,8 +84,18 @@ def source_fd(root: Path, name: str) -> int:
         os.close(fd)
 
 
-def inventory(root: Path, selected: list[str] | None = None) -> list[dict[str, Any]]:
+def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: bool = False,
+              expected: list[dict[str, Any]] | None = None,
+              excluded: list[str] | None = None) -> list[dict[str, Any]]:
+    if excluded is not None and (not isinstance(excluded,list) or len(excluded)>10000 or any(not isinstance(p,str) or len(p)>4096 for p in excluded)):
+        raise SafetyError("Invalid source exclusions")
+    exclusions = tuple(sorted({safe_path(p) for p in (excluded or [])}))
+    def is_excluded(name):
+        return any(name == prefix or name.startswith(prefix+'/') for prefix in exclusions)
     entries: list[dict[str, Any]] = []
+    expected_map = {e['path']: e for e in expected} if expected is not None else None
+    def fingerprint(value):
+        return [value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns]
     if not root.is_dir():
         raise SafetyError("Source must be a directory")
     if selected is not None:
@@ -119,25 +129,40 @@ def inventory(root: Path, selected: list[str] | None = None) -> list[dict[str, A
     walks = [root / p for p in sorted(selected_dirs)] if selected is not None else [root]
     seen: set[str] = set()
     def add_file(name: str) -> None:
-        if name in seen:
+        if name in seen or is_excluded(name):
             return
-        fd = source_fd(root, name)
+        try:
+            fd = source_fd(root, name)
+        except OSError as error:
+            import errno
+            if error.errno == errno.ELOOP and metadata_only:
+                raise OSError(error.errno, "Symbolische Verknüpfung nicht unterstützt; ausdrücklich ausschließen oder Auswahl ändern", name) from error
+            raise
         with os.fdopen(fd, "rb") as stream:
             before = os.fstat(stream.fileno())
-            checksum = digest(stream)
+            if expected_map is not None and (name not in expected_map or
+                    expected_map[name]['fingerprint'] != fingerprint(before)):
+                raise SafetyError(f"Source changed since source plan: {name}; create a new source plan")
+            checksum = None if metadata_only else digest(stream)
             after = os.fstat(stream.fileno())
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_size, after.st_mtime_ns, after.st_ctime_ns):
             raise SafetyError(f"Source changed while hashing: {name}")
         seen.add(name)
-        entries.append({"path": safe_path(name), "size": before.st_size,
-                        "mtime_ns": before.st_mtime_ns, "sha256": checksum,
-                        "type": Path(name).suffix.lower() or "(none)"})
+        entry = {"path": safe_path(name), "size": before.st_size,
+                 "mtime_ns": before.st_mtime_ns, "type": Path(name).suffix.lower() or "(none)"}
+        if metadata_only:
+            entry['fingerprint'] = fingerprint(before)
+        else:
+            entry['sha256'] = checksum
+        entries.append(entry)
     for name in sorted(selected_files):
         add_file(name)
     for walk_root in walks:
+        if is_excluded(walk_root.relative_to(root).as_posix()):
+            continue
         for base, dirs, files in os.walk(walk_root, followlinks=False, onerror=walk_error):
-            dirs.sort()
+            dirs[:] = sorted(d for d in dirs if not is_excluded((Path(base)/d).relative_to(root).as_posix()))
             for directory in dirs:
                 if (Path(base) / directory).is_symlink():
                     raise SafetyError("Source directory symlinks are unsupported")
@@ -146,7 +171,14 @@ def inventory(root: Path, selected: list[str] | None = None) -> list[dict[str, A
                 add_file(name)
     if not entries:
         raise SafetyError("Source contains no regular files")
+    if expected_map is not None and seen != set(expected_map):
+        raise SafetyError("Source selection changed since source plan; create a new source plan")
     return sorted(entries, key=lambda entry: entry["path"])
+
+
+def estimate_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fixed-width size projection only; never a verified manifest or persisted hash."""
+    return [{k:v for k,v in e.items() if k!='fingerprint'} | {'sha256':'0'*64} for e in entries]
 
 
 def estimate(entries: list[dict[str, Any]]) -> int:
@@ -155,18 +187,29 @@ def estimate(entries: list[dict[str, Any]]) -> int:
         ((e["size"] + 511) // 512) * 512 + 4096 + len(e["path"].encode()) * 8 for e in entries)
 
 
-def plan_archives(entries: list[dict[str, Any]], media: str, target: int) -> list[dict[str, Any]]:
+def group_entries(entries: list[dict[str, Any]], target: int) -> list[list[dict[str, Any]]]:
     if target <= 0:
         raise SafetyError("Target size must be positive")
     groups: list[list[dict[str, Any]]] = []
     batch: list[dict[str, Any]] = []
+    # JSON list brackets cost four estimated bytes. Each comma adds two;
+    # every entry's own JSON and padded TAR cost can be counted exactly once.
+    required = 20484
     for entry in entries:
-        if batch and estimate(batch + [entry]) > target:
+        addition = len(encode(entry)) * 2 + ((entry['size'] + 511) // 512) * 512 + 4096 + len(entry['path'].encode()) * 8
+        if batch and required + addition + 2 > target:
             groups.append(batch)
             batch = []
+            required = 20484
+        required += addition + (2 if batch else 0)
         batch.append(entry)
     if batch:
         groups.append(batch)
+    return groups
+
+
+def plan_archives(entries: list[dict[str, Any]], media: str, target: int) -> list[dict[str, Any]]:
+    groups = group_entries(entries, target)
     return [{"format": FORMAT, "media_id": media, "archive_id": str(uuid.uuid4()),
              "created": time.time(), "files": group} for group in groups]
 

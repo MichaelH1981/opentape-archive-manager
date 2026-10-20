@@ -31,3 +31,11 @@ Initialisierungspfad mit bestätigtem BOT, fsynct Pending, neuem Header/UUID,
 Dateimarke, EOD und vollständigem physischen Headerhash. Kein alter Payloadread,
 keine Vollqualifikation, kein zertifiziertes Löschen. Alte Belege bleiben erhalten.
 Fehler nach möglichem Write sperren erneute Neuinitialisierung; kein blindes Retry.
+
+Die reale Prüfung der zweiten Kassette zeigte einen weiteren Fall: bestätigtes
+EOD mit null logischen Banddateien trotz erhaltenem altem SUCCEEDED-Beleg.
+Ab 0.6.3 erlaubt derselbe explizite Review diesen Zustand ohne erfundenen alten
+Header. Bei vorhandenen Dateien muss die alte UUID weiterhin passen. Der neue
+Write verlangt unverändert frisches Drive/MAM, bestätigtes BOT, Pending,
+Filemark/EOD und vollständigen physischen Headerhash. Null logische Banddateien
+bedeuten keine zertifizierte Löschung oder volle Medienqualifikation.
