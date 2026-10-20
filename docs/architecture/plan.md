@@ -1,5 +1,17 @@
 # Entwicklungs- und Abnahmeplan
 
+## TODO für Version 0.8: gemessene Platznutzung und Kapazitätsprognosen
+
+Aufgenommen am 20.10.2026 auf Nutzerwunsch; Umsetzung erst ab Version 0.8.
+
+- [ ] Pro Archiv und Medium geplante Bytes, tatsächliche Nutz-/TAR-/Receiptbytes, Header und Filemarks sowie Laufwerks-/Medienprofil und Komprimierungsmodus dauerhaft erfassen. Verifizierte Ergebnisse von abgebrochenen oder unbestätigten Writes trennen.
+- [ ] Physische Belegung und verbleibende Kapazität aus geeigneten Laufwerks-/Medienzählern erfassen, soweit belastbar verfügbar. Hostseitig übertragene Bytes sind nicht automatisch physisch belegte Bandbytes; nicht verfügbare Werte ausdrücklich als unbekannt führen. Keine zusätzlichen Banddurchläufe nur für Statistik.
+- [ ] Prognose und tatsächliches Ergebnis gegenüberstellen; Schätzfehler, Format-Overhead und beobachtetes Bandende nach Profil auswerten. Merkmale wie Dateigrößenverteilung und Dateitypen aggregiert sammeln, ohne Dateiinhalte oder vollständige Quellpfade als Trainingsdaten zu benötigen. Daten bleiben zunächst lokal; kein automatischer Upload.
+- [ ] Zuerst einfache empirische/statistische Kalibrierung als Vergleichsbasis prüfen. Anschließend evaluieren, ob maschinelles Lernen oder ein trainiertes Modell nachweislich bessere Vorhersagen liefert; ML ist eine Option, keine bereits festgelegte Voraussetzung.
+- [ ] Prognosen mit Unsicherheit, Datenbasis und Modell-/Kalibrierungsversion anzeigen; auf unabhängigen späteren Jobs prüfen. Bei unbekannten Profilen oder zu wenigen Messungen auf native Kapazität und Formatabschätzung zurückfallen. Gelernte Prognosen dürfen Identitäts-, Schreib- und EOM-/Tail-Sperren nicht umgehen oder unbelegte Komprimierungsgewinne als garantierte Kapazität ausweisen.
+
+Die aktuelle Version erhält hierfür weder neue Datensammlung noch ein Modell.
+
 1. **Phase 0:** leeres Repository erfassen, Alternativen bewerten, Bandformat/Schema/Risiken festhalten. Hardware-Skripte und Linux-Inventar sind lesend erfasst. Die physische Bandintegration bleibt vorläufig.
 2. **Phase 1a:** package/CLI, migrationsfähige SQLite-Datenbank, persistenter Simulator mit Lock/Medien-ID/Append, Plan mit SHA-256, PAX-TAR/Manifest.
 3. **Phase 1b:** Rücklesung und Receipt, strikte VERIFIED-Regel, sicherer Restore, Fehler/Abbruch/Neustart, Katalogrekonstruktion; automatisierte Tests und unabhängiges tar-Lesen.
