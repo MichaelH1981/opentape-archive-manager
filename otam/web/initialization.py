@@ -47,7 +47,16 @@ def require_enabled(config: WebConfig, control: Control) -> None:
 
 
 def _digest(grant: dict[str, Any]) -> str:
-    return hashlib.sha256(encode({key: grant[key] for key in REVIEW_FIELDS})).hexdigest()
+    fields = (*REVIEW_FIELDS, 'previous_initializations') if 'previous_initializations' in grant else REVIEW_FIELDS
+    return hashlib.sha256(encode({key: grant[key] for key in fields})).hexdigest()
+
+
+def _workflow(config, control, reinitialize):
+    require_enabled(config, control)
+    if reinitialize and not config.physical_reinitialization:
+        raise SafetyError('Explizite Neuinitialisierung ist administrativ nicht freigegeben')
+    return 'reinitialization_approval:' if reinitialize else PREFIX
+
 
 
 def _profile(inventory: dict[str, Any], drive: dict[str, Any]) -> dict[str, Any]:
@@ -64,7 +73,10 @@ def _unused(config: WebConfig, control: Control, serial: str, db, *, own: str = 
     catalog = Catalog(config.catalog)
     try:
         for row in catalog.db.execute("SELECT serial,header_json FROM media"):
-            if row["serial"] == serial or json.loads(row["header_json"]).get("medium_serial") == serial:
+            header = json.loads(row["header_json"])
+            if header.get("backend") == "simulator":
+                continue
+            if row["serial"] == serial or header.get("medium_serial") == serial:
                 raise SafetyError("Bereits bekannte Kassette: nur lesend registrieren, nicht initialisieren")
     finally:
         catalog.close()
@@ -74,16 +86,23 @@ def _unused(config: WebConfig, control: Control, serial: str, db, *, own: str = 
     reset = config.state / "physical-reset" / pending.name
     if reset.exists() or reset.is_symlink():
         raise SafetyError("Ungeklärtes Zurücksetzen: Initialisierung gesperrt")
+    for row in db.execute("SELECT value FROM settings WHERE key LIKE 'reinitialization_approval:%'"):
+        value = json.loads(row[0])
+        if (value.get('id') != own and value.get('drive',{}).get('medium_serial') == serial
+                and (value.get('state') in ('CONSUMED','SUCCEEDED','INTERRUPTED') or value.get('write_attempted'))):
+            raise SafetyError('Frühere Neuinitialisierung gespeichert; getrennten Review verwenden')
     for row in db.execute("SELECT value FROM settings WHERE key LIKE ?", (PREFIX + "%",)):
         other = json.loads(row[0])
         if (other.get("id") != own and other.get("drive", {}).get("medium_serial") == serial
                 and (other.get("state") in ("CONSUMED", "SUCCEEDED", "INTERRUPTED")
                      or other.get("write_attempted"))):
-            raise SafetyError("Frühere Initialisierung ungeklärt oder abgeschlossen; lesende Prüfung erforderlich")
+            if other.get('state') == 'SUCCEEDED':
+                raise SafetyError('Initialisierung bereits abgeschlossen (Medien-ID '+str(other.get('media_id','unbekannt'))+'). Medium fehlt im aktuellen Katalog: lesend registrieren oder ausdrücklich neu initialisieren.')
+            raise SafetyError('Frühere Initialisierung ungeklärt; lesende Prüfung erforderlich, kein Erzwingen erlaubt')
 
 
-def prepare(config: WebConfig, control: Control, data: dict[str, Any]) -> dict[str, Any]:
-    require_enabled(config, control)
+def prepare(config: WebConfig, control: Control, data: dict[str, Any], *, reinitialize: bool = False) -> dict[str, Any]:
+    prefix = _workflow(config, control, reinitialize)
     if (set(data) != {"drive_id", "drive_serial", "medium_serial", "label", "media_class"}
             or not isinstance(data.get("label"), str) or not 1 <= len(data["label"].strip()) <= 100
             or any(ord(c) < 32 for c in data["label"])
@@ -103,13 +122,19 @@ def prepare(config: WebConfig, control: Control, data: dict[str, Any]) -> dict[s
     grant["review_hash"] = _digest(grant)
     with control.connect() as db:
         db.execute("BEGIN IMMEDIATE")
-        _unused(config, control, drive["medium_serial"], db)
-        db.execute("INSERT INTO settings VALUES(?,?)", (PREFIX + grant["id"], json.dumps(grant)))
+        if reinitialize:
+            from .reinitialization import eligible
+            grant['previous_initializations'] = eligible(config, control, drive['medium_serial'], db)
+            grant['confirmation'] = f"REINITIALIZE {drive['serial']} {drive['medium_serial']}"
+            grant['review_hash'] = _digest(grant)
+        else:
+            _unused(config, control, drive['medium_serial'], db)
+        db.execute("INSERT INTO settings VALUES(?,?)", (prefix + grant["id"], json.dumps(grant)))
     return grant
 
 
-def approval(config: WebConfig, control: Control, payload: dict[str, Any], *, consume: bool = False) -> dict[str, Any]:
-    require_enabled(config, control)
+def approval(config: WebConfig, control: Control, payload: dict[str, Any], *, consume: bool = False, reinitialize: bool = False) -> dict[str, Any]:
+    prefix = _workflow(config, control, reinitialize)
     if (set(payload) != {"approval_id", "confirmation", "destructive_confirmed"}
             or payload["destructive_confirmed"] is not True or not isinstance(payload["approval_id"], str)):
         raise SafetyError("Ausdrückliche Freigabe des destruktiven Vorgangs erforderlich")
@@ -117,7 +142,7 @@ def approval(config: WebConfig, control: Control, payload: dict[str, Any], *, co
     with control.connect() as db:
         if consume:
             db.execute("BEGIN IMMEDIATE")
-        row = db.execute("SELECT value FROM settings WHERE key=?", (PREFIX + payload["approval_id"],)).fetchone()
+        row = db.execute("SELECT value FROM settings WHERE key=?", (prefix + payload["approval_id"],)).fetchone()
         grant = json.loads(row[0]) if row else None
         now = time.time()
         if (not grant or not set(REVIEW_FIELDS) <= grant.keys()
@@ -127,21 +152,29 @@ def approval(config: WebConfig, control: Control, payload: dict[str, Any], *, co
                 or grant["expires"] < now or payload["confirmation"] != grant.get("confirmation")
                 or grant.get("review_hash") != _digest(grant)):
             raise SafetyError("Initialisierungsfreigabe fehlt, ist verändert, abgelaufen oder verbraucht")
+        if reinitialize:
+            from .reinitialization import eligible
+            if grant.get('previous_initializations') != eligible(config,control,grant['drive']['medium_serial'],db,own=grant['id']):
+                raise SafetyError('Initialisierungshistorie hat sich seit dem Review geändert')
+        elif 'previous_initializations' in grant:
+            raise SafetyError('Falscher Initialisierungsworkflow')
         if consume:
-            _unused(config, control, grant["drive"]["medium_serial"], db, own=grant["id"])
+            if not reinitialize:
+                _unused(config, control, grant["drive"]["medium_serial"], db, own=grant["id"])
             grant.update(state="CONSUMED", consumed=now)
-            db.execute("UPDATE settings SET value=? WHERE key=?", (json.dumps(grant), PREFIX + grant["id"]))
+            db.execute("UPDATE settings SET value=? WHERE key=?", (json.dumps(grant), prefix + grant["id"]))
     return grant
 
 
-def execute(config: WebConfig, control: Control, payload: dict[str, Any]) -> dict[str, Any]:
-    grant = approval(config, control, payload, consume=True)
+def execute(config: WebConfig, control: Control, payload: dict[str, Any], *, reinitialize: bool = False) -> dict[str, Any]:
+    prefix = _workflow(config,control,reinitialize)
+    grant = approval(config, control, payload, consume=True, reinitialize=reinitialize)
     key = "maintenance_progress:" + grant["id"]
     catalog = Catalog(config.catalog)
     job = None
 
     def progress(state: str, phase: str, **values: Any) -> None:
-        control.set(key, {"state": state, "phase": phase, "time": time.time(), "operation": "initialize",
+        control.set(key, {"state": state, "phase": phase, "time": time.time(), "operation": "reinitialize" if reinitialize else "initialize",
                           "approval_id": grant["id"], "drive": grant["drive"], **values})
 
     try:
@@ -158,14 +191,24 @@ def execute(config: WebConfig, control: Control, payload: dict[str, Any]) -> dic
             tape = LinuxTape(drive, config.state)
             with tape.locked():
                 with control.connect() as db:
-                    _unused(config, control, drive["medium_serial"], db, own=grant["id"])
-                job = catalog.job("initialize", None)
-                catalog.event(job, "initialization_confirmed", approval_id=grant["id"],
+                    if reinitialize:
+                        from .reinitialization import eligible
+                        if eligible(config,control,drive['medium_serial'],db,own=grant['id']) != grant['previous_initializations']:
+                            raise SafetyError('Initialisierungshistorie hat sich geändert')
+                    else:
+                        _unused(config, control, drive["medium_serial"], db, own=grant["id"])
+                if reinitialize:
+                    old = tape.header()
+                    if (old.get('media_id') != grant['previous_initializations'][-1]['media_id']
+                            or old.get('medium_serial') != drive['medium_serial'] or old.get('backend') != 'physical'):
+                        raise SafetyError('Vorhandener Header stimmt nicht mit der geprüften Initialisierung überein')
+                job = catalog.job("reinitialize" if reinitialize else "initialize", None)
+                catalog.event(job, "initialization_confirmed", previous_initializations=grant.get("previous_initializations"), approval_id=grant["id"],
                               review_hash=grant["review_hash"], drive_serial=drive["serial"],
                               medium_serial=drive["medium_serial"], label=grant["label"],
                               native_capacity=grant["capacity"], media_class=grant["media_class"])
                 grant["write_attempted"] = True
-                control.set(PREFIX + grant["id"], grant)
+                control.set(prefix + grant["id"], grant)
                 progress("RUNNING", "HEADER_WRITE")
                 header = tape.initialize(grant["label"], grant["capacity"], grant["media_class"],
                                          "INITIALIZE " + drive["medium_serial"])
@@ -176,6 +219,8 @@ def execute(config: WebConfig, control: Control, payload: dict[str, Any]) -> dic
                         or header.get("format") != FORMAT):
                     raise SafetyError("Initialisierter Header konnte nicht bestätigt werden")
                 uuid.UUID(header["media_id"])
+                if reinitialize and header['media_id'] == grant['previous_initializations'][-1]['media_id']:
+                    raise SafetyError('Neuinitialisierung hat keine neue Medien-ID erzeugt')
                 catalog.register(header, tape.used())
                 with catalog.db:
                     catalog.db.execute("UPDATE media SET serial=? WHERE id=?", (drive["medium_serial"], header["media_id"]))
@@ -188,7 +233,7 @@ def execute(config: WebConfig, control: Control, payload: dict[str, Any]) -> dic
                           "header": header, "scope": "header readback only; no data archive or full qualification"}
                 catalog.finish(job, "SUCCEEDED", report=result)
                 grant.update(state="SUCCEEDED", finished=time.time(), media_id=header["media_id"])
-                control.set(PREFIX + grant["id"], grant)
+                control.set(prefix + grant["id"], grant)
                 progress("SUCCEEDED", "INITIALIZED", result=result)
                 control.sync_event("config", "UPDATED", None, "Physisches OTAM-Medium initialisiert: " + header["media_id"])
                 return result
@@ -196,7 +241,7 @@ def execute(config: WebConfig, control: Control, payload: dict[str, Any]) -> dic
         # A consumed uncertain intent is never silently cleared, even when the
         # header write succeeded but catalog/binding publication failed.
         grant.update(state="FAILED", finished=time.time(), error=str(error))
-        control.set(PREFIX + grant["id"], grant)
+        control.set(prefix + grant["id"], grant)
         progress("FAILED", "INCOMPLETE" if grant["write_attempted"] else "NOT_STARTED", error=str(error))
         if job is not None:
             catalog.finish(job, "FAILED", str(error))

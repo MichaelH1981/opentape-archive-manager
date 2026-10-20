@@ -868,3 +868,30 @@ Aktuell keine TapeAlert-Flags; ein historischer Hinweis bleibt ausdrücklich als
 Verlauf erhalten. Ein ausgewähltes Zielmedium ist für das bestehende TAR-Format
 nötig, muss für Planung/Staging aber nicht eingelegt sein. Medienunabhängiges
 Vorstaging ist nicht implementiert.
+
+## 20.10.2026: Kandidat 0.6.2 – abgeschlossene Initialisierung ersetzen
+
+Noch **nicht installiert oder physisch freigegeben**. Der laufende Produktivstand
+bleibt 0.6.1 mit READY-Medium „LTO-4 Archiv 01“. Ein während der Entwicklung
+laufender Benutzer-Planungsauftrag wurde nicht unterbrochen.
+
+Die zweite, aus dem Testkatalog entfernte Kassette ist durch ihren erhaltenen
+SUCCEEDED-Initialisierungsbeleg geschützt, nicht durch einen aktiven TapeAlert.
+Der Kandidat bietet einen eigenen default-false Neuinitialisierungsworkflow,
+klare Medien-ID-/Zeitangabe und getrennte Wahl zwischen lesender Registrierung
+und destruktiver Neuinitialisierung. Ein beliebiges force-Flag gibt es nicht.
+Nur abgeschlossene Vorgänger ohne aktuelle physische Katalogbindung sind
+zulässig; Pending, Reset-Guards und unklare Schreibintents bleiben gesperrt.
+Explizite Simulator-Katalogeinträge mit gleichem Label/Serienfeld blockieren keine
+physische MAM. Der vorhandene echte Header muss zur letzten erfolgreichen UUID
+passen, bevor der normale geprüfte Initialisierungspfad schreiben darf.
+
+226/226 Debian-Tests bestanden; lokal 226 mit einem Skip. Nach zusätzlicher
+Header-UUID-Prüfung acht gezielte Neuinitialisierungs-/Harness-Tests lokal und
+unter Debian bestanden. Die Header-only-Hardwareharness ist mit dem echten
+LinuxTape-/Workerhandler hinter FileST geprüft: alter Header und neuer Header
+je einmal gelesen, unveränderte Node-Konfiguration und alte Freigabebelege,
+keine Nutzdatenreads. JavaScript-Syntax und Hardwareansicht im Browser geprüft.
+Die reale Belegprüfung der zweiten Kassette bleibt offen und benötigt deren
+bestätigtes Einlegen bei freiem Laufwerk. Kein Bandwrite dieses Kandidaten
+wurde durchgeführt; die erste produktive Kassette bleibt unangetastet.

@@ -112,6 +112,7 @@ const kindLabel = (k) =>
     sync: "Katalog synchronisieren",
     "hardware-scan": "Status und Diagnose abfragen",
     "tape-maintenance": "Bandwartung",
+    "reinitialize-physical": "Kassette ausdrücklich neu initialisieren",
     "reset-physical": "Unterbrochenes Medium zurücksetzen",
     "initialize-physical": "Band für OTAM vorbereiten",
     "register-physical": "OTAM-Medium lesend registrieren",

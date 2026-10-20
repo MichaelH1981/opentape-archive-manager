@@ -78,6 +78,7 @@ class WebConfig:
     physical_multivolume: bool = False
     physical_initialization: bool = False
     physical_reset: bool = False
+    physical_reinitialization: bool = False
 
     def validate(self) -> None:
         uuid.UUID(self.node_id)
@@ -160,6 +161,9 @@ class WebConfig:
         if (type(self.physical_reset) is not bool
                 or (self.physical_reset and not self.physical_initialization)):
             raise SafetyError("Physisches Zurücksetzen benötigt eine separate administrative Freigabe")
+        if (type(self.physical_reinitialization) is not bool
+                or (self.physical_reinitialization and not self.physical_initialization)):
+            raise SafetyError('Physische Neuinitialisierung benötigt eine separate administrative Freigabe')
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources

@@ -1,6 +1,12 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Kassette ausdrücklich neu initialisieren": "Explicitly reinitialize cartridge",
+  "Kassette neu initialisieren": "Reinitialize cartridge",
+  "Neuinitialisierung ausdrücklich bestätigen": "Explicitly confirm reinitialization",
+  "Nur abgeschlossene physische Initialisierungen ohne aktuellen Katalogeintrag können ersetzt werden. Registrierte Medien und ungeklärte Abbrüche bleiben geschützt.": "Only completed physical initializations absent from the current catalog can be replaced. Registered media and unresolved interrupted writes remain protected.",
+  "Diese Kassette wurde bereits initialisiert, ist aber im aktuellen Katalog nicht vorhanden. Lesend registrieren erhält die Inhalte. Neuinitialisierung macht sie unbrauchbar.": "This cartridge has been initialized before but is absent from the current catalog. Read-only registration preserves contents. Reinitialization makes them unusable.",
+
   "Kassette zurücksetzen": "Reset cartridge",
   "Bandpflege und destruktive Tests": "Tape maintenance and destructive tests",
   "Diese Aktionen verändern Bandinhalte. Jeder Vorgang verlangt eine eigene Bestätigung.": "These actions change tape contents. Each operation requires separate confirmation.",

@@ -45,6 +45,7 @@ COMMANDS = {
     "register-physical",
     "initialize-physical",
     "reset-physical",
+    "reinitialize-physical",
 }
 
 
@@ -87,6 +88,9 @@ def validate_command(
         return
     if kind == "initialize-physical":
         initialization.approval(config, control, payload)
+        return
+    if kind == "reinitialize-physical":
+        initialization.approval(config, control, payload, reinitialize=True)
         return
     if kind == "reset-physical":
         reset.approval(config, control, payload)
@@ -317,6 +321,8 @@ def execute(
         return physical_archive.register_existing(config, control, payload)
     if kind == "initialize-physical":
         return initialization.execute(config, control, payload)
+    if kind == "reinitialize-physical":
+        return initialization.execute(config, control, payload, reinitialize=True)
     if kind == "reset-physical":
         return reset.execute(config, control, payload)
     if kind == "tape-maintenance":

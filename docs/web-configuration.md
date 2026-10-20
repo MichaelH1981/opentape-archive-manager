@@ -210,3 +210,13 @@ Planung und Staging benötigen ein gewähltes katalogisiertes Zielmedium, aber
 keine eingelegte Kassette. Das heutige unveränderliche TAR enthält bereits die
 Medien-UUID. Vollständig medienunabhängiges Vorstaging ist deshalb noch nicht
 implementiert und würde einen eigenen Format-/Bindungsworkflow benötigen.
+
+## Ab 0.6.2: Neuinitialisierung nach abgeschlossener früherer Initialisierung
+
+Das separate default-false Gate `physical_reinitialization` verlangt
+`physical_initialization`. Es ersetzt ausschließlich abgeschlossene physische
+Initialisierungen, deren Medium nicht mehr im Katalog oder in Bindungen steht.
+Die Hardwareansicht nennt alte Medien-ID/Zeit und bietet getrennt lesende
+Registrierung oder destruktive Neuinitialisierung an. Ungeklärte Writes werden
+nicht freigegeben. Simulatoridentitäten allein blockieren kein reales Medium.
+Details: [Workflow und Grenzen](architecture/physical-reinitialization.md).
