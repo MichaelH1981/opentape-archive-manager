@@ -146,6 +146,13 @@ CPU-, Speicher- und I/O-Abrechnung sind für die Unit aktiviert. Die generierten
 Quellfixtures liegen separat auf der System-SSD; **kein SSD-Staging wurde
 registriert oder verwendet**. Sie bleiben nach dem Test erhalten.
 
+Zwischenstand am 20.10.2026 um 07:18 MESZ: Der reguläre Archivjob meldete
+um 07:14:30 nach vollständiger physischer Rücklesung beider großer TARs
+`VERIFIED` (150.323.855.405 Nutzbytes, drei Dateien). Anschließend begann
+`REBUILD_START` für die leere Rekonstruktionsdatenbank. Der übergeordnete
+Abnahmeauftrag läuft weiterhin; Rekonstruktion, vollständiger Restore und
+abschließende Transfer-/Ressourcenauswertung sind noch nicht bestätigt.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.
