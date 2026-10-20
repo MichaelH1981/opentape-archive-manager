@@ -94,6 +94,32 @@ Sekunde und die letzten 8 KiB begrenzt. Die gespeicherten Web-Transferwerte sind
 bis zur Webintegration weiterhin als vorgemerkt markiert; die laufende
 Hardware-Abnahme übergibt ihre geprüften Werte ausdrücklich.
 
+## Sequenzieller Restore-Kandidat
+
+Der neue, noch nicht auf Hardware abgenommene Kandidat liest bei `scan()` zuerst
+das Daten-TAR vollständig und danach seinen Prüfbeleg. Archivhash, Bytezahl,
+Dateimanifest und alle Datei-Hashes werden weiterhin geprüft; die Receipt-Kette
+wird erst mit dem nachfolgenden Beleg bestätigt. Das vermeidet den bisherigen
+Sprung zum Beleg und zurück zum Daten-TAR für jedes Paar.
+
+Restore verwendet denselben Prüfpass zum Extrahieren ausgewählter Dateien.
+Sie liegen zunächst in einem exklusiv erzeugten privaten `.otam-restore-<UUID>`-
+Verzeichnis auf dem Zieldateisystem. Erst nachdem alle vollständigen TAR-Hashes,
+Prüfbelege und ausgewählten Dateien einschließlich Ziel-Rücklesung erfolgreich
+geprüft sind, werden die Dateien mit exklusiven Hardlinks unter ihren Zielnamen
+veröffentlicht. Vorhandene Ziele werden niemals ersetzt. Alle Verzeichniszugriffe
+erfolgen relativ zu Deskriptoren mit Symlink-Schutz. Das Ziel muss Hardlinks auf
+demselben Dateisystem unterstützen; Fehler bleiben ein fehlgeschlagener Restore.
+Bei Prozessabsturz kann das private Verzeichnis zur ausdrücklichen Inspektion
+zurückbleiben. Es gibt keine automatische Löschung fremder Restore-Daten.
+
+Jedes Daten-TAR wird dadurch nur einmal vom Band gelesen. Bei bestätigter
+Vorwärtsposition verwendet der Adapter relative Filemarks mit anschließender
+Positionskontrolle. Unbekannte oder rückwärts liegende Positionen verwenden
+weiterhin den konservativen BOT-Pfad. Die laufende große Hardware-Abnahme nutzt
+unverändert den vorherigen Code; Linux- und physische Nachtests dieses Kandidaten
+stehen noch aus.
+
 ## Noch sperrende Abnahmen
 
 Kleine reguläre Zyklen, Append, verzögerte Verifikation, Katalogverlust/Restore und

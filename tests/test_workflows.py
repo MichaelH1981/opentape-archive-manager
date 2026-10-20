@@ -333,6 +333,53 @@ class Workflows(unittest.TestCase):
             sha256(self.source / "notes.txt"),
         )
 
+    def test_restore_reads_each_data_archive_once_in_physical_order(self) -> None:
+        self.backup(target=1000)
+        reads = []
+        original = self.tape.read
+
+        def tracked(position):
+            reads.append(position)
+            return original(position)
+
+        with patch.object(self.tape, "read", side_effect=tracked):
+            result = self.service.restore(self.media, self.base / "sequential")
+        self.assertEqual(result["files"], 3)
+        self.assertEqual([position for position in reads if position > 0], list(range(1, 7)))
+        self.assertFalse(list((self.base / "sequential").glob(".otam-restore-*")))
+
+    def test_restore_publishes_nothing_if_receipt_or_tar_padding_is_corrupt(self) -> None:
+        self.backup()
+        data = self.tape.path / "00000001.tar"
+        receipt = self.tape.path / "00000002.tar"
+        original_data, original_receipt = data.read_bytes(), receipt.read_bytes()
+        for kind in ("padding", "receipt"):
+            with self.subTest(kind=kind):
+                data.write_bytes(original_data)
+                receipt.write_bytes(original_receipt)
+                if kind == "padding":
+                    with data.open("r+b") as stream:
+                        stream.seek(-1, os.SEEK_END)
+                        stream.write(b"x")
+                else:
+                    with tarfile.open(receipt, "r") as archive:
+                        value = json.load(archive.extractfile("receipt.json"))
+                    value["sha256"] = "0" * 64
+                    metadata_tar(receipt, "receipt.json", value)
+                target = self.base / ("invalid-" + kind)
+                with self.assertRaises(SafetyError):
+                    self.service.restore(self.media, target)
+                self.assertEqual(list(target.iterdir()), [])
+
+    def test_restore_rejects_catalog_hash_disagreement_before_publication(self) -> None:
+        self.backup()
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE files SET sha256=? WHERE path='notes.txt'", ("0" * 64,))
+        target = self.base / "catalog-mismatch"
+        with self.assertRaisesRegex(SafetyError, "catalog selection"):
+            self.service.restore(self.media, target)
+        self.assertEqual(list(target.iterdir()), [])
+
     def test_rebuild_preserves_prior_pairs_with_incomplete_tail(self) -> None:
         first = self.backup()
         plan = self.service.plan(self.source, self.media)

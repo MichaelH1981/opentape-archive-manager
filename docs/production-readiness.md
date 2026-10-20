@@ -153,6 +153,21 @@ um 07:14:30 nach vollständiger physischer Rücklesung beider großer TARs
 Abnahmeauftrag läuft weiterhin; Rekonstruktion, vollständiger Restore und
 abschließende Transfer-/Ressourcenauswertung sind noch nicht bestätigt.
 
+Um 08:05:12 MESZ war die Rekonstruktion aller sechs Archive erfolgreich beendet,
+ohne unvollständigen Tail. Um 08:58 MESZ läuft die eigentliche Extraktion;
+README und eine noch unvollständige erste Nutzdatei sind im eigenen Restore-Ziel
+sichtbar. Das ist weiterhin kein abgeschlossener Restore-Nachweis.
+
+Parallel wurde lokal ein sequenzieller Restore-Kandidat implementiert: Daten vor
+Receipt lesen, ausgewählte Dateien während desselben Prüfpasses privat
+extrahieren, erst nach erfolgreicher vollständiger Prüfung exklusiv
+veröffentlichen. Relative Vorwärtspositionierung bleibt statusgeprüft.
+154 lokale Tests sind erfolgreich (43 Linux-spezifische Tests übersprungen).
+Zusätzliche Tests sichern die einmalige geordnete Datenlesung, beschädigte
+TAR-Endblöcke/Receipts, Katalogabweichungen und bestätigte Filemark-Positionierung
+ab. Der Kandidat ist **nicht installiert**; Linux-Nachtest und physischer
+Read-only-Restore folgen erst nach Abschluss des unberührten laufenden Tests.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.

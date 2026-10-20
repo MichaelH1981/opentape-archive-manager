@@ -15,6 +15,7 @@ from .common import FORMAT, SafetyError, digest, encode, safe_path, sha256
 
 MANIFEST = "OTAM/manifest.json"
 MAX_META = 32 * 1024 * 1024
+PayloadHandler = Callable[[dict[str, Any], str, BinaryIO, dict[str, Any]], str]
 RECOVERY = b"""OTAM PAX v1. Keep this medium write protected during recovery.
 Each tape file is an independent uncompressed POSIX PAX TAR.
 File 0: media.json and RECOVERY.txt. Then alternating data TAR and receipt TAR.
@@ -201,7 +202,8 @@ def create_archive(path: Path, root: Path, manifest: dict[str, Any],
     verify_archive(path, manifest)
 
 
-def verify_archive(path: Path | BinaryIO, expected: dict[str, Any] | None = None) -> dict[str, Any]:
+def verify_archive(path: Path | BinaryIO, expected: dict[str, Any] | None = None,
+                   payload_handler: PayloadHandler | None = None) -> dict[str, Any]:
     arguments = {"name": str(path)} if isinstance(path, Path) else {"fileobj": path}
     with tarfile.open(mode="r|", bufsize=1024 * 1024, **arguments) as tar:
         first = tar.next()
@@ -229,7 +231,9 @@ def verify_archive(path: Path | BinaryIO, expected: dict[str, Any] | None = None
                 raise SafetyError(f"Size mismatch: {name}")
             payload = tar.extractfile(member)
             assert payload is not None
-            if digest(payload) != entry["sha256"]:
+            checksum = (digest(payload) if payload_handler is None else
+                        payload_handler(manifest, name, payload, entry))
+            if checksum != entry["sha256"]:
                 raise SafetyError(f"SHA-256 mismatch: {name}")
             seen.add(name)
         if seen != set(entries):
@@ -237,10 +241,10 @@ def verify_archive(path: Path | BinaryIO, expected: dict[str, Any] | None = None
         return manifest
 
 
-def verify_stream(stream: BinaryIO, expected_hash: str, expected_bytes: int,
-                  manifest: dict[str, Any] | None = None,
-                  progress: Callable[[int], None] | None = None) -> dict[str, Any]:
-    """Hash the entire tape file and inspect TAR in one bounded-memory pass."""
+def inspect_stream(stream: BinaryIO, manifest: dict[str, Any] | None = None,
+                   progress: Callable[[int], None] | None = None,
+                   payload_handler: PayloadHandler | None = None) -> tuple[dict[str, Any], str, int]:
+    """Inspect and hash through filemark before reading the following receipt."""
     import hashlib
     result = hashlib.sha256()
     done = 0
@@ -254,9 +258,17 @@ def verify_stream(stream: BinaryIO, expected_hash: str, expected_bytes: int,
                 progress(done)
             return data
     incoming = HashReader()
-    found = verify_archive(incoming, manifest)
+    found = verify_archive(incoming, manifest, payload_handler)
     while incoming.read(1024 * 1024):
         pass  # Include all TAR end blocks/padding through the actual filemark/EOF.
-    if done != expected_bytes or result.hexdigest() != expected_hash:
+    return found, result.hexdigest(), done
+
+
+def verify_stream(stream: BinaryIO, expected_hash: str, expected_bytes: int,
+                  manifest: dict[str, Any] | None = None,
+                  progress: Callable[[int], None] | None = None) -> dict[str, Any]:
+    """Hash the entire tape file and inspect TAR in one bounded-memory pass."""
+    found, checksum, done = inspect_stream(stream, manifest, progress)
+    if done != expected_bytes or checksum != expected_hash:
         raise SafetyError("Full tape readback SHA-256/byte count mismatch")
     return found

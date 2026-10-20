@@ -10,17 +10,18 @@ from pathlib import Path
 from typing import Any
 
 from .archive import (MAX_META, create_archive, estimate, inventory, metadata_tar, plan_archives,
-                      read_metadata, verify_archive, verify_stream)
+                      read_metadata, verify_archive, verify_stream, inspect_stream, PayloadHandler)
 from .catalog import Catalog
 from .common import FORMAT, SafetyError, encode, sha256
-from .restore import restore_files
+from .restore import PendingRestore
 from .tape import Tape
 from .staging import StagingStore
 from .storage import io_lock
 from .benchmark import require_qualification
 
 
-def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False) -> list[dict[str, Any]]:
+def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False,
+         payload_handler: PayloadHandler | None = None) -> list[dict[str, Any]]:
     header = tape.header()
     if header["media_id"] != expected_media:
         raise SafetyError("Wrong medium inserted")
@@ -31,13 +32,17 @@ def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False) -> list[d
     found = []
     seen: set[str] = set()
     for position in range(1, len(positions) - 1, 2):
+        # Read data then its receipt, in physical order. Do not seek past a
+        # large data file just to obtain the expected hash before reading it.
+        with tape.open_read(position) as incoming:
+            manifest, checksum, size = inspect_stream(incoming, payload_handler=payload_handler)
         receipt_path = tape.read(position + 1)
         receipt = read_metadata(receipt_path, "receipt.json")
         if (receipt.get("format") != FORMAT or receipt.get("media_id") != expected_media
                 or receipt.get("tape_file") != position or receipt.get("previous") != previous):
             raise SafetyError(f"Receipt mismatch at tape file {position}")
-        with tape.open_read(position) as incoming:
-            manifest = verify_stream(incoming, receipt["sha256"], receipt["bytes"])
+        if checksum != receipt["sha256"] or size != receipt["bytes"]:
+            raise SafetyError("Full tape readback SHA-256/byte count mismatch")
         if (manifest["media_id"] != expected_media or manifest["archive_id"] != receipt["archive_id"]
                 or manifest["archive_id"] in seen):
             raise SafetyError("Archive identity mismatch or duplicate")
@@ -544,16 +549,14 @@ class ArchiveService:
                 self.catalog.db.execute("INSERT INTO restores VALUES(?,?,?,?,?)",
                                         (str(uuid.uuid4()), job, str(target.absolute()), encode(plan).decode(), "RUNNING"))
             try:
-                # Read/verify receipts from the medium, never trust the catalog alone.
-                found = scan(self.tape, media, allow_tail=True)
-                count = 0
-                for item in found:
-                    names = {r["path"] for r in plan["files"] if r["archive_id"] == item["manifest"]["archive_id"]}
-                    if names:
-                        with self.tape.open_read(item["position"]) as incoming:
-                            count += restore_files(incoming, target, item["manifest"], names)
-                if count != len(plan["files"]):
-                    raise SafetyError("Catalog selection not found on medium")
+                pending = PendingRestore(target, plan["files"])
+                try:
+                    # Extract privately while validating every TAR and receipt.
+                    # Publish only after all byte hashes and the chain pass.
+                    scan(self.tape, media, allow_tail=True, payload_handler=pending.consume)
+                    count = pending.publish()
+                finally:
+                    pending.close()
                 with self.catalog.db:
                     self.catalog.db.execute("UPDATE restores SET state='VERIFIED' WHERE job_id=?", (job,))
                 report = {"job_id": job, "state": "VERIFIED", "files": count, "target": str(target.absolute())}

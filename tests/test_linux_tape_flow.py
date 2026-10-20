@@ -37,7 +37,7 @@ class FileST:
         operation = args[3]
         self.eod = operation == "eod"
         self.position = (len(self.files) if self.eod else
-                         int(args[4]) if operation == "fsf" else 0)
+                         self.position + int(args[4]) if operation == "fsf" else 0)
         return b""
 
     def status(self, device):

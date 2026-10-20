@@ -303,9 +303,12 @@ class LinuxTape:
         current = status(self.device.device)
         if current["file_number"] == position and current["block_number"] == 0:
             return
-        self._move("rewind")
-        if position:
-            self._move("fsf", position)
+        if (0 <= current["file_number"] < position and current["block_number"] >= 0):
+            self._move("fsf", position - current["file_number"])
+        else:
+            self._move("rewind")
+            if position:
+                self._move("fsf", position)
         value = status(self.device.device)
         if value["file_number"] != position or value["block_number"] != 0:
             raise SafetyError("Physical tape position is unconfirmed")

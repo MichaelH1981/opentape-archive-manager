@@ -69,6 +69,24 @@ class LinuxTapeSafety(TestCase):
             self.tape.positions()
         self.device.check.assert_not_called()
 
+    def test_forward_seek_uses_relative_filemarks_and_checks_result(self):
+        with patch.object(self.tape, "_count", return_value=9), \
+                patch("otam.physical.status", side_effect=[
+                    {"file_number": 2, "block_number": 10},
+                    {"file_number": 5, "block_number": 0}]), \
+                patch.object(self.tape, "_move") as move:
+            self.tape._seek(5)
+            move.assert_called_once_with("fsf", 3)
+
+    def test_unknown_forward_position_keeps_conservative_rewind(self):
+        with patch.object(self.tape, "_count", return_value=9), \
+                patch("otam.physical.status", side_effect=[
+                    {"file_number": -1, "block_number": -1},
+                    {"file_number": 5, "block_number": 0}]), \
+                patch.object(self.tape, "_move") as move:
+            self.tape._seek(5)
+            self.assertEqual([call.args for call in move.call_args_list], [("rewind",), ("fsf", 5)])
+
     def test_old_device_path_api_remains_disabled(self):
         with self.assertRaises(SafetyError):
             LinuxTape(Path("/dev/nst0"))
