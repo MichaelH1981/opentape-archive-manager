@@ -1,4 +1,4 @@
-"""CLI adapter. No physical tape mutation commands are exposed."""
+"""CLI adapter; physical commands use the separately gated durable worker."""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +7,7 @@ import json
 import sqlite3
 import tarfile
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +21,18 @@ from .benchmark import run_benchmark
 
 
 def parser() -> argparse.ArgumentParser:
-    cli = argparse.ArgumentParser(description="OTAM simulator preview; real tape writes disabled")
+    cli = argparse.ArgumentParser(description="OTAM catalog, simulator and explicitly enabled physical archive worker")
     cli.add_argument("--db", type=Path, default=Path(".otam/catalog.sqlite"))
     sub = cli.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Read-only environment inventory; does not open tape devices")
+    physical = sub.add_parser("physical-command", help="Queue a reviewed physical-node command through the durable worker")
+    physical.add_argument("--config", required=True, type=Path)
+    physical.add_argument("--kind", required=True, choices=("register-physical", "plan", "stage", "backup", "verify", "restore", "recover", "rebuild"))
+    physical.add_argument("--payload-file", required=True, type=Path)
+    physical.add_argument("--idempotency-key", default=None)
+    physical_status = sub.add_parser("physical-command-status", help="Inspect a queued physical command without device access")
+    physical_status.add_argument("--config", required=True, type=Path)
+    physical_status.add_argument("--command-id", required=True)
     web_init = sub.add_parser("web-init", help="Create a private node configuration; no tape operations")
     web_init.add_argument("--config", required=True, type=Path)
     web_init.add_argument("--root", required=True, type=Path)
@@ -91,7 +100,34 @@ def main(argv: list[str] | None = None) -> int:
     catalog = None
     try:
         result: Any
-        if args.command == "web-init":
+        if args.command in ("physical-command", "physical-command-status"):
+            from .web.config import WebConfig
+            from .web.control import Control
+            from .web import physical_archive
+            from .web.worker import validate_command
+            config = WebConfig.load(args.config)
+            control = Control(config.state)
+            if args.command == "physical-command":
+                physical_archive.require_mode(config, control, archive=args.kind != "register-physical")
+                if args.payload_file.stat().st_size > 1024**2:
+                    raise SafetyError("Command payload exceeds 1 MiB")
+                payload = json.loads(args.payload_file.read_text())
+                if not isinstance(payload, dict):
+                    raise SafetyError("Command payload must be a JSON object")
+                validate_command(config, control, args.kind, payload)
+                row = control.enqueue(args.kind, payload, args.idempotency_key or str(uuid.uuid4()))
+                result = {key: row[key] for key in ("id", "kind", "state", "idempotency")}
+            else:
+                uuid.UUID(args.command_id)
+                with control.connect() as db:
+                    row = db.execute("SELECT * FROM commands WHERE id=?", (args.command_id,)).fetchone()
+                if row is None:
+                    raise SafetyError("Command not found")
+                result = dict(row)
+                for key in ("payload", "result"):
+                    if result[key] is not None:
+                        result[key] = json.loads(result[key])
+        elif args.command == "web-init":
             import getpass
             from .web.config import initialize
             if args.password_file:

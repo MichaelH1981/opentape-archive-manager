@@ -85,6 +85,50 @@ Alle Änderungen nur am Archive Node, authentifiziert und mit CSRF-/Origin-Schut
 
 `physical_maintenance`: Standard `false`. Ermöglicht nach administrativer Einrichtung der Worker-Geräterechte den expliziten Wechsel zwischen Simulator und physischem Wartungsbetrieb unter Hardware. Reguläre echte LTO-Archivierung wird dadurch nicht freigeschaltet; `LinuxTape` bleibt bis zur Bandformat-Abnahme gesperrt.
 
+`physical_archiving`: Standard `false`, nur zusammen mit `physical_maintenance=true`
+auf einem Archive Node zulässig. Separates Gate für den neuen regulären physischen
+Workerpfad; bis zum Ende der Abnahme nicht in der Installation aktivieren.
+Der Betriebsmodus muss zusätzlich `physical` sein. Gerätezugriffe bleiben im
+Worker; HTTP-Anfragen prüfen ausschließlich dessen gespeicherte Erkennung.
+
+Unter **Hardware** kann ein Administrator ein vorhandenes selbstbeschreibendes
+OTAM-Medium lesend registrieren. Der neue Auftrag `register-physical` benötigt
+`{drive_id, drive_serial, medium_serial}`. Der Worker erkennt die Hardware frisch,
+liest Header und Belege und speichert eine Bindung aus OTAM-Medien-UUID,
+Laufwerksseriennummer und MAM-Seriennummer. `/dev/nst*` wird nicht dauerhaft
+als Identität gespeichert. Es gibt keine automatische Initialisierung. Ein
+unbekannter Header scheitert; zum Import unbekannter Archive folgt anschließend
+eine ausdrückliche vollständige Katalogrekonstruktion.
+
+Vor `backup` müssen gespeicherte Transferwerte zum ausgewählten Staging, frisch
+erkannten Laufwerksprofil und Dateisystem-Fingerprint passen. Rate und Puffer
+werden tatsächlich an `LinuxTape`/mbuffer übergeben. `transfer_policy_selected`
+protokolliert die Auswahl; die tatsächlichen Write-Samples protokollieren die
+wirksamen Werte. Das historische Feld `effective=false` bezeichnet keine globale
+Geräteeinstellung: Werte werden je Job erneut validiert. Staging bleibt nach
+Planung auch ohne eingelegtes Medium möglich.
+
+Der Integrationskandidat unterstützt vorerst **ein eingelegtes bereits
+initialisiertes physisches Medium**. Physische Initialisierung und Mehrbandjobs
+bleiben ausdrücklich gesperrt, bis ihre separaten Workflows abgenommen sind.
+Simulator-Mehrbandjobs bleiben verfügbar. Dies ist keine Produktionsfreigabe.
+
+Die CLI verwendet dieselbe dauerhafte Workerwarteschlange:
+
+```sh
+otam physical-command --config /etc/otam/node.json --kind plan --payload-file plan.json
+otam physical-command-status --config /etc/otam/node.json --command-id <command-uuid>
+```
+
+`plan.json` enthält z.B. `{ "media_id": "<media-uuid>", "source_id": "source-1",
+"staging_id": "default-staging", "verify_mode": "media" }`.
+Weitere erlaubte Arten: `register-physical`, `stage`, `backup`, `verify`, `restore`,
+`recover`, `rebuild`. Für Backup sind `{job_id, confirm: job_id, plan_hash}` nach
+Prüfung des persistenten Archivplans erforderlich. Restore akzeptiert
+`{media_id, target_name, paths?, archive_id?}`. Wiederholte Aufrufe können denselben
+`--idempotency-key` verwenden. Der CLI-Aufruf führt keine Geräteaktion selbst aus;
+der laufende Worker validiert den Auftrag vor der Ausführung erneut.
+
 `allow_host_shutdown`: Standard `false`, nur für Archive Nodes. Zeigt Administratoren unter **Einstellungen** den Shutdown-Knopf und erlaubt die bestätigte API-Anforderung. Die Webanwendung erhält dadurch keine root-Rechte. Für einen funktionsfähigen Shutdown müssen zusätzlich die beiden Vorlagen `packaging/systemd/otam-poweroff.path` und `otam-poweroff.service` als root installiert und die `.path`-Unit aktiviert werden. `PathExists` muss auf `<state>/poweroff.request` zeigen; `TMPDIR` der Helfer-Unit muss exakt mit Web und Worker übereinstimmen und dem OTAM-Dienstkonto gehören (0700). Die Vorlagen verwenden `/var/lib/otam/state` und `/var/lib/otam/tmp`. Bei anderen Installationspfaden die Units vor Aktivierung anpassen. Auf Catalog Nodes bleibt der Knopf verborgen.
 
 Der POST auf `/api/v1/system/poweroff` benötigt eine Admin-Sitzung, gültiges CSRF-Token und `{confirmation: "<exakter Node-Name>"}`. Laufende oder wartende OTAM-Aufträge sowie eine gehaltene I/O-Sperre blockieren die Anforderung. Der root-Helfer akzeptiert nur eine frische, für den aktuellen Boot signalisierte Anforderung aus dem lokalen Steuerkatalog und stoppt den Worker vor dem festen `systemctl poweroff --no-wall`. Ein Fehlschlag entfernt die Anforderung, hebt die Auftragssperre auf und startet einen bereits gestoppten Worker erneut. Das Feature wurde nur mit gemockten `systemctl`-Aufrufen getestet; ein echter Shutdown muss bei einer späteren kontrollierten Wartung abgenommen werden.

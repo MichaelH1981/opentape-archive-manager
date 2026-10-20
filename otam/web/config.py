@@ -63,6 +63,7 @@ class WebConfig:
     sources: tuple[Resource, ...] = ()
     directory_roots: tuple[Path, ...] = ()
     physical_maintenance: bool = False
+    physical_archiving: bool = False
     peer_url: str = ""
     peer_key_file: Path | None = None
     publisher_id: str = ""
@@ -144,6 +145,9 @@ class WebConfig:
             raise SafetyError("Ungültige Verzeichnisfreigaben oder Hardwarefreigabe")
         if type(self.allow_host_shutdown) is not bool:
             raise SafetyError("Ungültige Shutdown-Freigabe")
+        if (type(self.physical_archiving) is not bool
+                or (self.physical_archiving and (not self.physical_maintenance or self.role != "archive"))):
+            raise SafetyError("Physische Archivierung benötigt einen administrativ freigegebenen Archivnode")
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources

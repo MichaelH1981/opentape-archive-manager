@@ -491,6 +491,10 @@ class WebAcceptance(unittest.TestCase):
             headers=headers,
         ).status_code, 403)
         self.assertEqual(operator.post(
+            "/api/v1/commands", json={"kind": "register-physical", "payload": {}},
+            headers=headers,
+        ).status_code, 403)
+        self.assertEqual(operator.post(
             "/api/v1/commands", json={"kind": "create-medium", "payload": {"label": "allowed"}},
             headers=headers,
         ).status_code, 202)

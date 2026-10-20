@@ -44,7 +44,7 @@ let renderId = 0;
 function applyPermissions(root) {
   const role = state.account?.role || "viewer";
   if (role !== "admin")
-    $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
+    $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-register-physical], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
       .forEach((element) => (element.hidden = true));
   if (role === "viewer")
     $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group]", root)
@@ -511,7 +511,7 @@ function bindForms(root = $("#content")) {
         }),
       });
       await render();
-      toast("Transferwerte gespeichert; physischer Schreibpfad weiterhin gesperrt.");
+      toast(state.node.capabilities.physical_tape ? "Transferwerte gespeichert; Anwendung nach erneuter Prüfung beim nächsten physischen Schreibjob." : "Transferwerte gespeichert; physischer Schreibpfad weiterhin gesperrt.");
     } catch (error) {
       toast(error.message, true);
       button.disabled = false;
@@ -642,7 +642,13 @@ document.addEventListener("click", async (e) => {
   );
   if (!b) return;
   try {
-    if (b.dataset.maintenanceDrive)
+    if (b.dataset.registerPhysical) {
+      await enqueue("register-physical", { drive_id: b.dataset.registerPhysical,
+        drive_serial: b.dataset.driveSerial, medium_serial: b.dataset.mediumSerial });
+      toast("Medienregistrierung eingeplant.");
+      await render();
+    }
+    else if (b.dataset.maintenanceDrive)
       await maintenanceDialog(b.dataset.maintenanceDrive, b.dataset.operation);
     else if (b.id === "request-poweroff") {
       modal("Server herunterfahren", `<p>Der Archive Node <strong>${esc(state.node.name)}</strong> wird nach einer letzten Prüfung kontrolliert heruntergefahren. Laufende oder wartende OTAM-Aufträge verhindern den Vorgang.</p><form id="poweroff-form"><label>Node-Name zur Bestätigung<input name="confirmation" autocomplete="off" required></label><div class="form-actions"><button class="button primary" type="submit">Server herunterfahren</button></div></form>`);

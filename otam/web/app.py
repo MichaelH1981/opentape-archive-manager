@@ -53,7 +53,7 @@ from .targets import (
 )
 from .security import cookie_name, SecurityMiddleware, login, session, require_admin
 from .worker import mounted, validate_command
-from . import resources, maintenance
+from . import resources, maintenance, physical_archive
 from . import diagnostics
 from . import accounts, power
 
@@ -284,12 +284,12 @@ def create_app(config: WebConfig) -> FastAPI:
             "id": config.node_id,
             "name": config.name,
             "role": config.role,
-            "version": "0.5.0",
+            "version": __version__,
             "modules": [vars(m) for m in modules],
             "capabilities": {
                 "catalog": True,
                 "archive": config.role == "archive",
-                "physical_tape": False,
+                "physical_tape": config.physical_archiving,
                 "physical_maintenance": config.physical_maintenance,
             },
             "snapshot": active,
@@ -332,6 +332,14 @@ def create_app(config: WebConfig) -> FastAPI:
         if config.role == "archive":
             with control.connect() as db:
                 mounted_ids = {r[0] for r in db.execute("SELECT id FROM resources")}
+            if maintenance.mode(config, control) == "physical":
+                mounted_ids = set()
+                for ident in physical_archive.bindings(control):
+                    try:
+                        mounted(config, control, ident)
+                    except SafetyError:
+                        continue
+                    mounted_ids.add(ident)
             for item in items:
                 item["mounted"] = item["id"] in mounted_ids
         return {"items": items}
@@ -517,7 +525,7 @@ def create_app(config: WebConfig) -> FastAPI:
             idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
             request: Request,
         ):
-            if data.kind in ("tape-maintenance", "staging-speedtest"):
+            if data.kind in ("tape-maintenance", "staging-speedtest", "register-physical"):
                 require_admin(request)
             validate_command(config, control, data.kind, data.payload)
             result = control.enqueue(data.kind, data.payload, idempotency_key)
@@ -671,7 +679,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 ]
             return {
                 "inventory": discover(),
-                "physical_tape_enabled": False,
+                "physical_tape_enabled": config.physical_archiving,
                 "physical_maintenance_enabled": config.physical_maintenance,
                 "mode": maintenance.mode(config, control),
                 "discovery": control.get(
@@ -679,7 +687,9 @@ def create_app(config: WebConfig) -> FastAPI:
                 ),
                 "maintenance": history,
                 "status": diagnostics.overview(control),
-                "message": "Physischer Wartungsbetrieb mit Einzelfreigaben; reguläre LTO-Archivierung wartet auf Bandformat-Abnahme",
+                "message": ("Physische Archivierung ist administrativ freigegeben. Initialisierung erfolgt niemals automatisch."
+                            if config.physical_archiving else
+                            "Physischer Wartungsbetrieb mit Einzelfreigaben; reguläre LTO-Archivierung wartet auf Bandformat-Abnahme"),
             }
 
         app.include_router(archive)

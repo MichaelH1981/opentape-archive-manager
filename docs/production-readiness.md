@@ -277,6 +277,35 @@ isoliertem lokalem Test-TMPDIR. Gezielt physisch zu prüfen ist diese Änderung
 zusammen mit dem noch zu integrierenden regulären Web-/CLI-Archivpfad; dafür
 wurde kein weiterer Bandlauf gestartet. Installierte Dienste bleiben unverändert.
 
+### Regulärer Web-/CLI-Integrationskandidat
+
+Ein neuer gemeinsamer Pfad in `web/physical_archive.py` bindet bestehende
+physische OTAM-Medien an Medien-UUID, MAM- und Laufwerksseriennummer. Die
+Geräteadresse wird aus aktueller Erkennung aufgelöst und vom Backend unmittelbar
+vor Gerätezugriff erneut geprüft. Admin-Auftrag `register-physical` liest
+vorhandene Medien; er initialisiert niemals. Rollenprüfung und DE/EN-Oberfläche
+enthalten die lesende Registrierung unter Hardware.
+
+Das neue Konfigurationsgate `physical_archiving` ist standardmäßig **false**.
+Es wurde auf dem Bandserver nicht aktiviert. Normaler Worker und CLI-Warteschlange
+verwenden dieselbe Validierung. Die gespeicherten Transferwerte werden gegen
+Profil und Staging-Dateisystem geprüft und an LinuxTape übergeben; ausgewählte
+Werte werden als Jobereignis protokolliert. Ohne passende Werte wird kein Write
+gestartet. Staging benötigt nach geprüfter Planung kein eingelegtes Medium.
+
+170 lokale Tests bestanden (43 Linux-Skips), einschließlich des regulären
+Workerzyklus Registrierung → Plan → Offline-Staging → verzögerte Verifikation →
+Restore gegen die Dateigeräteemulation, mit Prüfung von `-R 120000000` und
+`-m 2368M`, physischer Serienbindung bei wechselndem nst-Namen, veralteter/falscher
+Erkennung, geändertem Dateisystem, ungültigen Transferwerten, CLI-Idempotenz und
+standardmäßig gesperrtem Write-Gate. JavaScript-Syntaxprüfung bestanden.
+Debian-Nachtest und ein kleiner echter Web-/CLI-Integrationszyklus stehen aus.
+
+Scope dieses Kandidaten: ein bereits initialisiertes physisches Medium. Physische
+Initialisierung und Mehrbandplanung bleiben gesperrt und benötigen eigene sichere
+Workflows. Die bisherige Simulator-Mehrbandfunktion ist unverändert. Die
+Produktionsabnahme ist deshalb weiterhin offen; die Installation bleibt 0.5.7.
+
 Den laufenden Auftrag und sein Code-Verzeichnis nicht verändern oder durch
 weitere intensive I/O-Tests stören. Der reguläre Worker ist bis zum Testende
 angehalten und startet anschließend über OnSuccess/OnFailure automatisch.

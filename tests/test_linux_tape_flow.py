@@ -4,6 +4,8 @@ No device node or mt/mbuffer process is opened. Hardware acceptance stays separa
 """
 import io
 import os
+import json
+import uuid
 import tempfile
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -80,6 +82,75 @@ class LocalProducer:
 
 
 class PhysicalServiceFlow(TestCase):
+    def test_regular_worker_binding_staging_transfer_and_restore(self):
+        from otam.web.config import WebConfig, Resource
+        from otam.web.control import Control
+        from otam.web.worker import execute
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            source, staging = root / "source", root / "staging"
+            source.mkdir()
+            staging.mkdir()
+            (source / "payload.bin").write_bytes(b"synthetic regular worker" * 1000)
+            config = WebConfig(str(uuid.uuid4()), "test", "archive", root / "state",
+                               root / "catalog.sqlite", staging, root / "media", root / "restore",
+                               "pbkdf2_sha256$600000$salt$hash", sources=(Resource("source-1", "source", source),),
+                               physical_maintenance=True, physical_archiving=True)
+            control = Control(config.state)
+            control.set("operation_mode", "physical")
+            drive = {"id": "test", "serial": "drive", "medium_serial": "cartridge", "ready": True,
+                     "device": "/dev/nst0", "vendor": "IBM", "model": "ULT3580-HH4",
+                     "status": {"online": True, "density_code": 0x46}}
+            device = FileST(root, drive)
+            storage = {"free": 10**9, "mount": str(staging), "source": "/dev/test",
+                       "device": "1:2", "type": "ext4"}
+            with ExitStack() as stack:
+                stack.enter_context(patch("otam.physical.LinuxMaintenance", return_value=device))
+                stack.enter_context(patch("otam.physical.run", side_effect=device.move))
+                stack.enter_context(patch("otam.physical.status", side_effect=device.status))
+                stack.enter_context(patch("otam.physical.discover_drives", return_value=[drive]))
+                stack.enter_context(patch("otam.web.physical_archive.discover_drives", return_value=[drive]))
+                stack.enter_context(patch.object(LinuxTape, "_driver_mode"))
+                for name in ("otam.storage.require_local", "otam.staging.require_local",
+                             "otam.web.resources.require_local", "otam.web.physical_archive.require_local"):
+                    stack.enter_context(patch(name, return_value=storage))
+                stack.enter_context(patch("otam.service.require_qualification"))
+                stack.enter_context(patch("otam.benchmark.available_memory", return_value=8 * 1024**3))
+                producer = stack.enter_context(patch("subprocess.Popen", side_effect=LocalProducer))
+                tape = LinuxTape(drive, config.state)
+                with tape.locked():
+                    tape.initialize("Existing test tape", 10**9, "rotation", "INITIALIZE cartridge")
+                registered = execute(config, control, "register-physical", {
+                    "drive_id": "test", "drive_serial": "drive", "medium_serial": "cartridge"})
+                media = registered["media_id"]
+                self.assertEqual(len(device.files), 1)
+                control.set("transfer_settings:default-staging", {
+                    "drive_id": "test", "drive_serial": "drive", "profile_id": "ibm-ult3580-hh4-lto4",
+                    "medium_density_code": 0x46, "write_rate_bytes_per_second": 120_000_000,
+                    "buffer_bytes": 2368 * 1024**2,
+                    "storage": {k: storage[k] for k in ("mount", "source", "device", "type")}})
+                plan = execute(config, control, "plan", {"media_id": media, "source_id": "source-1",
+                                                        "staging_id": "default-staging", "verify_mode": "media"})
+                # Staging is local and remains possible without an inserted tape.
+                control.set("hardware_inventory", {"time": 0, "drives": []})
+                self.assertEqual(execute(config, control, "stage", {"job_id": plan["job_id"]})["state"], "STAGED")
+                backup = execute(config, control, "backup", {"job_id": plan["job_id"],
+                                 "confirm": plan["job_id"], "plan_hash": plan["sha256"]})
+                self.assertEqual(backup["state"], "VERIFIED")
+                command = producer.call_args_list[-1].args[0]
+                self.assertEqual(command[command.index("-R") + 1], "120000000")
+                self.assertEqual(command[command.index("-m") + 1], "2368M")
+                restored = execute(config, control, "restore", {"media_id": media, "target_name": "selected"})
+                self.assertEqual(restored["state"], "VERIFIED")
+                self.assertEqual((config.restore_root / "selected" / "payload.bin").read_bytes(),
+                                 (source / "payload.bin").read_bytes())
+                catalog = Catalog(config.catalog)
+                try:
+                    event = catalog.db.execute("SELECT details_json FROM events WHERE event='transfer_policy_selected'").fetchone()
+                    self.assertEqual(json.loads(event[0])["buffer_bytes"], 2368 * 1024**2)
+                finally:
+                    catalog.close()
+
     def test_archive_and_deferred_modes_restore_and_rebuild_after_restart(self):
         for verification in ("archive", "media"):
             with self.subTest(verification=verification), tempfile.TemporaryDirectory() as folder:

@@ -19,13 +19,13 @@ from ..benchmark import MIN_FILE, CHUNK, TEST_FILE_BYTES, run_managed_speedtest
 from ..common import SafetyError, safe_path
 from ..service import ArchiveService
 from ..sets import backup_set_step, next_child, plan_set
-from ..tape import SimulatedTape
+from ..tape import SimulatedTape, Tape
 from ..storage import IOBusyError, io_lock
 from .config import WebConfig
 from .control import Control
 from .replication import push
 from .targets import enabled_targets
-from . import resources, maintenance
+from . import resources, maintenance, physical_archive
 from . import diagnostics
 
 COMMANDS = {
@@ -42,10 +42,13 @@ COMMANDS = {
     "tape-maintenance",
     "hardware-scan",
     "staging-speedtest",
+    "register-physical",
 }
 
 
-def mounted(config: WebConfig, control: Control, media: str) -> SimulatedTape:
+def mounted(config: WebConfig, control: Control, media: str, *, staging_id: str | None = None) -> Tape:
+    if maintenance.mode(config, control) == "physical":
+        return physical_archive.mounted(config, control, media, staging_id=staging_id)
     path = control.resource(media)
     if path.is_symlink() or not path.resolve().is_relative_to(
         config.media_root.resolve()
@@ -77,6 +80,9 @@ def validate_command(
     if config.role != "archive" or kind not in COMMANDS:
         raise SafetyError("Dieser Node erlaubt keine Archivierungsaufträge")
     config = resources.effective(config, control)
+    if kind == "register-physical":
+        physical_archive.validate_registration(config, control, payload)
+        return
     if kind == "tape-maintenance":
         maintenance.approval(config, control, payload)
         return
@@ -97,9 +103,9 @@ def validate_command(
         resources.staging_for(config, control, payload["staging_id"])
         return
     if kind not in ("sync",) and maintenance.mode(config, control) != "simulator":
-        raise SafetyError(
-            "Im physischen Wartungsbetrieb sind Simulator-Archivierungen gesperrt. Reale Archivierung benötigt die Bandformat-Abnahme."
-        )
+        physical_archive.require_mode(config, control)
+        if kind in ("create-medium", "backup-set") or (kind == "plan" and "media_ids" in payload):
+            raise SafetyError("Physische Initialisierung und Mehrbandplanung benötigen die separate Workflow-Abnahme")
     if kind == "sync":
         if payload:
             raise SafetyError(
@@ -206,7 +212,11 @@ def validate_command(
             source = Path(plan["source"]).resolve()
             if source not in {s.path.resolve() for s in config.sources}:
                 raise SafetyError("Planquelle ist auf diesem Node nicht freigegeben")
-            mounted(config, control, plan["media_id"])
+            if kind == "stage" and maintenance.mode(config, control) == "physical":
+                if plan["media_id"] not in physical_archive.bindings(control):
+                    raise SafetyError("Physisches Medium ist nicht registriert")
+            else:
+                mounted(config, control, plan["media_id"])
             if (
                 kind == "stage"
                 and "revalidate_ready" in payload
@@ -222,6 +232,11 @@ def validate_command(
                         "Erneute Staging-Prüfung benötigt die ausdrückliche Job-ID-Bestätigung"
                     )
             if kind == "backup":
+                if maintenance.mode(config, control) == "physical":
+                    storage_binding = control.get("job_storage:" + payload["job_id"])
+                    if not storage_binding:
+                        raise SafetyError("Staging-Bindung des physischen Archivplans fehlt")
+                    mounted(config, control, plan["media_id"], staging_id=storage_binding["staging_id"])
                 if (
                     payload.get("confirm") != payload["job_id"]
                     or payload.get("plan_hash") != plan["sha256"]
@@ -265,8 +280,15 @@ def execute(
     *,
     scheduled: bool = False,
 ) -> Any:
+    if maintenance.mode(config, control) == "physical" and kind in (
+            "register-physical", "plan", "backup", "verify", "restore", "recover", "rebuild"):
+        # Only the worker refreshes device inventory. HTTP validation stays cached.
+        from ..physical import discover_drives
+        control.set("hardware_inventory", {"time": time.time(), "drives": discover_drives()})
     validate_command(config, control, kind, payload)
     config = resources.effective(config, control)
+    if kind == "register-physical":
+        return physical_archive.register_existing(config, control, payload)
     if kind == "tape-maintenance":
         return maintenance.execute(config, control, payload)
     if kind == "hardware-scan":
@@ -317,7 +339,14 @@ def execute(
             media = payload["media_id"] if kind == "backup-set" else json.loads(row[0])["media_id"]
         else:
             media = payload.get("media_id") or payload.get("media_ids", [None])[0]
-        service = ArchiveService(catalog, mounted(config, control, media))
+        if kind in ("stage", "backup", "backup-set"):
+            binding = control.get("job_storage:" + payload["job_id"])
+            if binding is None:
+                binding = {"staging_id": resources.default_staging_id(config, control)}
+            spool = resources.staging_for(config, control, binding["staging_id"])
+        service = ArchiveService(catalog, None if kind == "stage" else mounted(
+            config, control, media,
+            staging_id=binding["staging_id"] if kind == "backup" else None))
         if kind == "plan":
             source = next(
                 s.path for s in config.sources if s.id == payload["source_id"]
@@ -349,11 +378,6 @@ def execute(
             return {k: plan[k] for k in (
                 "job_id", "sha256", "file_count", "payload_bytes"
             )} | {k: plan[k] for k in ("required_estimate", "available", "media_ids") if k in plan}
-        if kind in ("stage", "backup", "backup-set"):
-            binding = control.get("job_storage:" + payload["job_id"])
-            if binding is None:
-                binding = {"staging_id": resources.default_staging_id(config, control)}
-            spool = resources.staging_for(config, control, binding["staging_id"])
         if kind == "stage":
             return service.stage(
                 payload["job_id"],
@@ -361,6 +385,13 @@ def execute(
                 revalidate_ready=payload.get("revalidate_ready", False),
             )
         if kind == "backup":
+            if maintenance.mode(config, control) == "physical":
+                policy = {"staging_id": binding["staging_id"],
+                          "buffer_bytes": service.tape.buffer_mib * 1024**2,
+                          "write_rate_bytes_per_second": service.tape.write_rate,
+                          "drive_serial": service.tape.device.expected["serial"],
+                          "medium_serial": service.tape.device.expected["medium_serial"]}
+                catalog.event(payload["job_id"], "transfer_policy_selected", **policy)
             return service.backup(
                 payload["job_id"],
                 payload["confirm"],
