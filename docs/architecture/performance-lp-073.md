@@ -1,5 +1,47 @@
 # Laufzeitdiagnose LP Archiv unter 0.7.3
 
+## Ergänzung: CPU-Messung nach Installation von 0.8.0
+
+Am 21.10.2026 im bestätigten Leerlauf ohne Band-, Quell- oder Stagingzugriff
+gemessen (Celeron J4005, OpenSSL 3.5.7, dezimale MB/s):
+
+| RAM-Prüfung | MB/s Nutzdaten |
+| --- | ---: |
+| Ein SHA-256, ein Thread | 664,5 |
+| Zwei SHA-256 pro Nutzbyte, ein Thread | 331,7 |
+| Echter `inspect_stream`, TAR und Archiv-/Dateihashes, BytesIO | 220,5 |
+| Derselbe Prüfer mit `TapeRecordReader` über RAM-memfd | 205,8 |
+| Zusätzlich installierter PrefetchReader mit 16 MiB Queue | 91,3 |
+
+Kurze synthetische 64-MiB-Eindatei-TARs begrenzen die Aussage: Dies ist keine
+Messung des Bandes oder der mechanischen Bewegungen. SHA allein erklärt die
+historischen 51–56 MB/s nicht. Die Kombination von Vorlesethread, Kopien und
+Prüfer zeigt auf dieser CPU erheblichen zusätzlichen Aufwand; der neue Puffer
+ist damit kein belegter Geschwindigkeitsgewinn. Ein separater reiner Kopiertest
+erreichte 723 MB/s, ein ausschließlich im Testprozess veränderter Direktlesepfad
+1244 MB/s. Das isoliert den Engpass bei gleichzeitigem Parsen/Hashen noch nicht.
+Der Prototyp wurde nicht installiert. Vor Fortsetzung mit Band 2 muss diese
+Interaktion weiter geklärt werden; kein zusätzlicher großer Bandtest dafür.
+Rohmesswerte liegen ausschließlich im ignorierten Hardwaredossier.
+
+Nachtrag zur Korrektur 0.8.1: Der zusätzliche Python-Vorlesethread wird nicht mehr
+im regulären `LinuxTape.open_read` verwendet. Der bereits bewährte synchrone
+`TapeRecordReader` und sein 1-MiB-Streambuffer bleiben erhalten. Ein anschließender
+RAM-Testprozess ohne Vorlesethread erreichte in vier aufeinanderfolgenden Fenstern
+196,2 / 217,8 / 217,8 / 217,5 MB/s für die vollständige TAR-/SHA-Prüfung; der aktive
+Kern lag bei etwa 2,7 GHz. Das grenzt einen unvermeidbaren SHA-CPU-Flaschenhals bei
+51–56 MB/s weiter ein, ersetzt aber keine Messung des tatsächlichen Bandstroms.
+In gemischten Testprozessen lag der synchrone Pfad zeitweise nur bei 120 MB/s;
+eine allgemeine garantierte Rate wird daraus nicht abgeleitet. Das Zusammenspiel
+des Vorlesethreads mit der Verarbeitung bleibt eine Leistungsgrenze dieser
+Implementierung, kein Nachweis eines bestimmten mechanischen Laufwerksfehlers.
+
+Neue Telemetrie misst Bytes, Aufrufzahl und Zeit innerhalb der Geräte-Reads sowie
+die gesamte Reader-Laufzeit. Sie benötigt keine zusätzlichen Datenlesepässe und
+hilft beim nächsten regulären Medium, Geräte-/Treiberwartezeit von übriger
+Verarbeitung zu unterscheiden. Keine Änderung an SHA-, TAR-, Filemark- oder
+Receipt-Prüfungen; keine Änderung des Live-Verifikationsmodus.
+
 Stand 21.10.2026, nach Abschluss des ersten Mediums. Bestehende SQLite-Ereignisse
 wurden ausschließlich lesend ausgewertet; keine zusätzlichen Bandläufe oder
 Benchmarks. Erstes Kind `06e49af7-7816-49dc-8461-eab95818b08c` ist VERIFIED,

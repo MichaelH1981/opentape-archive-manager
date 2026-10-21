@@ -245,6 +245,17 @@ als unvollständiger Tail behandelt, nicht automatisch fortgesetzt.
 
 ### 0.8.0: geprüfte Batchauswahl vor dem nächsten Medium
 
+Ab 0.8.1 erfolgt die physische Rücklesung wieder synchron über den vorhandenen
+1-MiB-Streambuffer. Der zusätzliche Python-Vorlesethread aus 0.8.0 wurde nach
+schlechteren RAM-Messwerten auf dem Abnahmeserver aus dem regulären Pfad genommen.
+Die vollständige TAR-, Archiv-SHA- und Datei-SHA-Prüfung bleibt unverändert.
+`io_progress` enthält jetzt `reader_mode`, `device_read_bytes`,
+`device_read_calls`, `device_read_seconds` und `reader_elapsed_seconds`.
+`device_read_seconds` misst Zeit innerhalb von `os.read`, einschließlich
+Kernel-/Treiberarbeit und Warten. Die Differenz zur verstrichenen Zeit enthält
+unter anderem Parser, Hashes und Fortschrittsmeldungen; sie ist keine reine
+CPU-Messung. Interne mechanische Bandbewegungen werden damit nicht gezählt.
+
 `GET /api/v1/jobs/{id}/batch-option` bietet eine aktuelle Platzabschätzung für das
 nächste unbegonnene Medium des Mehrbandplans. `set-verification-mode` verwendet
 weiter die normale Queue und verlangt exakt `job_id`, `plan_hash`, `confirm`

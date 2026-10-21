@@ -226,6 +226,39 @@ class LinuxTapeSafety(TestCase):
 
 
 class TapeRecordReads(TestCase):
+    def test_payload_context_checks_full_archive_and_closes_at_first_filemark(self):
+        import hashlib
+        from otam.common import BLOCK
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "metadata.tar"
+            # A valid metadata TAR is sufficient to exercise the physical
+            # stream boundary; inspect its bytes without asking for payloads.
+            metadata_tar(path, "proof.json", {"message": "boundary proof"})
+            data = path.read_bytes()
+            device = Mock()
+            device.reader.return_value = 123
+            with patch("otam.physical.LinuxMaintenance", return_value=device):
+                tape = LinuxTape(DRIVE, Path(folder))
+            with patch.object(tape, "_seek") as seek, \
+                    patch("otam.tape.os.read", side_effect=[data, b"", AssertionError("crossed filemark")]) as read, \
+                    patch("otam.tape.os.close") as close:
+                with tape.open_read(1) as incoming:
+                    hasher = hashlib.sha256()
+                    while chunk := incoming.read(257):
+                        hasher.update(chunk)
+                    self.assertEqual(incoming.read(BLOCK), b"")
+                    self.assertEqual(hasher.hexdigest(), hashlib.sha256(data).hexdigest())
+                    metrics = tape.read_metrics()
+                    self.assertEqual(metrics['device_read_bytes'], len(data))
+                    self.assertEqual(metrics['device_read_calls'], 2)
+                    self.assertGreaterEqual(metrics['device_read_seconds'], 0)
+                    self.assertGreaterEqual(metrics['reader_elapsed_seconds'], metrics['device_read_seconds'])
+                    close.assert_not_called()
+                seek.assert_called_once_with(1)
+                self.assertEqual(read.call_count, 2)
+                close.assert_called_once_with(123)
+                self.assertEqual(tape.read_metrics(), {})
+
     def test_small_reads_receive_large_records_and_never_cross_filemark(self):
         records = [b"a" * (512 * 1024), b"b" * 10240, b"", b"NEXT TAPE FILE"]
         with patch("otam.tape.os.read", side_effect=records) as read, \

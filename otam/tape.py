@@ -169,6 +169,10 @@ class TapeRecordReader(io.RawIOBase):
         self.fd = fd
         self.pending = b""
         self.eof = False
+        self.started = time.monotonic()
+        self.read_seconds = 0.0
+        self.read_bytes = 0
+        self.read_calls = 0
 
     def readable(self) -> bool:
         return True
@@ -179,13 +183,28 @@ class TapeRecordReader(io.RawIOBase):
         if not len(target):
             return 0
         if not self.pending and not self.eof:
-            self.pending = os.read(self.fd, BLOCK)
+            started = time.monotonic()
+            self.read_calls += 1
+            try:
+                self.pending = os.read(self.fd, BLOCK)
+            finally:
+                self.read_seconds += time.monotonic() - started
+            self.read_bytes += len(self.pending)
             if not self.pending:
                 self.eof = True
         count = min(len(target), len(self.pending))
         target[:count] = self.pending[:count]
         self.pending = self.pending[count:]
         return count
+
+    def metrics(self) -> dict[str, Any]:
+        # Time inside os.read includes kernel/driver work and waiting. The
+        # remaining elapsed time includes parsing, hashing and progress writes;
+        # neither is a measurement of internal mechanical tape repositioning.
+        return {"reader_mode": "synchronous", "device_read_bytes": self.read_bytes,
+                "device_read_calls": self.read_calls,
+                "device_read_seconds": self.read_seconds,
+                "reader_elapsed_seconds": time.monotonic() - self.started}
 
     def close(self) -> None:
         if not self.closed:
@@ -350,19 +369,15 @@ class LinuxTape:
         self._seek(position)
         fd = self.device.reader()
         raw = TapeRecordReader(fd)
-        # Metadata stays synchronous; large payloads use bounded RAM prefetch.
-        if position % 2:
-            from .prefetch import PrefetchReader
-            from .benchmark import available_memory
-            capacity = min(512 * 1024**2, self.buffer_mib * 1024**2, available_memory() // 8)
-            if capacity >= 16 * 1024**2:
-                raw = PrefetchReader(raw, BLOCK, capacity)
+        # Keep a single synchronous reader. On the target CPU the additional
+        # Python prefetch thread slows the combined TAR/SHA verifier. The 1-MiB
+        # stream buffer still receives complete variable-length tape records.
         self._reader = raw
         try:
             with io.BufferedReader(raw, buffer_size=BLOCK) as stream:
                 yield stream
         finally:
-            raw.close()  # Joins prefetch before another operation can position.
+            raw.close()  # Release the reader before another operation can position.
             self._reader = None
 
     def read_metrics(self) -> dict[str, Any]:
