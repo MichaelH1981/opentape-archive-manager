@@ -3,8 +3,9 @@
 Stand 20.10.2026: vorbereiteter Umsetzungsentwurf, noch nicht implementiert oder
 installiert. Der laufende Produktivjob und die Serverinstallation bleiben
 unverändert. Ein 0.8-Kandidat darf lokal entwickelt und softwaregetestet werden;
-Installation erst nach Jobende, Prüfung offener Queue-/Staging-/Medienzustände
-und Sicherung der Datenbanken. Kein Wechsel des Codes unter einem laufenden Job.
+Installation erst nach Jobende oder am separat geprüften, vollständig
+verifizierten Medienwechselpunkt, jeweils nach Prüfung offener Queue-/Staging-/
+Medienzustände und Sicherung der Datenbanken. Kein Wechsel des Codes unter einem laufenden Job.
 
 ## Ausgangspunkt im Code
 
@@ -56,4 +57,4 @@ Fehler, auch wenn zuvor sämtliche Bytes gelesen wurden.
 - Quellenänderung, kaputtes TAR, Hash-/Receiptfehler, EOM, Prozessverlust und Wiederaufnahme erzeugen keinen falschen Erfolgsstatus. Fortschrittsupdates lockern keine Sperre und starten keinen automatischen Retry.
 - Keine 0/0-, NaN- oder über-100-%-Anzeige. Unbekannte Summen, Nullbyte-Dateien, Skip bereits gültiger TARs, Phasenwechsel und neue Versuche sind definiert.
 - Dashboard, Jobliste, Staging und geöffnete Details aktualisieren sich, ohne Eingaben zu verlieren. Prozent, Bytes, Dateizahl, Phase und Datenalter sind auch mobil und per Screenreader verständlich.
-- Migration, alter Katalogsnapshot, Datenbankfehler, stale Updates und verlorene Verbindung sind softwaregetestet. Erst nach Ende des jetzigen Jobs Installation planen; keine redundanten großen Bandtests für die UI.
+- Migration, alter Katalogsnapshot, Datenbankfehler, stale Updates und verlorene Verbindung sind softwaregetestet. Installation erst nach Jobende oder am separat geprüften Medienwechselpunkt planen; keine redundanten großen Bandtests für die UI.

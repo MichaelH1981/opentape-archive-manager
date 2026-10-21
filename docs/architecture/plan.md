@@ -25,7 +25,8 @@ Aufgenommen am 20.10.2026 auf Nutzerwunsch; Umsetzung erst ab Version 0.8.
 
 Aufgenommen am 20.10.2026 auf Nutzerwunsch, einschließlich Schreiben und
 Verifikation. Lokale Vorbereitung ist freigegeben; Installation ausdrücklich
-erst nach Ende des aktuellen Produktivjobs und anschließender Leerlaufprüfung.
+erst nach Ende des aktuellen Produktivjobs oder am separat geprüften, vollständig
+verifizierten Medienwechselpunkt (siehe Update-Abnahme unten), jeweils im Leerlauf.
 
 - [ ] Fortschrittsbalken mit numerischen Prozenten und bearbeiteten/Gesamtbytes für Prüfsummenberechnung, TAR-Erstellung, lokale Validierung, Bandschreiben und Rückleseverifikation. Dateien und TARs zusätzlich zählen; Fortschritt auch innerhalb großer Einzeldateien melden.
 - [ ] Quelleninventarisierung ohne bekannte Gesamtmenge als laufende Aktivität mit gefundenen Dateien/Bytes anzeigen. Wartephasen, Bandpositionierung, Flush/Filemark und Medienwechsel ausdrücklich benennen; keine erfundenen Prozentwerte oder Restzeiten.
@@ -45,7 +46,7 @@ unter Staging oder in verschachtelten Jobdetails auffindbar sein.
 - [ ] Quellenplan, verbindlichen Archivplan und Mehrband-Kindjobs als zusammenhängenden Ablauf darstellen. Nach Medienbindung auf den verbindlichen Plan weiterführen, statt zwei scheinbar unabhängige aktuelle Jobs zu präsentieren. Bei mehreren offenen Plänen eine eindeutige Auswahl mit Verweisen auf weitere Pläne anbieten.
 - [ ] Den nächsten Handlungsschritt direkt anbieten: Zielmedien zuordnen, Archivierung starten/bestätigen, erforderliches Medium einlegen/bestätigen oder einen Fehler prüfen. Erwartete Medienbezeichnung und MAM-Seriennummer sowie die Medienfolge sichtbar machen; dieselben Rollen-, Status- und Sicherheitsprüfungen wie bisher verwenden. Ein Dashboard-Klick umgeht keine Schreibbestätigung und löst keinen automatischen Start aus.
 - [ ] Planung/Hashberechnung, tatsächliche lokale TAR-Bereitstellung, Schreiben und Verifikation klar unterscheiden. „Inventar abgeschlossen“ darf nicht wie „Staging bereit“ aussehen. Details bleiben erreichbar, sind aber nicht Voraussetzung, um den nächsten Schritt zu finden.
-- [ ] Live-Aktualisierung ohne Verlust von Eingaben, verständliche Mobilansicht und DE/EN-Texte prüfen. Archivierte Jobs nicht als aktuellen Plan präsentieren; nach Abschluss den Abschlusszustand nachvollziehbar anzeigen. Keine Installation während des jetzigen Jobs.
+- [ ] Live-Aktualisierung ohne Verlust von Eingaben, verständliche Mobilansicht und DE/EN-Texte prüfen. Archivierte Jobs nicht als aktuellen Plan präsentieren; nach Abschluss den Abschlusszustand nachvollziehbar anzeigen. Kein Eingriff in laufende Medienarbeit; Update nur an der unten beschriebenen geprüften Grenze.
 
 ## TODO für Version 0.8: platzabhängiges Batch-Angebot je Medium
 
@@ -69,6 +70,21 @@ keine Änderung der laufenden Installation.
 - [ ] Quellenplan und daraus erzeugten verbindlichen Archivplan nachvollziehbar verbinden. Mehrband-Kindjobs mit zugehörigem Jobnamen und Mediensegment kennzeichnen. Spätere Umbenennung konsistent darstellen, ohne historische Ereignisse umzuschreiben.
 - [ ] Namen als separate Darstellungseigenschaft speichern und Änderungen nachvollziehbar protokollieren. UUID, Planhash, Medienbindungen und Bestätigungsregeln bleiben unverändert; Namen sind weder eindeutige Kennung noch Schreibfreigabe und verändern keine TAR-Manifeste oder vorhandenen Banddaten.
 - [ ] Sichere Länge/Unicode-Verarbeitung, leere Eingaben, HTML-Escaping, Rollenrechte und Migration bestehender Jobs prüfen. Web, API, CLI, Export und Katalogsynchronisation konsistent unterstützen; alte Kataloge ohne Namen lesbar halten.
+
+## TODO für Version 0.8: gepufferte Rücklesung und geprüfter Updatepunkt
+
+Aufgenommen am 21.10.2026 auf Nutzerwunsch. Die vorhandene synchrone
+Rücklese-/Hash-/TAR-Pipeline soll durch begrenztes RAM-Prefetch vom Prüfer
+entkoppelt werden. Beim aktuellen Job wurden rund 54 MB/s Rücklesung mit Pausen
+beobachtet, gegenüber rund 114 MB/s Schreiben. Interne mechanische
+Rückpositionierungen wurden nicht gemessen; eine Ursache ist damit nicht bewiesen.
+
+- [ ] Ein einzelner Reader liest vollständige variable Tape-Records in einen begrenzten RAM-Puffer; der Prüfer konsumiert denselben Bytefluss. Kein zweiter Gerätezugriff, keine zusätzlichen Nutzdatenreads, unveränderte vollständige Archiv-/Datei-/Manifest-/Receipt-Prüfung.
+- [ ] Die erste Filemark strikt als EOF verriegeln, auch beim Vorlesen; niemals in das nächste Tape-File laufen. Vor jeder späteren Positionierung muss der Reader sicher beendet sein. Fehler, Abbruch, begrenzten Speicher, Reader-Lebenszyklus und Backpressure gezielt softwaretesten; keine verlorenen, doppelten oder umgeordneten Bytes. Bei Abbruch kein falsches VERIFIED und keine automatische Fortsetzung.
+- [ ] RAM-Grenzen aus real verfügbaren Ressourcen ableiten und gleichzeitig benötigte Puffer berücksichtigen. Füllstand und getrennte Geräte-/Prüfraten messen. Ein Puffer gleicht Schwankungen aus, behebt aber keinen dauerhaft langsameren Verbraucher; Hash-/TAR-/Fortschrittskosten zusätzlich profilieren. Keine Garantie für durchgängigen Bandlauf oder weniger mechanische Bewegung ohne Nachweis.
+- [ ] Update-Abnahme für den expliziten Medienwechselpunkt: erstes Kindmedium vollständig VERIFIED, übergeordneter Job WAITING_MEDIA, zugehöriger Queueauftrag erfolgreich beendet, Worker/Geräte untätig und keine ungeklärten Live-Pending-/Resetzustände. Nur fertig implementierten und geprüften Kandidaten installieren; Datenbank-/Konfigurations-/Versionsbackup und überprüfter Rückweg erforderlich.
+- [ ] Fortsetzen des bestehenden 0.7.3-Mehrbandplans mit dem 0.8-Kandidaten gegen isolierte Katalog-/Controlkopien und Softwareadapter testen: Planhashes, UUIDs, Archive, VERIFIED-Ergebnisse und zweites Kindsegment bleiben erhalten; kein Wiederholen des ersten Mediums oder impliziter Moduswechsel. Schemaänderungen müssen dazu kompatibel sein. Ein irreversibel migrierter Katalog darf nicht einfach mit einem älteren Binary geöffnet werden.
+- [ ] Installation nach vollständigem ersten Medium darf nach neuer Nutzeranweisung als Alternative zum bisherigen Warten auf den Gesamtjob geprüft werden. „Geschrieben“ allein reicht nicht: laufende Rücklesung, Receiptabschluss oder Cleanup nicht unterbrechen. Wenn Kompatibilität oder sichere Grenze nicht nachgewiesen sind, bis Gesamtjobende bei 0.7.3 bleiben. Der zweite Teil startet erst nach erneuter Nutzerbestätigung. Batch-Umstellung wäre ein eigener expliziter, gehashter Planwechsel, keine stille Änderung des vorhandenen Plans.
 
 1. **Phase 0:** leeres Repository erfassen, Alternativen bewerten, Bandformat/Schema/Risiken festhalten. Hardware-Skripte und Linux-Inventar sind lesend erfasst. Die physische Bandintegration bleibt vorläufig.
 2. **Phase 1a:** package/CLI, migrationsfähige SQLite-Datenbank, persistenter Simulator mit Lock/Medien-ID/Append, Plan mit SHA-256, PAX-TAR/Manifest.
