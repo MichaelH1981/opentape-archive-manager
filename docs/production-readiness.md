@@ -1189,3 +1189,27 @@ zuletzt HC4BELa904 im Drive 1K10112224 bereit erkannt. Katalogsync
 Sequenz 217. Batchangebot für Band 2: 760.268.000.068 Byte bei
 1.715.154.915.328 Byte freiem HDD-Staging. Wechsel auf HC4AS6a414 und explizite
 Auswahl/Bestätigung vor dem Start stehen aus.
+
+## Band 2 im bestätigten Batchmodus gestartet, 21.10.2026
+
+Der Nutzer bestätigte ausdrücklich „HC4AS6a414 eingelegt – Batchmodus starten
+(empfohlen)“. Frische Worker-Erkennung ac123a18-3bbb-4d56-b863-52eb11bfba4e
+SUCCEEDED: Drive 1K10112224, MAM HC4AS6a414, bereit, ungeschützt, passende
+Medienbindung 8b4629ab-b17d-4498-8c98-a5582ae68945. Queue war untätig, keine
+ungeklärten Pending-/Resetjournale. Der normale CLI-/Workerauftrag
+cf1d4ca4-75ce-4f2d-8d09-a5b1e192015f änderte ausschließlich die noch unbegonnene
+Etappe auf media und protokollierte die Planrevision. Neuer Parent-Hash:
+988462bf3aaf64baf698097eda39bffe3c65fede578b4e84c2e6a1a8d7cb644a.
+Erster Kindjob und sämtliche sechs VERIFIED-Archivdatensätze wurden vor/nach
+dieser Änderung kanonisch gehasht und sind exakt unverändert.
+
+Der reguläre backup-set-Auftrag bfc09db6-9a21-4926-9012-451972bdfc1b wurde mit
+neuem Planhash und resume=false eingereiht und ist RUNNING. Zweiter Kindjob
+12ceff77-77ad-4670-b618-3155e191d8d5 ist in STAGING; beim ersten Kontrollsnapshot
+631.011.618 von 74.089.667.891 Nutzbytes des ersten TARs vorbereitet. Das ist
+kein Fortschrittswert für das gesamte Medium. Alle elf TARs und ihre lokalen
+Vorprüfungen kommen vor der Schreibfolge; danach vollständige physische
+Rückleseverifikation. Kein weiterer Testlauf oder paralleler Geräteworker.
+Startbeleg /var/lib/otam/reports/lp-band2-batch-20261021-r1/start-report.json,
+Snapshot lokal ignoriert mit SHA256SUMS gesichert. Dies ist ein laufender
+Produktivjob, kein bereits abgeschlossener Verifikationsnachweis.
