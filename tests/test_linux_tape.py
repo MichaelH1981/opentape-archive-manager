@@ -185,6 +185,30 @@ class LinuxTapeSafety(TestCase):
             self.assertEqual(self.tape._count(force=True), 3)
             self.assertEqual(move.call_count, 2)
 
+    def test_used_cache_never_overrides_pending_and_invalidates_on_new_eod(self):
+        self.tape._count_cache=3
+        self.tape._used_cache=(3,12345)
+        with patch.object(self.tape,'read') as read:
+            self.assertEqual(self.tape.used(),12345)
+            read.assert_not_called()
+        self.tape._pending.parent.mkdir()
+        self.tape._pending.write_text('uncertain')
+        with patch.object(self.tape,'header',return_value={'capacity':800000000000}):
+            self.assertEqual(self.tape.used(),800000000000)
+        with patch.object(self.tape,'_move'),patch('otam.physical.status',return_value={
+                'eod':True,'file_number':5,'block_number':-1}):
+            self.assertEqual(self.tape._count(force=True),5)
+        self.assertIsNone(self.tape._used_cache)
+
+    def test_used_cache_is_discarded_when_exclusive_session_ends(self):
+        from contextlib import nullcontext
+        self.tape._locked=False
+        with patch.object(self.device,'locked',return_value=nullcontext()):
+            with self.tape.locked():
+                self.tape._used_cache=(3,12345)
+        self.assertIsNone(self.tape._used_cache)
+        self.assertIsNone(self.tape._count_cache)
+
     def test_supported_dropdown_rate_prefill_and_log_reach_mbuffer(self):
         expected = {**DRIVE, "vendor": "IBM", "model": "ULT3580-HH4",
                     "status": {"online": True, "density_code": 0x46}}

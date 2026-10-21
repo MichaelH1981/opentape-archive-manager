@@ -1,12 +1,12 @@
 # Produktionsfreigabe: Stand 20.10.2026
 
-**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.8.1** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 21.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
+**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.8.2** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 21.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
 
 Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt zwei READY-Produktivmedien, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests | Aktueller Stand 0.8.1: 253/253 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 253 Tests mit einem Skip. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
+| Automatisierte Softwaretests | Aktueller Stand 0.8.2: 259/259 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 259 Tests mit einem Skip. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
@@ -1141,3 +1141,51 @@ Installationsvergleich, privater SQLite-/Konfigurationsbackup und Rückweg zu
 0.8.0 vorhanden. Rohmessungen und Logs nur lokal ignoriert mit SHA256SUMS.
 Signierte Katalogsynchronisation nach dem Update: Auftrag
 4bc74ef8-5ad3-4671-824d-0febba43c0c5 SUCCEEDED, Ziel UNCHANGED auf Sequenz 217.
+
+
+## Batch-Schreibablauf 0.8.2 vor Band 2, 21.10.2026
+
+Alle TARs werden nun nicht nur vorab erstellt, sondern auch vollständig vor dem
+allerersten Batch-Write lokal vorvalidiert. Während der Schreibfolge erfolgt
+jeweils eine unveränderte Read-only-/Fingerprintkontrolle statt eines weiteren
+vollen lokalen Lesepasses. Zwei lokale Prüfpasses pro neuem TAR bleiben bestehen.
+Der Backend-Hash des geschriebenen Streams, die Bindung des folgenden Receipts
+und die anschließende vollständige physische TAR-/Datei-/Receiptkettenprüfung
+bleiben zwingend. Änderungen nach Vorvalidierung blockieren den nächsten Write;
+eine fehlgeschlagene letzte Vorvalidierung öffnet überhaupt keinen Bandwriter.
+
+Innerhalb derselben exklusiven LinuxTape-Sitzung wird der durch bestätigte
+Filemarks belegte Byteverbrauch fortgeschrieben. Ein neuer/abweichender EOD oder
+das Ende der Sperrsitzung verwirft den Verbrauchszwischenspeicher; Pending bleibt
+konservativ gesperrt. Der nächste Receipt verwendet den erwarteten Hash des
+soeben geschriebenen lokalen Receipts. Das erzeugt keinen Integritätsclaim:
+alle neuen Receipts werden erst beim finalen Scan tatsächlich vom Band gelesen.
+Die Adapterabnahme zeigt für den zweiten kleinen Batch Writes 5/6/7/8 ohne
+Lesegeräteöffnung dazwischen, anschließend echte Adapterreads 5/6/7/8. Frühere
+Payloads werden dabei nicht zusätzlich gelesen. EOD-/Identitätsprüfungen,
+Filemarks und Prefill bleiben bestehen; kein Versprechen einer mechanisch
+unterbrechungsfreien Bewegung. Physische Banddaten wurden für diese Korrektur
+nicht zusätzlich gelesen oder geschrieben.
+
+CLI unterstützt den geprüften Queueauftrag set-verification-mode jetzt ebenfalls.
+Ungültiger Planhash wird vor Queueeintrag abgewiesen; gültige Prüfung ist
+idempotent und ändert vor Ausführung keinen Plan. 259/259 Debian-Tests in
+91,776 s; lokal 259 mit einem Skip in 14,770 s bestanden. Reale LP-Katalogkopie
+inklusive Modusreview erneut bestanden, erstes Kind exakt unverändert.
+
+0.8.2 wurde mit umask 022 im bestätigten Leerlauf installiert; Dienstkontoimport,
+Wheel-Dateivergleich und Healthcheck bestanden. Livekonfiguration, alle drei
+Jobdatensätze und Planhash nach Installation exakt unverändert. Band 1 bleibt
+mit sechs Archiven VERIFIED, Parent WAITING_MEDIA, Band 2 PLANNED, Modus archive.
+Kein automatischer Planwechsel oder Start. Backup:
+/var/backups/otam/before-performance-082-20261021T171705.
+Kandidat /var/lib/otam/acceptance-code/performance-082-20261021.
+Report /var/lib/otam/reports/performance-082-20261021-r1/installation.json.
+Wheel-SHA256 5e31e23d917eec704b795d0bcbdb24b494238e4dd4252ddf7f054692048bb55e.
+Rückweg zu 0.8.1 vorhanden; Rohlogs und Berichte nur im ignorierten Dossier.
+Nachkontrolle: Hardware-scan 0703486c-4a9b-4285-b986-28f9dd976d39 SUCCEEDED,
+zuletzt HC4BELa904 im Drive 1K10112224 bereit erkannt. Katalogsync
+02cf2e3a-fd74-4cca-8b56-1682ccf80619 SUCCEEDED, signiertes Ziel UNCHANGED,
+Sequenz 217. Batchangebot für Band 2: 760.268.000.068 Byte bei
+1.715.154.915.328 Byte freiem HDD-Staging. Wechsel auf HC4AS6a414 und explizite
+Auswahl/Bestätigung vor dem Start stehen aus.

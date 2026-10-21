@@ -127,11 +127,11 @@ class StagingStore:
         return actual
 
     def assert_ready_identity(self, job: str, manifest: dict[str, Any]) -> Path:
-        """After physical verification, retain identity checks without rehashing.
+        """Retain a prior full validation while checking immutable identity.
 
-        The original persisted digest was checked against the full physical
-        readback, including every file. Local bit rot after writing cannot
-        change that original digest or turn a bad physical readback into success.
+        Used between batch prevalidation and each write, and after physical
+        verification. The persisted digest must still match full readback,
+        including every file; this check cannot publish VERIFIED on its own.
         """
         directory = self.directory(job,manifest['archive_id'])
         row = self.row(job,manifest['archive_id'])

@@ -72,3 +72,29 @@ class BatchReview(TestCase):
         with patch('otam.web.resources.require_local',return_value={'free':1}):
             info=batch.offer(self.config,self.control,bound['job_id'])
         self.assertFalse(info['available']);self.assertGreater(info['required_new_bytes'],1)
+
+    def test_physical_cli_queues_explicit_mode_review_without_changing_plan(self):
+        import io
+        from contextlib import redirect_stdout,redirect_stderr
+        from dataclasses import asdict,replace
+        from unittest.mock import patch
+        from otam.cli import main
+        bound,_,_=self.start()
+        config=replace(self.config,physical_maintenance=True,physical_archiving=True,physical_multivolume=True)
+        self.control.set('operation_mode','physical')
+        config_path=self.root/'node.json';config_path.write_text(json.dumps(asdict(config),default=str))
+        request=self.request_mode(bound);payload=self.root/'request.json'
+        payload.write_text(json.dumps({**request,'plan_hash':'0'*64}))
+        args=['physical-command','--config',str(config_path),'--kind','set-verification-mode',
+              '--payload-file',str(payload),'--idempotency-key','review-test']
+        with redirect_stderr(io.StringIO()):self.assertEqual(main(args),1)
+        self.assertEqual(self.control.commands(),[])
+        payload.write_text(json.dumps(request))
+        with patch('otam.web.physical_archive.discover_drives') as discover,redirect_stdout(io.StringIO()):
+            self.assertEqual(main(args),0);self.assertEqual(main(args),0)
+            discover.assert_not_called()
+        commands=self.control.commands();self.assertEqual(len(commands),1)
+        self.assertEqual(commands[0]['state'],'QUEUED')
+        c=Catalog(self.config.catalog)
+        try:self.assertEqual(json.loads(c.db.execute('select plan_json from jobs where id=?',(bound['job_id'],)).fetchone()[0])['sha256'],bound['sha256'])
+        finally:c.close()

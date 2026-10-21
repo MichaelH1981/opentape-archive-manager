@@ -25,6 +25,7 @@ class FileST:
         self.position = 0
         self.eod = False
         self.reads = []
+        self.events = []
 
     @contextmanager
     def locked(self):
@@ -50,6 +51,7 @@ class FileST:
                 "write_protected": False}
 
     def writer(self):
+        self.events.append(('write', self.position))
         assert self.eod or self.position == 0
         self.files = self.files[:self.position]
         path = self.root / f"tape-file-{self.position}.tar"
@@ -59,6 +61,7 @@ class FileST:
         return os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
 
     def reader(self):
+        self.events.append(('read', self.position))
         self.reads.append(self.position)
         return os.open(self.files[self.position], os.O_RDONLY)
 
@@ -446,10 +449,18 @@ class PhysicalServiceFlow(TestCase):
                     second = service.plan(source, header["media_id"], 50000, verify_mode=verification)
                     self.assertFalse({1, 3} & set(device.reads))
                     device.reads.clear()
+                    device.events.clear()
                     repeated = service.backup(second["job_id"], second["job_id"], spool)
                     self.assertEqual(repeated["state"], "VERIFIED")
                     self.assertFalse({1, 3} & set(device.reads))
                     self.assertEqual([p for p in device.reads if p % 2], [5, 7])
+                    if verification == 'media':
+                        writes=[i for i,event in enumerate(device.events) if event[0]=='write']
+                        self.assertEqual([device.events[i][1] for i in writes],[5,6,7,8])
+                        self.assertFalse(any(kind=='read' for kind,_ in device.events[writes[0]:writes[-1]+1]))
+                        # New receipts must still be physically read during
+                        # the final scan, not served from expected local data.
+                        self.assertEqual([p for kind,p in device.events[writes[-1]+1:] if kind=='read'],[5,6,7,8])
                     # A fresh adapter and a completely empty catalog must recover
                     # the format and every payload from the medium alone.
                     recovered = Catalog(root / "recovered.sqlite")

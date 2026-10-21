@@ -266,3 +266,16 @@ die vorherigen Hashes; sie schreibt kein Band. Anschließend muss die eigentlich
 Archivierung gegen den neuen Hash bestätigt werden. Im Batch bleiben sämtliche
 TARs des Mediums bis zur vollständigen physischen Verifikation lokal erhalten.
 Die Installation ändert bestehende Pläne nicht automatisch.
+
+Ab 0.8.2 ist `set-verification-mode` auch über `physical-command --kind`
+verfügbar, mit denselben Pflichtfeldern und Queue-/Planprüfungen. Beim Batch
+werden alle vollen lokalen Vorprüfungen vor den ersten Write gezogen. Direkt
+vor jedem Write werden die unveränderte, schreibgeschützte Dateiidentität und
+weiterhin Drive/MAM/EOD geprüft. Im exklusiven Gerätezugriff werden bestätigte
+geschriebene Bytes für die Kapazitätszählung weitergeführt; beim Verlassen des
+Zugriffs, neuem Dateiende oder ungeklärtem Pending gilt diese Abkürzung nicht.
+Die erwarteten Beleg-Hashes werden während desselben Batch-Schreibablaufs lokal
+verkettet. Neue Belege werden erst beim abschließenden vollständigen physischen
+Scan gelesen und geprüft, nicht schon zwischen den einzelnen TAR-Writes.
+Filemarks, frische Identitäts-/EOD-Prüfungen und Writer-Prefill bleiben bestehen;
+dies ist keine Zusage einer mechanisch unterbrechungsfreien Bandbewegung.

@@ -248,6 +248,7 @@ class LinuxTape:
         self._metadata: list[Path] = []
         self._metadata_cache: dict[int, Path] = {}
         self._count_cache: int | None = None
+        self._used_cache: tuple[int, int] | None = None
         self._pending = state / "physical-pending" / (hashlib.sha256(
             expected["medium_serial"].encode()).hexdigest() + ".json")
         self._reset = state / "physical-reset" / self._pending.name
@@ -275,6 +276,7 @@ class LinuxTape:
                 self._metadata.clear()
                 self._metadata_cache.clear()
                 self._count_cache = None
+                self._used_cache = None
 
     def _driver_mode(self) -> None:
         """Only the Linux st close/EOF semantics validated on the test medium."""
@@ -312,6 +314,8 @@ class LinuxTape:
         count = value["file_number"]
         if not value["eod"] or value["block_number"] != -1 or not 0 <= count <= 4095:
             raise SafetyError("Physical EOD/file count is not confirmed")
+        if count != self._count_cache:
+            self._used_cache = None
         self._count_cache = count
         return count
 
@@ -421,6 +425,7 @@ class LinuxTape:
             raise SafetyError("Previous physical operation is unresolved")
         self._metadata_cache.clear()
         self._count_cache = None
+        self._used_cache = None
         header = {"format": FORMAT, "media_id": str(uuid.uuid4()), "label": label.strip(),
                   "capacity": capacity, "class": media_class, "created": time.time(),
                   "backend": "physical", "medium_serial": serial}
@@ -534,6 +539,8 @@ class LinuxTape:
             return self._pending_used
         if count % 2 == 0 or self._pending.exists():
             return self.header()["capacity"]
+        if self._used_cache is not None and self._used_cache[0] == count:
+            return self._used_cache[1]
         total = self.read(0).stat().st_size
         for position in range(2, count, 2):
             receipt = self.read(position)
@@ -541,6 +548,7 @@ class LinuxTape:
             if value.get("tape_file") != position - 1 or not isinstance(value.get("bytes"), int):
                 raise SafetyError("Invalid physical receipt; capacity unknown")
             total += value["bytes"] + receipt.stat().st_size
+        self._used_cache = (count, total)
         return total
 
     def _mbuffer_command(self, source_fd: int, log: Path) -> list[str]:
@@ -685,6 +693,9 @@ class LinuxTape:
             if value["file_number"] != count + 1 or value["block_number"] != 0:
                 raise SafetyError("Tape filemark was not confirmed after write")
             self._count_cache = count + 1
+            # Exact byte accounting for confirmed filemarks in this lock
+            # session only. This is not a physical verification/cache of receipts.
+            self._used_cache = (count + 1, used_before + size)
             self._pending.unlink()
             sync_dir(self._pending.parent)
             if count % 2:

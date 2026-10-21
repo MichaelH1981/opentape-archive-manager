@@ -459,16 +459,22 @@ class ArchiveService:
             for manifest in todo:
                 current = manifest["archive_id"]
                 store.prepare(job, Path(plan["source"]), manifest)
+            # Complete all full local reads before the first write. During the
+            # write sequence only unchanged read-only identities are accepted;
+            # the backend hashes the written bytes and readback verifies them.
+            for manifest in todo:
+                current = manifest["archive_id"]
+                store.validate_ready(job, manifest)
+            previous = sha256(self.tape.read(len(self.tape.positions()) - 1)) if todo else None
             for manifest in todo:
                 current = manifest["archive_id"]
                 archive = current
-                data = store.validate_ready(job, manifest)
+                data = store.assert_ready_identity(job, manifest)
                 ready = store.row(job, archive)
                 data_hash, size = ready["sha256"], ready["bytes"]
                 if self.tape.used() + size + 10240 > record["capacity"]:
                     raise SafetyError("Insufficient remaining capacity for complete archive and receipt")
                 position = len(self.tape.positions())
-                previous = sha256(self.tape.read(position - 1))
                 self.catalog.record_archive(manifest, job, position, "WRITING", size, data_hash)
                 store.phase(job, archive, "TAPE_WRITE", progress_bytes=0, total_bytes=size)
                 with self.catalog.db:
@@ -490,6 +496,10 @@ class ArchiveService:
                 receipt_path.chmod(0o400)
                 if self.tape.append(receipt_path, media) != position + 1:
                     raise SafetyError("Receipt position changed unexpectedly")
+                # The physical receipt is independently checked by the final
+                # scan. Its expected local hash links the next receipt without
+                # rewinding to reread a receipt just written in this session.
+                previous = sha256(receipt_path)
                 store.phase(job, archive, "TAPE_READBACK", "PENDING", progress_bytes=0,
                             total_bytes=size)
             # This is the only point where deferred archives become eligible for

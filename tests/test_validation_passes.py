@@ -52,3 +52,47 @@ class SinglePassValidation(TestCase):
             with self.assertRaisesRegex(SafetyError,'changed'):
                 self.service.backup(plan['job_id'],plan['job_id'],self.spool)
         self.assertEqual(self.catalog.db.execute("select count(*) from archives where state='VERIFIED'").fetchone()[0],0)
+
+    def test_batch_validates_every_tar_before_first_write(self):
+        plan=self.service.plan(self.source,self.media,target=1000,verify_mode='media')
+        validated=[];events=[]
+        original=StagingStore.validate_ready;append=self.tape.append
+        def validate(store,job,manifest):
+            result=original(store,job,manifest)
+            validated.append(manifest['archive_id']);events.append('validation')
+            return result
+        def write(path,media):
+            self.assertEqual(set(validated),{m['archive_id'] for m in plan['archives']})
+            events.append('write')
+            return append(path,media)
+        with patch.object(StagingStore,'validate_ready',new=validate),patch.object(self.tape,'append',side_effect=write):
+            self.assertEqual(self.service.backup(plan['job_id'],plan['job_id'],self.spool)['state'],'VERIFIED')
+        self.assertNotIn('validation',events[events.index('write'):])
+
+    def test_batch_late_prevalidation_failure_never_opens_writer(self):
+        plan=self.service.plan(self.source,self.media,target=1000,verify_mode='media')
+        original=StagingStore.validate_ready;last=plan['archives'][-1]['archive_id']
+        def validate(store,job,manifest):
+            if manifest['archive_id']==last:raise SafetyError('last TAR corrupt')
+            return original(store,job,manifest)
+        with patch.object(StagingStore,'validate_ready',new=validate),patch.object(self.tape,'append') as append:
+            with self.assertRaisesRegex(SafetyError,'last TAR corrupt'):
+                self.service.backup(plan['job_id'],plan['job_id'],self.spool)
+            append.assert_not_called()
+
+    def test_batch_change_after_prevalidation_blocks_next_payload(self):
+        plan=self.service.plan(self.source,self.media,target=1000,verify_mode='media')
+        self.assertGreater(len(plan['archives']),1)
+        original=self.tape.append;calls=[]
+        def append(path,media):
+            result=original(path,media);calls.append(result)
+            if len(calls)==1:
+                row=self.catalog.db.execute('select path from staged_archives where archive_id=?',
+                                           (plan['archives'][1]['archive_id'],)).fetchone()
+                p=Path(row[0]);p.chmod(0o600);p.write_bytes(b'corrupt');p.chmod(0o400)
+            return result
+        with patch.object(self.tape,'append',side_effect=append):
+            with self.assertRaisesRegex(SafetyError,'changed'):
+                self.service.backup(plan['job_id'],plan['job_id'],self.spool)
+        self.assertEqual(calls,[1,2])
+        self.assertEqual(self.catalog.db.execute("select count(*) from archives where state='VERIFIED'").fetchone()[0],0)
