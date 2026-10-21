@@ -216,6 +216,7 @@ class LinuxTape:
             raise SafetyError("Only Linux non-rewinding tape devices are supported")
         self.device = LinuxMaintenance(expected, state / "drive-locks", writable=False)
         self.state = state
+        self._reader = None
         self.buffer_mib = buffer_mib
         if write_rate is not None:
             from .transfer import selected_speed_profile
@@ -348,8 +349,26 @@ class LinuxTape:
     def open_read(self, position: int) -> Iterator[BinaryIO]:
         self._seek(position)
         fd = self.device.reader()
-        with io.BufferedReader(TapeRecordReader(fd), buffer_size=BLOCK) as stream:
-            yield stream
+        raw = TapeRecordReader(fd)
+        # Metadata stays synchronous; large payloads use bounded RAM prefetch.
+        if position % 2:
+            from .prefetch import PrefetchReader
+            from .benchmark import available_memory
+            capacity = min(512 * 1024**2, self.buffer_mib * 1024**2, available_memory() // 8)
+            if capacity >= 16 * 1024**2:
+                raw = PrefetchReader(raw, BLOCK, capacity)
+        self._reader = raw
+        try:
+            with io.BufferedReader(raw, buffer_size=BLOCK) as stream:
+                yield stream
+        finally:
+            raw.close()  # Joins prefetch before another operation can position.
+            self._reader = None
+
+    def read_metrics(self) -> dict[str, Any]:
+        if self._reader is not None and hasattr(self._reader, 'metrics'):
+            return self._reader.metrics()
+        return {}
 
     def header(self) -> dict[str, Any]:
         header = read_metadata(self.read(0), "media.json", recovery=True)

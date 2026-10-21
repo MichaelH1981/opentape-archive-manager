@@ -1,5 +1,12 @@
 # Entwicklungs- und Abnahmeplan
 
+Stand 21.10.2026: **0.8.0 als Performance-/Medienwechselupdate installiert**.
+Kombinierte lokale Validierung, begrenztes Read-Prefetch, aktueller Dashboardplan,
+Phasenfortschritt bei Staging/Transfer und ausdrückliches Mehrband-Batchangebot
+sind umgesetzt. Jobnamen/-archiv, Quellenhash-Fortschritt/ETA und Kapazitätslernen
+bleiben offen; die folgenden TODOs enthalten den vollständigen geplanten Umfang.
+Abnahmebelege und genaue Grenzen stehen in ../production-readiness.md.
+
 ## TODO für Version 0.8: gemessene Platznutzung und Kapazitätsprognosen
 
 Aufgenommen am 20.10.2026 auf Nutzerwunsch; Umsetzung erst ab Version 0.8.

@@ -24,6 +24,7 @@ import {
   empty,
   note,
   progress,
+  jobProgress,
   modal,
   closeModal,
   sourceName,
@@ -47,7 +48,7 @@ function applyPermissions(root) {
     $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-register-physical], [data-initialize-physical], [data-reset-physical], [data-reinitialize-physical], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
       .forEach((element) => (element.hidden = true));
   if (role === "viewer")
-    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group], #bind-source-plan-form", root)
+    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-backup-set], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group], #bind-source-plan-form", root)
       .forEach((element) => (element.hidden = true));
 }
 async function render() {
@@ -86,6 +87,7 @@ async function showJob(id) {
   const j = await api("/jobs/" + encodeURIComponent(id)),
     p = j.plan;
   let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.kind === "source-plan" && j.state === "WAITING_MEDIA" ? "MEDIA_SELECTION" : j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.phase] || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
+  html += `<div data-live-job="${esc(j.id)}">${jobProgress(j.progress)}</div>`;
   if (j.kind === "source-plan" && p) {
     html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Die Dateiprüfsummen werden jetzt berechnet." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die Hashberechnung.", "info")}`;
     if (j.state === "WAITING_MEDIA") {
@@ -133,6 +135,7 @@ async function showJob(id) {
     html += `<div class="button-row">${["PLANNED", "STAGED"].includes(j.state) ? `<button class="button" data-stage="${esc(j.id)}">${icon("layers")}Lokal vorbereiten</button><button class="button primary" data-backup="${esc(j.id)}">${icon("tape")}Archivierung bestätigen</button>` : `<button class="button" ${j.tape_attempted ? "data-resume" : "data-revalidate"}="${esc(j.id)}">${icon("restore")}${j.tape_attempted ? "Wiederaufnahme prüfen" : "Staging erneut prüfen"}</button>`}</div>`;
   }
   modal(kindLabel(j.kind) + " · " + short(j.id), html);
+  applyPermissions($("#modal"));
   const bindForm = $("#bind-source-plan-form");
   if (bindForm) bindForm.addEventListener("submit",async event=>{
     event.preventDefault();const ids=new FormData(bindForm).getAll("media_ids");
@@ -153,7 +156,13 @@ async function confirmBackup(id, resume = false) {
     const next = j.plan.children.find((c) => c.state !== "VERIFIED");
     if (!next) throw Error("Alle Medien sind bereits verifiziert.");
     resume = ["FAILED", "INTERRUPTED"].includes(next.state);
-    modal("Nächstes Medium bestätigen", `<p>Bitte Medium <strong>${esc(mediaName(next.media_id))}</strong> bereitstellen. Der Job hält nach diesem Medium an und verlangt für das nächste Medium eine neue Bestätigung. ${j.plan.verify_mode === "media" ? "Alle TARs dieses Mediums werden erst nach dem Schreiben vollständig zurückgelesen; das Staging muss sie bis dahin aufnehmen." : "Jedes TAR wird nach dem Schreiben zurückgelesen."}</p>${resume ? note("Ein fehlgeschlagener Schreibversuch darf nicht blind fortgesetzt werden. OTAM prüft die vorhandene Mediensequenz erneut.", "warning") : ""}<dl class="detail-list"><dt>Medien-ID</dt><dd class="mono">${esc(next.media_id)}</dd><dt>Job-ID</dt><dd class="mono">${esc(id)}</dd><dt>Archive auf diesem Medium</dt><dd>${num(next.archives)}</dd></dl><form id="backup-form" data-kind="backup-set" data-job="${esc(id)}" data-media="${esc(next.media_id)}" data-hash="${esc(j.plan.sha256)}" data-resume="${resume}"><label>Job-ID zur Bestätigung<input name="confirmation" required autocomplete="off"></label><label class="check-label"><input type="checkbox" name="reviewed" required>Ich habe die Medien-ID und den Plan geprüft.</label><div class="form-actions"><button class="button primary" type="submit">Medium schreiben und verifizieren</button></div></form>`);
+    let batch = null;
+    if (j.plan.verify_mode !== "media" && !resume) {
+      try { batch = await api("/jobs/" + encodeURIComponent(id) + "/batch-option"); }
+      catch (error) { batch = {error:error.message}; }
+    }
+    const batchHtml = batch ? `<section class="panel"><h3>Vorbereitung je Medium</h3>${batch.error ? note(batch.error,"warning") : `<p>Zusätzlicher Stagingbedarf: ${bytes(batch.required_new_bytes)} · Frei: ${bytes(batch.free_bytes)}</p>${batch.available ? `<p>Alle TARs dieses Mediums passen gleichzeitig ins Staging. Batch erstellt und prüft sie zuerst lokal, schreibt sie anschließend nacheinander und liest danach alle vollständig zurück. Bis zur Verifikation bleiben die TARs erhalten.</p><button class="button" data-review-batch="${esc(id)}" data-plan-hash="${esc(j.plan.sha256)}">Batchmodus auswählen und Plan neu prüfen</button>` : note("Für alle TARs gleichzeitig reicht der Stagingplatz nicht. Der archivweise Modus bleibt verfügbar.","info")}`}</section>` : "";
+    modal("Nächstes Medium bestätigen", `<p>Bitte Medium <strong>${esc(mediaName(next.media_id))}</strong> bereitstellen. Der Job hält nach diesem Medium an und verlangt für das nächste Medium eine neue Bestätigung. ${j.plan.verify_mode === "media" ? "Alle TARs dieses Mediums werden erst nach dem Schreiben vollständig zurückgelesen; das Staging muss sie bis dahin aufnehmen." : "Jedes TAR wird nach dem Schreiben zurückgelesen."}</p>${resume ? note("Ein fehlgeschlagener Schreibversuch darf nicht blind fortgesetzt werden. OTAM prüft die vorhandene Mediensequenz erneut.", "warning") : ""}<dl class="detail-list"><dt>Medien-ID</dt><dd class="mono">${esc(next.media_id)}</dd><dt>Job-ID</dt><dd class="mono">${esc(id)}</dd><dt>Archive auf diesem Medium</dt><dd>${num(next.archives)}</dd></dl>${batchHtml}<form id="backup-form" data-kind="backup-set" data-job="${esc(id)}" data-media="${esc(next.media_id)}" data-hash="${esc(j.plan.sha256)}" data-resume="${resume}"><label>Job-ID zur Bestätigung<input name="confirmation" required autocomplete="off"></label><label class="check-label"><input type="checkbox" name="reviewed" required>Ich habe die Medien-ID und den Plan geprüft.</label><div class="form-actions"><button class="button primary" type="submit">Medium schreiben und verifizieren</button></div></form>`);
     bindForms($("#modal"));
     return;
   }
@@ -729,6 +738,15 @@ document.addEventListener("click", async (e) => {
       closeModal();
       location.hash = "staging";
       await render();
+    } else if (b.dataset.reviewBatch) {
+      const id=b.dataset.reviewBatch, hash=b.dataset.planHash;
+      modal("Batchmodus ausdrücklich bestätigen", `<p>Für die noch unbegonnenen Medien wird der Ablauf geändert: alle TARs je Medium vorbereiten, nacheinander schreiben, anschließend vollständig zurücklesen. Bereits verifizierte Medien bleiben unverändert. Der Plan erhält einen neuen SHA-256; dies startet noch keinen Bandwrite.</p><p class="mono">${esc(id)}</p><form id="review-batch-form"><label>Job-ID zur Bestätigung<input name="confirm" required autocomplete="off"></label><button class="button primary" type="submit">Geänderten Plan speichern</button></form>`);
+      $("#review-batch-form").addEventListener("submit",async event=>{
+        event.preventDefault();const button=$("button",event.target);button.disabled=true;
+        try { await enqueue("set-verification-mode",{job_id:id,plan_hash:hash,confirm:new FormData(event.target).get("confirm"),verify_mode:"media"});closeModal();await render(); }
+        catch(error) {toast(error.message,true);}
+        finally {button.disabled=false;}
+      });
     } else if (b.dataset.backup) await confirmBackup(b.dataset.backup);
     else if (b.dataset.backupSet) await confirmBackup(b.dataset.backupSet);
     else if (b.dataset.revalidate) {
@@ -953,6 +971,11 @@ setInterval(async () => {
   state.polling = true;
   try {
     await refreshBase();
+    const live = $("#modal").open ? $("[data-live-job]") : null;
+    if (live) {
+      const current=await api("/jobs/"+encodeURIComponent(live.dataset.liveJob));
+      if (live.isConnected) {live.innerHTML=jobProgress(current.progress);localize(live);}
+    }
     if (
       ["dashboard", "jobs", "staging", "integrity", "sync", "logs"].includes(
         state.page,

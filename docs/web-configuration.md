@@ -242,3 +242,16 @@ Die gemeinsame TAR-Verteilung prüft vollständige Archive einschließlich
 Receiptbedarf; Komprimierungsgewinne werden nicht angerechnet. Schreibprüfungen
 verwenden dieselbe native Grenze. Frühes physisches EOM wird weiterhin gesperrt
 als unvollständiger Tail behandelt, nicht automatisch fortgesetzt.
+
+### 0.8.0: geprüfte Batchauswahl vor dem nächsten Medium
+
+`GET /api/v1/jobs/{id}/batch-option` bietet eine aktuelle Platzabschätzung für das
+nächste unbegonnene Medium des Mehrbandplans. `set-verification-mode` verwendet
+weiter die normale Queue und verlangt exakt `job_id`, `plan_hash`, `confirm`
+(gleich der Job-ID) und `verify_mode` (`archive` oder `media`). Nur ein untätiger
+PLANNED-/WAITING_MEDIA-Parent und noch nicht beschriebene PLANNED-/STAGED-Kinder
+sind zulässig. Die atomare Änderung versiegelt neue Planhashes und protokolliert
+die vorherigen Hashes; sie schreibt kein Band. Anschließend muss die eigentliche
+Archivierung gegen den neuen Hash bestätigt werden. Im Batch bleiben sämtliche
+TARs des Mediums bis zur vollständigen physischen Verifikation lokal erhalten.
+Die Installation ändert bestehende Pläne nicht automatisch.

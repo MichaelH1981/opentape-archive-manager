@@ -7,7 +7,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .archive import (MAX_META, create_archive, estimate, inventory, metadata_tar, plan_archives,
                       read_metadata, verify_archive, verify_stream, inspect_stream, PayloadHandler)
@@ -23,7 +23,8 @@ from .benchmark import require_qualification
 
 def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False,
          payload_handler: PayloadHandler | None = None,
-         data_positions: set[int] | None = None) -> list[dict[str, Any]]:
+         data_positions: set[int] | None = None,
+         data_progress: Callable[[int], Callable[[int], None] | None] | None = None) -> list[dict[str, Any]]:
     """Verify all pairs, or a restore selection and its preceding receipt chain.
 
     With data_positions, unselected payloads are NOT verified and are never
@@ -48,7 +49,8 @@ def scan(tape: Tape, expected_media: str, *, allow_tail: bool = False,
         selected = data_positions is None or position in data_positions
         if selected:
             with tape.open_read(position) as incoming:
-                manifest, checksum, size = inspect_stream(incoming, payload_handler=payload_handler)
+                progress = data_progress(position) if data_progress else None
+                manifest, checksum, size = inspect_stream(incoming, payload_handler=payload_handler, progress=progress)
         receipt_path = tape.read(position + 1)
         receipt = read_metadata(receipt_path, "receipt.json")
         if (receipt.get("format") != FORMAT or receipt.get("media_id") != expected_media
@@ -289,6 +291,8 @@ class ArchiveService:
             done = data["bytes"]
             if (now - last < 1 and done != total) or done == last_done:
                 return
+            if phase == 'TAPE_READBACK' and hasattr(self.tape, 'read_metrics'):
+                data = {**data, **self.tape.read_metrics()}
             with self.catalog.db:
                 self.catalog.db.execute("UPDATE staged_archives SET progress_bytes=?,total_bytes=?,updated=? WHERE job_id=? AND archive_id=?",
                                         (done, total, time.time(), job, archive))
@@ -386,7 +390,7 @@ class ArchiveService:
                     with self.tape.open_read(position) as incoming:
                         verify_stream(incoming, data_hash, size, manifest,
                                       self._progress(job, archive, "TAPE_READBACK", size))
-                    store.validate_ready(job, manifest)
+                    store.assert_ready_identity(job, manifest)
                     receipt = {"format": FORMAT, "media_id": media, "archive_id": archive,
                                "tape_file": position, "bytes": size, "sha256": data_hash,
                                "previous": previous, "verified_at": time.time()}
@@ -493,7 +497,22 @@ class ArchiveService:
             # receipt chain. Previously VERIFIED payloads need no repeated scrub.
             selected_positions = ({initial + 2 * index for index in range(len(plan["archives"]))}
                                   if self.tape.header().get("backend") == "physical" else None)
-            found = [item for item in scan(self.tape, media, data_positions=selected_positions)
+            reading = None
+            def read_progress(position):
+                nonlocal reading
+                index = (position-initial)//2
+                if position < initial or index >= len(plan['archives']):
+                    return None
+                if reading is not None:
+                    previous = store.row(job, reading)
+                    store.phase(job,reading,'TAPE_READBACK','PENDING',
+                                progress_bytes=previous['bytes'],total_bytes=previous['bytes'])
+                reading = plan['archives'][index]['archive_id']
+                size = store.row(job,reading)['bytes']
+                store.phase(job,reading,'TAPE_READBACK',progress_bytes=0,total_bytes=size)
+                return self._progress(job,reading,'TAPE_READBACK',size)
+            found = [item for item in scan(self.tape, media, data_positions=selected_positions,
+                                          data_progress=read_progress)
                      if item["position"] >= initial]
             if len(found) != len(plan["archives"]):
                 raise SafetyError("Media batch has incomplete archive sequence")
@@ -508,7 +527,7 @@ class ArchiveService:
                     (manifest["archive_id"], job),
                 ).fetchone()
                 if Path(row["path"] or "").is_file():
-                    store.validate_ready(job, manifest)
+                    store.assert_ready_identity(job, manifest)
                 elif (archived is None or archived["state"] != "VERIFIED"
                       or archived["sha256"] != row["sha256"]):
                     raise SafetyError("Verified staging artifact is missing")

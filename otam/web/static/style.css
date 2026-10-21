@@ -2242,3 +2242,8 @@ dialog::backdrop {
 .hardware-maintenance { border-top:1px solid var(--border, #dce5df); margin-top:18px; padding-top:14px; }
 .hardware-maintenance summary { cursor:pointer; font-weight:600; }
 @media(max-width:600px) { .hardware-drive-list { padding:12px; } .hardware-drive-card { padding:14px; } .hardware-actions { flex-direction:column; align-items:stretch; } }
+
+.current-plan { border: 2px solid var(--accent, #517847); margin-bottom: 24px; }
+.progress.is-indeterminate span { animation: otam-progress 1.5s ease-in-out infinite alternate; }
+@keyframes otam-progress { from { transform: translateX(0); } to { transform: translateX(180%); } }
+@media (prefers-reduced-motion: reduce) { .progress.is-indeterminate span { animation: none; } }

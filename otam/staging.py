@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import os
 import stat
+import tarfile
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from .archive import create_archive, estimate, verify_archive
+from .archive import create_archive, estimate, verify_archive, inspect_stream
 from .catalog import Catalog
 from .common import SafetyError, encode, sha256, sync_dir
 from .storage import require_local
@@ -95,6 +96,53 @@ class StagingStore:
         if info["free"] < required:
             raise SafetyError(f"Insufficient local staging space: need {required}, available {info['free']}")
 
+    def _inspect(self, path: Path, manifest: dict[str, Any], checksum: str | None,
+                 job: str) -> str:
+        """One full pass checks TAR, file digests and the complete archive digest."""
+        before = fingerprint(path)
+        last = 0.0
+        total = before[2]
+        def progress(done):
+            nonlocal last
+            now = time.monotonic()
+            if now-last < 1 and done != total:
+                return
+            with self.catalog.db:
+                self.catalog.db.execute("UPDATE staged_archives SET progress_bytes=?,total_bytes=?,updated=? WHERE job_id=? AND archive_id=?",
+                    (done,total,time.time(),job,manifest['archive_id']))
+            last = now
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if [info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns] != before:
+                raise SafetyError("Staging file changed before validation")
+            try:
+                _, actual, size = inspect_stream(stream, manifest, progress)
+            except (SafetyError, ValueError, tarfile.TarError) as error:
+                raise SafetyError('Prepared TAR checksum or structure changed: ' + str(error)) from error
+        if size != total or fingerprint(path) != before:
+            raise SafetyError("Staging file changed during validation")
+        if checksum is not None and actual != checksum:
+            raise SafetyError("Prepared TAR checksum changed")
+        return actual
+
+    def assert_ready_identity(self, job: str, manifest: dict[str, Any]) -> Path:
+        """After physical verification, retain identity checks without rehashing.
+
+        The original persisted digest was checked against the full physical
+        readback, including every file. Local bit rot after writing cannot
+        change that original digest or turn a bad physical readback into success.
+        """
+        directory = self.directory(job,manifest['archive_id'])
+        row = self.row(job,manifest['archive_id'])
+        path = directory / 'ready.tar'
+        if (row['path'] != str(path) or not row['sha256'] or not row['fingerprint_json']
+                or fingerprint(path) != json.loads(row['fingerprint_json'])
+                or path.stat().st_mode & 0o222):
+            raise SafetyError("Prepared archive changed or is writable")
+        require_local(path)
+        return path
+
     def validate_ready(self, job: str, manifest: dict[str, Any]) -> Path:
         archive = manifest["archive_id"]
         directory = self.directory(job, archive)
@@ -106,11 +154,11 @@ class StagingStore:
         before = fingerprint(path)
         if before != json.loads(row["fingerprint_json"]) or path.stat().st_mode & 0o222:
             raise SafetyError("Prepared archive changed or is writable")
-        if sha256(path) != row["sha256"]:
-            raise SafetyError("Prepared TAR checksum changed")
-        verify_archive(path, manifest)
+        self.phase(job, archive, 'VALIDATION', progress_bytes=0, total_bytes=before[2])
+        self._inspect(path, manifest, row["sha256"], job)
         if fingerprint(path) != before:
             raise SafetyError("Prepared TAR changed during validation")
+        self.phase(job, archive, 'READY', 'COMPLETE', progress_bytes=before[2], total_bytes=before[2])
         return path
 
     def revalidate_ready(self, job: str, manifest: dict[str, Any]) -> None:
@@ -126,9 +174,7 @@ class StagingStore:
         if before[:4] != previous[:4] or path.stat().st_mode & 0o222:
             raise SafetyError("Recertification requires unchanged identity, size, mtime and read-only mode")
         require_local(path)
-        if sha256(path) != row["sha256"]:
-            raise SafetyError("Recertification refused: original TAR checksum differs")
-        verify_archive(path, manifest)
+        self._inspect(path, manifest, row["sha256"], job)
         if fingerprint(path) != before:
             raise SafetyError("Archive changed during explicit recertification")
         self.phase(job, archive, "READY", "COMPLETE", fingerprint_json=encode(before).decode())
@@ -193,13 +239,9 @@ class StagingStore:
                                    elapsed_seconds=now - last)
                 last = now
         try:
-            create_archive(partial, root, manifest, progress=progress)
-            self.phase(job, archive, "VALIDATION")
-            checksum = sha256(partial)
-            verify_archive(partial, manifest)
-            before = fingerprint(partial)
-            if sha256(partial) != checksum or fingerprint(partial) != before:
-                raise SafetyError("Staging file changed during validation")
+            create_archive(partial, root, manifest, progress=progress, validate=False)
+            self.phase(job, archive, "VALIDATION", progress_bytes=0, total_bytes=partial.stat().st_size)
+            checksum = self._inspect(partial, manifest, None, job)
             with partial.open("rb") as stream:
                 os.fsync(stream.fileno())
             os.chmod(partial, 0o400)

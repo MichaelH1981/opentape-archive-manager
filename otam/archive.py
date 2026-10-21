@@ -215,7 +215,7 @@ def plan_archives(entries: list[dict[str, Any]], media: str, target: int) -> lis
 
 
 def create_archive(path: Path, root: Path, manifest: dict[str, Any],
-                   progress: Callable[[int], None] | None = None) -> None:
+                   progress: Callable[[int], None] | None = None, *, validate: bool = True) -> None:
     with tarfile.open(path, "w", format=tarfile.PAX_FORMAT, copybufsize=1024 * 1024) as tar:
         manifest_bytes = encode(manifest)
         if len(manifest_bytes) > MAX_META:
@@ -242,7 +242,8 @@ def create_archive(path: Path, root: Path, manifest: dict[str, Any],
                 info.mtime = entry["mtime_ns"] / 1_000_000_000
                 info.mode = 0o600
                 tar.addfile(info, ProgressReader(stream))
-    verify_archive(path, manifest)
+    if validate:
+        verify_archive(path, manifest)
 
 
 def verify_archive(path: Path | BinaryIO, expected: dict[str, Any] | None = None,

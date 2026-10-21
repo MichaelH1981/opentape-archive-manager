@@ -54,7 +54,7 @@ class Staging(unittest.TestCase):
 
     def test_incomplete_staging_is_retained_and_restarted_without_overwrite(self):
         plan = self.plan()
-        def interrupted(path, root, manifest, progress=None):
+        def interrupted(path, root, manifest, progress=None, **kwargs):
             path.write_bytes(b'incomplete TAR')
             raise KeyboardInterrupt('staging interrupted')
         with patch('otam.staging.create_archive', side_effect=interrupted):

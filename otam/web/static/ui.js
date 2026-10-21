@@ -34,8 +34,17 @@ const empty = (title, text, ic = "archive", action = "", compact = false) =>
   `<div class="empty ${compact ? "compact" : ""}"><div class="empty-icon">${icon(ic)}</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${action}</div>`;
 const note = (text, type = "") =>
   `<div class="note ${type}">${icon(type === "warning" ? "info" : "shield")}<span>${esc(text)}</span></div>`;
-const progress = (p) =>
-  `<div class="progress"><span style="width:${Math.max(0, Math.min(100, Number(p) || 0))}%"></span></div>`;
+const progress = (p) => {
+  const known = p !== null && p !== undefined && Number.isFinite(Number(p));
+  const value = Math.max(0, Math.min(100, Number(p) || 0));
+  return `<div class="progress${known ? "" : " is-indeterminate"}" role="progressbar" aria-label="${known ? "Fortschritt" : "Gesamtmenge noch unbekannt"}" ${known ? `aria-valuemin="0" aria-valuemax="100" aria-valuenow="${value.toFixed(1)}"` : ""}><span style="width:${known ? value : 35}%"></span></div><div class="subtle-caption">${known ? value.toFixed(1) + " %" : "Laufende Aktivität · Gesamtfortschritt unbekannt"}</div>`;
+};
+function jobProgress(p) {
+  if (!p) return "";
+  if (["WAITING_MEDIA","PLANNED","STAGED"].includes(p.job_state))
+    return `<div class="job-progress"><p><strong>Plan bereit · wartet auf Bestätigung</strong></p><p>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs dieses Mediums verifiziert</p></div>`;
+  return `<div class="job-progress"><div class="progress-meta"><strong>${esc(labels[p.phase] || p.phase)}</strong><span>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs verifiziert</span></div>${progress(p.percent)}<p class="hint">${p.percent === null ? "" : `${bytes(p.bytes)} / ${bytes(p.total_bytes)} · `}Letzter Stand ${esc(ago(p.updated))}${p.phase === "TAPE_READBACK" && p.percent === 100 && p.job_state !== "VERIFIED" ? " · Lesepass beendet; Abschlussprüfungen laufen noch." : ""}</p></div>`;
+}
 function modal(title, html) {
   $("#modal-title").textContent = title;
   $("#modal-body").innerHTML = html;
@@ -149,6 +158,7 @@ function selectionBar() {
 }
 
 export {
+  jobProgress,
   paintIcons,
   toast,
   heading,

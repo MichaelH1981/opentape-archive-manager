@@ -48,6 +48,7 @@ COMMANDS = {
     "reinitialize-physical",
     "plan-source",
     "bind-plan",
+    "set-verification-mode",
 }
 
 
@@ -85,6 +86,10 @@ def validate_command(
     if config.role != "archive" or kind not in COMMANDS:
         raise SafetyError("Dieser Node erlaubt keine Archivierungsaufträge")
     config = resources.effective(config, control)
+    if kind == 'set-verification-mode':
+        from . import batch
+        batch.validate(config,control,payload)
+        return
     if kind in ("plan-source","bind-plan"):
         from . import source_plans
         source_plans.validate(config,control,kind,payload)
@@ -328,6 +333,9 @@ def execute(
         control.set("hardware_inventory", {"time": time.time(), "drives": discover_drives()})
     validate_command(config, control, kind, payload)
     config = resources.effective(config, control)
+    if kind == 'set-verification-mode':
+        from . import batch
+        return batch.execute(config,control,payload)
     if kind in ("plan-source","bind-plan"):
         from . import source_plans
         return source_plans.execute(config,control,kind,payload)

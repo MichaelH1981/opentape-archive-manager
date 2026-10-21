@@ -11,6 +11,7 @@ from typing import Any, Iterator
 from ..common import SafetyError
 from .config import WebConfig
 from .control import Control
+from .progress import job_progress
 
 
 class CatalogView:
@@ -202,6 +203,7 @@ class CatalogView:
                 item = dict(row)
                 plan = json.loads(item.pop("plan_json") or "null")
                 item["parent_job"] = plan.get("parent_job") if isinstance(plan, dict) else None
+                item['progress'] = job_progress(db,item['id'],plan,item['state'])
                 rows.append(item)
             return rows
 
@@ -237,6 +239,7 @@ class CatalogView:
                 ]}
             if isinstance(plan,dict) and 'source_entries' in plan:
                 plan={k:v for k,v in plan.items() if k!='source_entries'}
+            result['progress'] = job_progress(db,ident,plan,result['state'])
             result["plan"] = plan
             result["report"] = json.loads(result.pop("report_json") or "null")
             result["tape_attempted"] = (

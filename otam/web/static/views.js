@@ -23,6 +23,7 @@ import {
   empty,
   note,
   progress,
+  jobProgress,
   modal,
   closeModal,
   sourceName,
@@ -39,6 +40,14 @@ import {
 } from "./ui.js";
 import { api } from "./api.js";
 async function dashboard() {
+  const html=await dashboardBase();
+  if (state.node.role !== "archive") return html;
+  const jobs=(await api("/jobs")).items.filter(j=>!j.parent_job && ["RUNNING","WAITING_MEDIA","PLANNED","STAGED"].includes(j.state));
+  const j=jobs.find(j=>j.state === "RUNNING") || jobs.find(j=>j.state === "WAITING_MEDIA") || jobs[0];
+  if (!j) return html;
+  return `<section class="panel current-plan"><div class="panel-header"><h2>Aktueller Archivplan</h2>${badge(j.state)}</div><p>${esc(kindLabel(j.kind))} · <span class="mono">${esc(short(j.id))}</span></p>${jobProgress(j.progress)}<div class="button-row"><button class="button" data-job="${esc(j.id)}">Plan und nächste Schritte</button>${j.kind === "archive-set" && ["PLANNED","WAITING_MEDIA"].includes(j.state) ? `<button class="button primary" data-backup-set="${esc(j.id)}">Archivierung für nächstes Medium bestätigen</button>` : ""}</div></section>` + html;
+}
+async function dashboardBase() {
   const [staging, events, driveStatus] = await Promise.all([
     api("/staging"),
     api("/events?limit=60"),
@@ -216,7 +225,7 @@ async function jobsPage() {
       ["Job", "Medium", "Phase", "Status", "Aktualisiert", ""],
       jobs.map(
         (j) =>
-          `<tr><td><strong>${esc(kindLabel(j.kind))}</strong><div class="cell-sub mono">${esc(short(j.id))}</div></td><td>${esc(j.label || "—")}</td><td>${esc(labels[j.phase] || j.phase || "—")}</td><td>${badge(j.kind === "source-plan" && j.state === "WAITING_MEDIA" ? "MEDIA_SELECTION" : j.state)}</td><td>${esc(ago(j.updated))}</td><td><button class="button small" data-job="${esc(j.id)}">Details ${icon("arrow")}</button></td></tr>`,
+          `<tr><td><strong>${esc(kindLabel(j.kind))}</strong><div class="cell-sub mono">${esc(short(j.id))}</div></td><td>${esc(j.label || "—")}</td><td>${j.progress ? jobProgress(j.progress) : esc(labels[j.phase] || j.phase || "—")}</td><td>${badge(j.kind === "source-plan" && j.state === "WAITING_MEDIA" ? "MEDIA_SELECTION" : j.state)}</td><td>${esc(ago(j.updated))}</td><td><button class="button small" data-job="${esc(j.id)}">Details ${icon("arrow")}</button></td></tr>`,
       ),
       "Noch keine Jobs",
     )}</section>`

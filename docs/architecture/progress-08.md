@@ -1,5 +1,11 @@
 # Vorbereitung 0.8: Fortschritt von Planung bis Verifikation
 
+Ergänzung 21.10.2026: 0.8.0 liefert bereits Phasen-/Byte-/Prozentanzeigen für
+Stagingvalidierung und Transfer, aktualisierte offene Details und den aktuellen
+Plan auf der Übersicht. Quellenhash-Fortschritt, ETA und weitere Anforderungen
+dieses ursprünglichen Entwurfs sind noch offen. Siehe production-readiness.md
+für die tatsächliche Abnahme; der folgende Entwurf beschreibt das Zielbild.
+
 Stand 20.10.2026: vorbereiteter Umsetzungsentwurf, noch nicht implementiert oder
 installiert. Der laufende Produktivjob und die Serverinstallation bleiben
 unverändert. Ein 0.8-Kandidat darf lokal entwickelt und softwaregetestet werden;

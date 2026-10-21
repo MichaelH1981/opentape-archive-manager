@@ -1,12 +1,12 @@
 # Produktionsfreigabe: Stand 20.10.2026
 
-**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.7.3** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
+**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.8.0** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 20.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
 
 Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt zwei READY-Produktivmedien, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests | Aktueller Stand 0.7.3: 242/242 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 242 Tests mit einem Skip; JavaScript-Syntax geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
+| Automatisierte Softwaretests | Aktueller Stand 0.8.0: 252/252 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 252 Tests mit einem Skip; JavaScript-Syntax geprüft. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
@@ -1019,3 +1019,92 @@ Report /var/lib/otam/reports/native-capacity-073-20261020-r1/report.json,
 SHA256 735675981b37872fdfca901b465df3a92dfcb3772cce6bea5adb723d68c2217c.
 Wheel SHA256 e42caf3ebc1edd33f2fff7ac2c74830b3e5b7e475320541cadea7e22bd8b05ec.
 Rohdaten ausschließlich im lokal ignorierten Dossier; kein neuer physischer Test.
+
+## Performance-Update 0.8.0 am Medienwechsel, 21.10.2026
+
+Nach vollständiger Verifikation der sechs TARs auf HC4BELa904 wartete der
+Gesamtjob 038ba84f-1596-4829-89d8-c2089b023811 auf Band 2. Queue leer,
+keine Live-Pending-/Resetmarker und kein offenes Bandgerät im Worker. Der Nutzer
+beauftragte die Optimierung und Installation vor Fortsetzung. Die 0.7.3-
+Laufzeitanalyse liegt in architecture/performance-lp-073.md.
+
+Der normale neue archivweise Pfad hat jetzt zwei kombinierte lokale Vollprüfungen
+statt acht: einmal vor READY und einmal unmittelbar vor Bandwrite. Archivhash,
+TAR/Manifest und Datei-SHA werden jeweils im selben Pass geprüft. Nach dem
+vollständigen physischen Readback gegen den unverändert gespeicherten Originalhash
+bleibt eine lokale Dateiidentitäts-/Fingerprint-/Schreibschutzprüfung, kein erneuter
+lokaler SHA-/TAR-Doppeldurchlauf. Prozessverlust bzw. ältere READY-Artefakte werden
+weiter vollständig revalidiert. `create_archive` prüft bei unabhängigen Aufrufern
+standardmäßig weiterhin selbst; nur Staging übernimmt die kombinierte Prüfung.
+
+Ein einzelner Reader liest physische Datenrecords in einen begrenzten RAM-Puffer
+(maximal 512 MiB, zusätzlich durch verfügbaren Speicher und Profilpuffer begrenzt).
+Kleine Metadaten bleiben synchron. Die erste Filemark wird verriegelt; Close wartet
+auf das Readerende, bevor Gerätelock oder Positionierung freigegeben werden.
+Fehler gelangen zum Prüfer. Archiv-/Datei-/Receiptprüfung bleibt vollständig.
+Keine ungeprüfte Geschwindigkeitssteuerung oder Aussage über mechanische
+Repositionierungszahlen. Backend-Telemetrie enthält Reader-/Pufferwerte.
+
+Auf der Übersicht steht der aktuelle offene Archivplan mit direkter nächster
+Aktion. Joblisten und geöffnete Details zeigen Phasenfortschritt und Prozentwerte,
+lokale Prüfungen aktualisieren ihre Zähler. Unbekannte Mengen und wartende Jobs
+bekommen keine erfundene Prozentzahl. 100 % Readback bleibt von VERIFIED getrennt.
+Bei ausreichend lokalem Platz wird der bestehende `verify_mode=media`-Pfad als
+Batchangebot sichtbar. `set-verification-mode` verlangt Plan-ID und aktuellen
+Planhash sowie ausdrückliche Bestätigung; ändert ausschließlich noch unbegonnene
+Kindpläne und den Parent in einer auditierbaren Transaktion, erzeugt neue
+Planhashes und startet keinen Bandwrite. Bereits verifizierte Kindjobs bleiben
+bytegleich. Ein alter Bestätigungs-Hash wird anschließend verweigert.
+
+Abnahme:
+- 251/251 Debian-Tests in 80,536 s, lokal 251 mit einem Skip bestanden; JavaScript-Syntax und Browserablauf mit isoliertem echten App-/Workerfixture geprüft.
+- Neue Softwaretests prüfen zwei statt acht lokale Prüfpasses, lokale Manipulation nach Readback, Prefetch-Reihenfolge, erste Filemark, Fehlerweitergabe, volle Queue und Join vor Freigabe bei laufendem Read. Ein bisheriger Fehlertest verlangte das Wort checksum; die kombinierte Struktur-/Hashfehlerantwort wurde verständlich korrigiert und der Gesamtlauf bestanden.
+- Isolierte SQLite-Kopien des echten Katalogs/Control: alle drei LP-Jobs ursprünglich unverändert geladen, Startup-Reconciliation unterbricht keinen davon, nächstes Kind bleibt Band 2. Batchreview nur auf der Kopie bestanden; erstes VERIFIED-Kind und Livejobs unverändert. Keine Quellhashes oder Nutzdaten dafür erneut gelesen. Schema bleibt Version 2, kein Migrationsbedarf.
+- Kleiner Header-/Filemark-Hardwaretest auf HC4BELa904 VERIFIED: exakt 10.240 Headerbytes, SHA 7f262a11de664b52b80d5eb14c4fbcd1f02432b53306fd72fef85e5579da9afe, nachher File 1/Block 0, Reader gejoint. Keine Nutzdatenreads und keine Bandwrites. Erster Teststart hatte in seiner Unit die zusätzliche otam-tape-Gruppe vergessen und scheiterte vor Gerätezugriff; r2 verwendete dieselbe Zusatzgruppe wie der reguläre Worker. Historische Reports/Journale erhalten.
+- Synthetischer 512-MiB-Stagingvergleich auf der tatsächlichen HDD, jeweils unter MemoryMax=256M zur Begrenzung von Cacheeffekten: 0.7.3 20,959 s / 12,819 CPU-s, 0.8.0 14,452 s / 6,325 CPU-s. Rund 31 % weniger Vorbereitungszeit und 51 % weniger CPU für diese einzelne kleine Messung; kein statistisch abgesicherter Gesamtjob- oder Bandgeschwindigkeitsnachweis. Ein vorheriger 128-MiB-Vergleich mit möglichem Warmcache zeigte 2,105/2,476 s und ist ebenfalls erhalten, nicht als Beschleunigung gewertet.
+
+Wheel SHA256 5e71513f42efd021b756caa80057384f3515d2e8c72892a2f159f61719ab7c9a.
+Installation nach erneuter Leerlaufprüfung und Backup
+/var/backups/otam/before-performance-080-20261021T164115; pip mit umask 022,
+Dienstkontoimport und Health bestanden. Web/Worker/Tunnel aktiv, Konfiguration
+und alle drei LP-Jobdatensätze exakt unverändert. Keine Medieninitialisierung,
+kein Moduswechsel am Liveplan und kein Start von Band 2 durch die Installation.
+Kandidat /var/lib/otam/acceptance-code/performance-080-20261021.
+Reports /var/lib/otam/reports/performance-080-20261021-r1/.
+
+Live-Batchangebot für Band 2: 11 TARs, 760.268.000.068 Byte zusätzliche Schätzung
+bei 1.715.154.915.328 Byte tatsächlichem Freiraum. Angebot ist möglich, muss aber
+noch ausdrücklich gewählt werden; Liveplan weiterhin archive. Weitere 0.8-Wünsche
+(Jobnamen, Jobarchiv, Quellenhash-Fortschritt, ETA und empirische Kapazitätsprognosen)
+bleiben im Entwicklungsplan offen. 0.8.0 ist das Performance-/Medienwechselupdate,
+keine Behauptung einer vollständigen Umsetzung aller dortigen TODOs.
+Rohbelege bleiben ausschließlich im lokal ignorierten Hardwaredossier.
+
+Nach Installation blieb die signierte Katalogsynchronisation erfolgreich:
+Queueauftrag ef089fb2-c0b8-4749-a765-2b391ad30d39 SUCCEEDED, Ziel UNCHANGED
+auf Sequenz 217 (der Katalogstand war bereits veröffentlicht). Der stündliche
+Update-Monitor wurde nach erfolgreicher Installation und Nachprüfung beendet.
+
+
+Abschließender Batch-Nachtrag: Auch der Medienbatch-Pfad verwendet nach
+physischer Rücklesung nur die Identitätskontrolle des Staging-TARs, keinen
+weiteren vollen lokalen Prüflauf. Er hat damit ebenfalls zwei statt der
+bisherigen zahlreichen lokalen Pässe. `scan` erhält einen optionalen
+positionsbezogenen Fortschrittscallback: jeder neue TAR-Readback liefert
+laufende Bytes/Prozent/Puffertelemetrie, ohne vorherige Nutzdaten zusätzlich zu
+lesen. Bereits gelesene TARs bleiben bis zum vollständigen Ketten-/Manifest- und
+Hashabgleich PENDING. Ein zusätzlicher Test beweist zwei lokale Pässe und
+Rücklesefortschritt für jedes TAR im Batch.
+
+Finaler Stand: 252/252 Debian-Tests in 80,120 s; lokal 252 mit einem Skip in
+18,600 s sowie 52 gezielte Batch-/Workflow-/Adaptertests bestanden. Der finale
+Kandidat liegt separat unter
+/var/lib/otam/acceptance-code/performance-080-final-20261021.
+Die identische Prefetch-/Tape-Implementierung behält den obigen Headernachweis;
+kein redundanter physischer Test wurde wiederholt. Der echte LP-Katalog wurde
+für diesen Stand erneut isoliert geprüft. Nach kontrollierter Aktualisierung
+im weiterhin untätigen Medienwechsel sind Konfiguration und alle drei Livejobs
+weiter exakt unverändert. Das erste 0.8-Wheel bleibt als Rückweg gesichert;
+beide Installationsberichte bleiben erhalten. Finaler Wheel-SHA256:
+62479519338f6bfbce7f6e0862480df879df7822d7908cf7a54e4c208f1e5644.
+Finale Reports: /var/lib/otam/reports/performance-080-final-20261021-r1/.

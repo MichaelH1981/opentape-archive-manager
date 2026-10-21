@@ -408,6 +408,13 @@ def create_app(config: WebConfig) -> FastAPI:
             "storage_binding": control.get("job_storage:" + ident)
         }
 
+    @api.get("/jobs/{ident}/batch-option")
+    def batch_option(ident: str):
+        if config.role != 'archive':
+            raise SafetyError('Nur auf dem Archive Node verfügbar')
+        from . import batch
+        return batch.offer(resources.effective(config, control),control,ident)
+
     @api.get("/staging")
     def staging():
         result: dict[str, Any] = {"items": view.staging(), "storage": None}
