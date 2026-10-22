@@ -1299,3 +1299,24 @@ Wheel-SHA256 50bcaf3729624f6c43adf8e7aefa140f25180f7aa79cd1baed7b10050ae14f2a.
 Rückweg zu 0.8.2 vorhanden. Rohdaten nur lokal ignoriert mit SHA256SUMS.
 Signierter Katalogsync nach Installation:
 59458c88-f1fb-4b8b-ad7b-fd84db871ee9 SUCCEEDED, Ziel UNCHANGED auf Sequenz 233.
+
+
+### Dashboard-Sprungziele 0.8.4 – 22.10.2026
+
+Die vier Statistiktafeln sind vollständige native Links: Verifiziertes Archiv →
+Archive, Dateien im Katalog → Dateikatalog, Inventarisierte Medien → Bandinventar
+und Vorbereitete Archive → Staging. Auf einem Katalogknoten verweist die vierte
+Tafel Katalogstand auf Synchronisation. Hover und Tastaturfokus sind sichtbar;
+Enter, Browser-Zurück und normale Linkfunktionen bleiben verfügbar.
+
+JavaScript-Syntax und Diff geprüft, alle vier Ziele im Browser an isolierten
+synthetischen Daten geöffnet, Enter und Tab geprüft, Screenshot lokal gesichert.
+Für diese reine Oberflächenänderung wurden keine Bandtests wiederholt.
+Installation im bestätigten Leerlauf mit SQLite-/Konfigurationsbackup unter
+/var/backups/otam/before-dashboard-links-084-20261022T155909, Dienstkontoimport,
+Wheel-Dateivergleich und erfolgreichem Healthcheck. Konfiguration und drei
+LP-Jobdatensätze exakt unverändert, 17 Archive weiterhin VERIFIED. Web, Worker
+und Tunnel aktiv. Katalogschema und Archivformat unverändert. Rückweg 0.8.3
+vorhanden. Wheel-SHA256:
+8e55891bd18c966e5243a2a1b1eaedd2e550426efdd6fc9b149d9a2850ec9b1b.
+Rohbelege ausschließlich lokal ignoriert unter dashboard-links-084/ mit SHA256SUMS.

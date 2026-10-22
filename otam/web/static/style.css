@@ -487,6 +487,19 @@ nav .nav-label {
   border-radius: var(--radius);
   padding: 20px 21px;
 }
+.stat-link {
+  display: block;
+  color: inherit;
+}
+.stat-link:hover {
+  border-color: #8fa783;
+  box-shadow: 0 3px 12px #12352f0a;
+}
+.stat-link:hover .stat-title,
+.stat-link:focus-visible .stat-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .stat-top {
   display: flex;
   align-items: center;
