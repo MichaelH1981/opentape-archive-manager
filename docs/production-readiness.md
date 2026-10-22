@@ -1213,3 +1213,29 @@ Rückleseverifikation. Kein weiterer Testlauf oder paralleler Geräteworker.
 Startbeleg /var/lib/otam/reports/lp-band2-batch-20261021-r1/start-report.json,
 Snapshot lokal ignoriert mit SHA256SUMS gesichert. Dies ist ein laufender
 Produktivjob, kein bereits abgeschlossener Verifikationsnachweis.
+
+## LP Archiv abgeschlossen und ausgewertet, 22.10.2026
+
+Der Gesamtjob ist VERIFIED: beide Medien, 17 TARs, 30.800 Dateien,
+1.522.565.501.226 Nutzbytes. Band-2-Queue SUCCEEDED, alle elf neuen Archive und
+Verifikationen VERIFIED, sämtliche Staging-Cleanups COMPLETE. Abschluss am
+22.10.2026 um 03:10:42 MESZ, Laufzeit Band 2 rund 9 h 46 min gegenüber 16 h 25 min
+für Band 1 mit ähnlich großer Datenmenge. Erster Kindjob und seine sechs
+Archivdatensätze stimmen exakt mit dem Startsnapshot vor Band 2 überein. Das
+ist ein Metadatenvergleich, keine erneute physische Rücklesung von Band 1.
+Signierter Katalogsync zuletzt Sequenz 233, UNCHANGED.
+
+Die Gesamtlaufzeit sank um 40,45 %, die eigentliche Rücklese-/Prüfrate blieb
+jedoch bei rund 53 MB/s. Neue Readerzähler zeigen etwa 1 h 53 min innerhalb der
+Geräte-Reads und 2 h 06 min übrige verstrichene Verarbeitungszeit nacheinander.
+RAM-Durchsatz allein war damit keine ausreichende Bewertung des vollständigen
+Bandpfads. Effiziente Überlappung und geringere Kopierkosten bleiben offen;
+keine abgeschwächte Integritätsprüfung oder neue Durchsatzfreigabe behaupten.
+
+Fünf neue USB/UAS-Resets mit Kernel-Lesefehlern auf der Quelle /dev/sdc1 während
+der Vorbereitung sind trotz bestandenem SHA-Abgleich zu untersuchen. Die
+bekannte Reinigungsaufforderung bleibt bis zum Eintreffen des Reinigungsbands
+offen; Nutzer wünschte Reinigung nach Jobende. Für diese Auswertung wurden
+weder Banddaten erneut gelesen noch Quellen oder Installation verändert.
+Ausführlicher Vergleich und priorisierte Maßnahmen:
+[performance-lp-082.md](architecture/performance-lp-082.md).
