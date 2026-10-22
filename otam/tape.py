@@ -8,6 +8,7 @@ import os
 import re
 import stat
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -170,6 +171,8 @@ class TapeRecordReader(io.RawIOBase):
         self.pending = b""
         self.eof = False
         self.started = time.monotonic()
+        self.creator_thread = threading.get_ident()
+        self.creator_cpu = time.thread_time()
         self.read_seconds = 0.0
         self.read_bytes = 0
         self.read_calls = 0
@@ -177,21 +180,37 @@ class TapeRecordReader(io.RawIOBase):
     def readable(self) -> bool:
         return True
 
+    def read_record(self) -> bytes:
+        """One st record without RawIOBase.read's extra zeroed buffer/copy.
+
+        A sole prefetch producer owns this method. Return any existing record
+        remainder first, and latch the first physical filemark permanently.
+        """
+        if self.closed:
+            raise ValueError("Read from closed tape file")
+        if self.pending:
+            data, self.pending = self.pending, b""
+            return data
+        if self.eof:
+            return b""
+        started = time.monotonic()
+        self.read_calls += 1
+        try:
+            data = os.read(self.fd, BLOCK)
+        finally:
+            self.read_seconds += time.monotonic() - started
+        self.read_bytes += len(data)
+        if not data:
+            self.eof = True
+        return data
+
     def readinto(self, target) -> int:
         if self.closed:
             raise ValueError("Read from closed tape file")
         if not len(target):
             return 0
         if not self.pending and not self.eof:
-            started = time.monotonic()
-            self.read_calls += 1
-            try:
-                self.pending = os.read(self.fd, BLOCK)
-            finally:
-                self.read_seconds += time.monotonic() - started
-            self.read_bytes += len(self.pending)
-            if not self.pending:
-                self.eof = True
+            self.pending = self.read_record()
         count = min(len(target), len(self.pending))
         target[:count] = self.pending[:count]
         self.pending = self.pending[count:]
@@ -199,11 +218,14 @@ class TapeRecordReader(io.RawIOBase):
 
     def metrics(self) -> dict[str, Any]:
         # Time inside os.read includes kernel/driver work and waiting. The
-        # remaining elapsed time includes parsing, hashing and progress writes;
-        # neither is a measurement of internal mechanical tape repositioning.
+        # remaining elapsed time includes parsing, hashing and progress writes
+        # only in synchronous mode. Prefetch overlaps these times. Neither is a
+        # measurement of internal mechanical tape repositioning.
         return {"reader_mode": "synchronous", "device_read_bytes": self.read_bytes,
                 "device_read_calls": self.read_calls,
                 "device_read_seconds": self.read_seconds,
+                "consumer_cpu_seconds": (time.thread_time()-self.creator_cpu
+                    if threading.get_ident() == self.creator_thread else None),
                 "reader_elapsed_seconds": time.monotonic() - self.started}
 
     def close(self) -> None:
@@ -222,7 +244,7 @@ class LinuxTape:
     """
 
     def __init__(self, expected: dict[str, Any], state: Path | None = None, *, buffer_mib: int = 512,
-                 write_rate: int | None = None):
+                 write_rate: int | None = None, read_ahead: bool = True):
         from .physical import LinuxMaintenance
 
         if state is None or not isinstance(expected, dict):
@@ -237,6 +259,9 @@ class LinuxTape:
         self.state = state
         self._reader = None
         self.buffer_mib = buffer_mib
+        if type(read_ahead) is not bool:
+            raise SafetyError("Invalid read-ahead selection")
+        self.read_ahead = read_ahead
         if write_rate is not None:
             from .transfer import selected_speed_profile
             profile = selected_speed_profile({"time": time.time(), "drives": [expected]}, expected["id"])
@@ -249,6 +274,7 @@ class LinuxTape:
         self._metadata_cache: dict[int, Path] = {}
         self._count_cache: int | None = None
         self._used_cache: tuple[int, int] | None = None
+        self._positioning_commands: dict[str, int] = {}
         self._pending = state / "physical-pending" / (hashlib.sha256(
             expected["medium_serial"].encode()).hexdigest() + ".json")
         self._reset = state / "physical-reset" / self._pending.name
@@ -262,6 +288,7 @@ class LinuxTape:
             raise SafetyError("Nested device access")
         with self.device.locked():
             self._locked = True
+            self._positioning_commands.clear()
             try:
                 self._driver_mode()
                 self.device.mt("setblk", "0")
@@ -301,6 +328,7 @@ class LinuxTape:
         arguments = ["mt", "-f", self.device.device, operation]
         if count is not None:
             arguments.append(str(count))
+        self._positioning_commands[operation] = self._positioning_commands.get(operation, 0) + 1
         run(arguments, timeout=900)
 
     def _count(self, *, force: bool = False) -> int:
@@ -373,20 +401,32 @@ class LinuxTape:
         self._seek(position)
         fd = self.device.reader()
         raw = TapeRecordReader(fd)
-        # Keep a single synchronous reader. On the target CPU the additional
-        # Python prefetch thread slows the combined TAR/SHA verifier. The 1-MiB
-        # stream buffer still receives complete variable-length tape records.
-        self._reader = raw
+        # Metadata remains synchronous. Payloads overlap device waiting and
+        # inspection with one producer, avoiding RawIOBase's per-record copies.
+        # No positioning can begin until that producer has joined on close.
         try:
-            with io.BufferedReader(raw, buffer_size=BLOCK) as stream:
+            prefetched = False
+            if position % 2 and self.read_ahead:
+                from .prefetch import PrefetchReader
+                from .benchmark import available_memory
+                try:
+                    capacity = min(64 * 1024**2, self.buffer_mib * 1024**2, available_memory() // 8)
+                except (OSError, SafetyError, ValueError):
+                    capacity = 0  # Optional acceleration must not prevent a safe read.
+                if capacity >= 16 * 1024**2:
+                    raw = PrefetchReader(raw, BLOCK, capacity)
+                    prefetched = True
+            self._reader = raw
+            stream = raw if prefetched else io.BufferedReader(raw, buffer_size=BLOCK)
+            with stream:
                 yield stream
         finally:
-            raw.close()  # Release the reader before another operation can position.
+            raw.close()  # Join before releasing the reader or positioning.
             self._reader = None
 
     def read_metrics(self) -> dict[str, Any]:
         if self._reader is not None and hasattr(self._reader, 'metrics'):
-            return self._reader.metrics()
+            return {**self._reader.metrics(), 'positioning_commands': dict(self._positioning_commands)}
         return {}
 
     def header(self) -> dict[str, Any]:
@@ -666,6 +706,7 @@ class LinuxTape:
                                         "buffer_bytes": self.buffer_mib * 1024**2,
                                         "write_rate_bytes_per_second": self.write_rate,
                                         "prefill_percent": 90, "transfer_log": str(log),
+                                        "positioning_commands": dict(self._positioning_commands),
                                         "drive_status": "writing", "repositions": None})
                             result = process.wait()
                             errors.seek(max(0, errors.tell() - 512))

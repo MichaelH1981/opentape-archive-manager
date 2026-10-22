@@ -279,3 +279,32 @@ verkettet. Neue Belege werden erst beim abschließenden vollständigen physische
 Scan gelesen und geprüft, nicht schon zwischen den einzelnen TAR-Writes.
 Filemarks, frische Identitäts-/EOD-Prüfungen und Writer-Prefill bleiben bestehen;
 dies ist keine Zusage einer mechanisch unterbrechungsfreien Bandbewegung.
+
+### 0.8.3: überlappende Rücklesung mit weniger Kopien
+
+Für Daten-TARs liest ein einziger Producer bis zur ersten Dateimarke voraus,
+während der Worker TAR und vollständige Archiv-/Datei-SHA-256 prüft. Immutable
+Records werden direkt übernommen statt pro Record zunächst einen zusätzlichen
+genullten RawIOBase-Puffer zu befüllen. Der Consumer fügt nur benötigte Teile
+zusammen; ein weiterer BufferedReader entfällt in diesem Pfad. Header und
+Receipts bleiben synchron. Kein zusätzliches Lesen alter Nutzdaten und keine
+Änderung des gewählten Verifikationsmodus.
+
+Die Queue ist auf höchstens 64 MiB bzw. ein Achtel des verfügbaren Speichers und
+den Profilpuffer begrenzt. Dazu kommen wenige laufende Records und der angeforderte
+Parserblock. Unter 16 MiB Budget oder unbekanntem verfügbaren Speicher wird der
+synchrone Pfad verwendet. Kein SSD-Staging und kein zusätzliches Spool-TAR.
+Der Reader wird bei Erfolg und Fehler immer vor der nächsten Positionierung
+gejoint; ein laufender Geräte-Read darf nicht durch fremdes FD-Schließen beendet
+werden. Der erste EOF/Filemark bleibt gelatcht, Lesefehler bleiben Fehler.
+
+`io_progress` ergänzt `read_buffer_peak_bytes`, `consumer_wait_seconds`,
+`producer_wait_seconds`, `consumer_cpu_seconds`, `producer_cpu_seconds` und
+`positioning_commands`. CPUzeiten sind Thread-CPUzeiten, Wartezeiten sind Zeit in
+Queue-Zugriffen. Bei Prefetch überlappen Gerätezeit und Consumerarbeit; deren
+Differenz ist ausdrücklich keine isolierte CPU-/Parserzeit. Positionierungszähler
+erfassen versuchte Hostkommandos in derselben exklusiven Sitzung, keine internen
+Backhitches. Schreibpuffer/-limit und alle Write-/EOD-/Medienprüfungen bleiben
+unverändert. Simulierte Gerätewartezeiten belegen einen Softwaregewinn; der
+tatsächliche Banddurchsatz muss beim nächsten regulären Lauf nach Reinigung
+beobachtet werden, ohne redundanten großen Abnahmelauf.

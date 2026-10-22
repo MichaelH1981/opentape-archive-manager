@@ -1,12 +1,12 @@
 # Produktionsfreigabe: Stand 20.10.2026
 
-**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.8.2** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 21.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
+**Status: FREIGEGEBEN für reguläre Dateiarchivierung auf der abgenommenen IBM-ULT3580-HH4/LTO-4-Konfiguration mit qualifiziertem lokalem Staging.** OTAM **0.8.3** ist installiert; physische Archivierung, explizite Initialisierung unbekannter Medien und bestätigter Mehrbandbetrieb sind aktiviert. Web, Worker und optionaler Katalogdienst sind betriebsbereit. Stand 21.10.2026; abschließende Belege und Grenzen unten. Die nachfolgenden chronologischen Abschnitte enthalten auch historische Zwischenstände und unveränderte Fehlversuche.
 
 Der Produktivkatalog enthält **keine Testmedien, Archive oder Dateieinträge**. Drei Testmedien, elf Testarchive (eins absichtlich unvollständig), 15 Dateieinträge und elf zugehörige Jobs wurden nach unabhängigen SQLite-Backups gezielt entfernt. Benutzer, Quelle, HDD-Qualifikation, Konfiguration, Berichte und dauerhafte Sicherheitssperren bleiben erhalten. Die frühere Abbruchtestkassette wurde anschließend über den separat abgenommenen expliziten Reset als neues produktives Medium registriert; es gibt jetzt zwei READY-Produktivmedien, weiterhin keine Testarchive oder Dateieinträge. Katalogbereinigung allein löscht keine Banddaten und entsperrt kein Medium.
 
 | Abnahme | Befund | Status |
 | --- | --- | --- |
-| Automatisierte Softwaretests | Aktueller Stand 0.8.2: 259/259 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 259 Tests mit einem Skip. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
+| Automatisierte Softwaretests | Aktueller Stand 0.8.3: 266/266 Tests auf Debian bestanden, mit isoliertem lokalem Test-TMPDIR. Lokal 266 Tests mit einem Skip. Keine Tests verändern physische Banddaten oder lösen Shutdown aus | Bestanden für den Kandidaten |
 | Reale Laufwerks-/Medienerkennung | IBM ULT3580-HH4 und eindeutig identifiziertes eingelegtes Testmedium; keine aktive TapeAlert-Warnung beim letzten Scan | Bestanden, Momentaufnahme |
 | Reales PAX-TAR-/Filemark-/Append-Layout | Fünf Banddateien; alle vor und nach Append zurückgelesen und gehasht | Bestanden im kleinen Testlayout |
 | Unabhängige Wiederherstellung ohne OTAM-Installation | Zwei bereits vom Testband zurückgelesene Daten-/Receipt-Paare mit `tools/recover_tar.py` unter isoliertem Python 3 wiederhergestellt: je zwei Dateien, inklusive Archiv- und Ziel-Hashprüfung; temporäre Ziele entfernt | Bestanden für diese Testarchive |
@@ -1239,3 +1239,63 @@ offen; Nutzer wünschte Reinigung nach Jobende. Für diese Auswertung wurden
 weder Banddaten erneut gelesen noch Quellen oder Installation verändert.
 Ausführlicher Vergleich und priorisierte Maßnahmen:
 [performance-lp-082.md](architecture/performance-lp-082.md).
+
+
+## Überlappende Bandrücklesung 0.8.3, 22.10.2026
+
+Die Auswertung des abgeschlossenen LP-Jobs zeigte, dass im synchronen Reader
+Gerätewartezeit und Prüfung seriell anfallen. Deshalb wurde der zusätzliche
+Reader erneut entwickelt und mit realistischen 512-KiB-Records und simulierter
+Gerätewartezeit verglichen, nicht nur mit latenzfreiem RAM. Der neue Pfad
+übernimmt immutable Records direkt, vermeidet die zusätzliche pro Record
+genullte RawIOBase-Zwischenkopie und den äußeren BufferedReader auf dem
+Prefetch-Consumer. Genau ein Producer liest voraus, die vollständige TAR-,
+Archiv-SHA- und Datei-SHA-Prüfung bleibt im Consumer. Es werden weder alte
+Nutzdaten zusätzlich gelesen noch Daten-/Receiptformat oder Verifikationsmodus
+verändert.
+
+Daten-TARs verwenden höchstens 64 MiB Queuebudget, weiter begrenzt durch ein
+Achtel verfügbaren RAMs und den Profilpuffer; dazu kommen laufende Records und
+angeforderte Parserblöcke. Metadaten bleiben synchron. Bei weniger als 16 MiB
+Budget, unbekanntem verfügbaren Speicher oder explizitem read_ahead=false bleibt
+der synchrone Pfad verfügbar. Erste Filemark dauerhaft gelatcht, Fehler werden
+nicht als EOF behandelt, Close wartet auf jeden laufenden Read und den einzigen
+Producer, bevor FD/Device freigegeben oder positioniert werden darf. Keine
+Änderung an Schreibpuffer, Rate, Prefill, EOD-, Identitäts- oder Pending-Sperren.
+
+Zusätzliche Fortschrittsdaten: Queue-Füllung/Peak, Queue-Zugriffszeiten,
+Consumer-/Producer-Thread-CPUzeit und Host-Positionierungskommandos je exklusiver
+Sitzung. Die Zähler erfassen keine internen mechanischen Backhitches. Bei
+überlappender Verarbeitung darf elapsed minus Gerätezeit nicht mehr als reine
+Consumer-/CPUzeit interpretiert werden.
+
+Finaler Vergleich mit künstlicher Gerätewartezeit entsprechend 112 MB/s:
+synchron 48,56 MB/s, alter Prefetch 89,95 MB/s, neuer Kandidat 98,55 MB/s.
+Ein voriger Vergleich ergab 70,68 / 87,42 / 98,10 MB/s. Ohne künstliche Wartezeit
+erreichte der neue Kandidat in jenem Vergleich 220,54 MB/s. Es handelt sich um
+kurze Softwaremodelle mit vollständiger TAR-/Datei-/Archivhashprüfung auf RAM-
+Dateien, nicht um physischen Banddurchsatz oder einen garantierten Zeitgewinn.
+Keine neue große Bandprüfung für diese Entwicklung. Der reale Nachweis erfolgt
+beim nächsten regulären Lauf nach Reinigung; die bestehende Reinigungsaufforderung
+wurde nicht umgangen oder als erledigt markiert.
+
+266/266 Debian-Tests in 86,495 s, lokal 266 mit einem Skip in 14,750 s bestanden.
+Zusätzliche Tests umfassen direkte Kurz-/Restreads, EOF/Filemark ohne Übertritt,
+Fehlerweitergabe, ungültig große Records, begrenzte volle Queue, Join vor FD-Close,
+RAM-Fallback/Metadatenausnahme und tatsächliche Archiv-/Rebuild-/Restorepfade am
+Dateigeräteadapter. Die abgeschlossene reale LP-Katalogkopie bleibt kompatibel:
+17 VERIFIED-Archive, unveränderte drei Jobdatensätze, Schema 2 und Planhash
+988462bf3aaf64baf698097eda39bffe3c65fede578b4e84c2e6a1a8d7cb644a.
+
+Installation ausschließlich im bestätigten Leerlauf, ohne Geräte-FD des Workers,
+mit privatem SQLite-/Konfigurationsbackup, umask 022 für das Wheel,
+Dienstkontoimport, installiertem Dateivergleich und Healthprüfung. Livekonfiguration
+und alle drei LP-Jobs nachher exakt unverändert, kein neuer Job gestartet.
+Web, Worker und Tunnel aktiv. Backup:
+/var/backups/otam/before-overlap-083-20261022T075817.
+Kandidat /var/lib/otam/acceptance-code/overlap-083-final-20261022,
+Report /var/lib/otam/reports/overlap-083-20261022-r1/installation.json.
+Wheel-SHA256 50bcaf3729624f6c43adf8e7aefa140f25180f7aa79cd1baed7b10050ae14f2a.
+Rückweg zu 0.8.2 vorhanden. Rohdaten nur lokal ignoriert mit SHA256SUMS.
+Signierter Katalogsync nach Installation:
+59458c88-f1fb-4b8b-ad7b-fd84db871ee9 SUCCEEDED, Ziel UNCHANGED auf Sequenz 233.

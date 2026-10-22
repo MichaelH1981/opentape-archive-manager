@@ -91,6 +91,13 @@ class LinuxTapeSafety(TestCase):
             self.tape._seek(5)
             move.assert_called_once_with("fsf", 3)
 
+    def test_positioning_metrics_count_host_commands_without_claiming_mechanical_moves(self):
+        with patch('otam.physical.run'):
+            self.tape._move('eod')
+            self.tape._move('fsf',3)
+            self.tape._move('rewind')
+        self.assertEqual(self.tape._positioning_commands,{'eod':1,'fsf':1,'rewind':1})
+
     def test_unknown_forward_position_keeps_conservative_rewind(self):
         with patch.object(self.tape, "_count", return_value=9), \
                 patch("otam.physical.status", side_effect=[
@@ -250,6 +257,36 @@ class LinuxTapeSafety(TestCase):
 
 
 class TapeRecordReads(TestCase):
+    def test_prefetch_budget_metadata_and_safe_synchronous_fallback(self):
+        with TemporaryDirectory() as folder:
+            path=Path(folder)/'data';path.write_bytes(b'payload'*1000)
+            for enabled,memory,position,mode in ((True,8*1024**3,1,'prefetch'),
+                    (False,8*1024**3,1,'synchronous'),(True,64*1024**2,1,'synchronous'),
+                    (True,8*1024**3,0,'synchronous'),(True,None,1,'synchronous')):
+                with self.subTest(enabled=enabled,memory=memory,position=position):
+                    device=Mock();fd=os.open(path,os.O_RDONLY);device.reader.return_value=fd
+                    with patch('otam.physical.LinuxMaintenance',return_value=device):
+                        tape=LinuxTape(DRIVE,Path(folder),read_ahead=enabled)
+                    with patch.object(tape,'_seek'),patch('otam.benchmark.available_memory',
+                            return_value=memory,side_effect=SafetyError('unknown memory') if memory is None else None) as available:
+                        with tape.open_read(position) as stream:
+                            self.assertEqual(stream.read(),b'payload'*1000)
+                            metrics=tape.read_metrics();self.assertEqual(metrics['reader_mode'],mode)
+                            self.assertGreaterEqual(metrics['consumer_cpu_seconds'],0)
+                            if mode=='prefetch':self.assertLessEqual(metrics['read_buffer_bytes'],64*1024**2)
+                        if not enabled or position==0:available.assert_not_called()
+                    with self.assertRaises(OSError):os.fstat(fd)
+
+    def test_direct_record_after_partial_read_preserves_remainder_and_eof(self):
+        with patch('otam.tape.os.read',side_effect=[b'abcdef',b'',AssertionError('next tape file')]) as read, \
+                patch('otam.tape.os.close'):
+            with TapeRecordReader(123) as raw:
+                out=bytearray(2);self.assertEqual(raw.readinto(out),2)
+                self.assertEqual(out,b'ab')
+                self.assertEqual(raw.read_record(),b'cdef')
+                self.assertEqual(raw.read_record(),b'')
+                self.assertEqual(raw.read_record(),b'')
+                self.assertEqual(read.call_count,2)
     def test_payload_context_checks_full_archive_and_closes_at_first_filemark(self):
         import hashlib
         from otam.common import BLOCK
