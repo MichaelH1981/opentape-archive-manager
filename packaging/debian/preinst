@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+case "${1:-}" in
+ install|upgrade)
+  if [ -e /opt/otam/current ]; then
+   echo 'Existing manual /opt/otam installation: use the documented migration procedure; no automatic replacement.' >&2
+   exit 1
+  fi
+  if [ -f /etc/otam/node.json ]; then
+   check_idle() {
+   /usr/bin/python3 - <<'PY'
+import json,sqlite3
+from pathlib import Path
+c=json.loads(Path('/etc/otam/node.json').read_text())
+for p,q in [(Path(c['state'])/'control.sqlite',"SELECT 1 FROM commands WHERE state IN ('RUNNING','QUEUED') LIMIT 1"),
+            (Path(c['catalog']),"SELECT 1 FROM jobs WHERE state IN ('RUNNING','PLANNING') LIMIT 1")]:
+ if p.exists():
+  with sqlite3.connect(p.as_uri()+'?mode=ro',uri=True) as db:
+   if db.execute(q).fetchone():raise SystemExit('OTAM is busy. Finish work before installing/upgrading.')
+for name in ('physical-pending','physical-reset'):
+ if any((Path(c['state'])/name).glob('*')):raise SystemExit('Unresolved physical journal. Inspect before upgrading.')
+PY
+   }
+   check_idle
+   if command -v deb-systemd-invoke >/dev/null; then
+    deb-systemd-invoke stop otam-worker.service otam-web.service || exit 1
+   fi
+   check_idle
+  fi
+ ;;
+esac

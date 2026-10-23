@@ -931,6 +931,17 @@ async function start() {
   localize(document);
   await render();
 }
+$("#first-start-form").addEventListener("submit",async e=>{
+  e.preventDefault();const button=$("button",e.target);button.disabled=true;
+  $("#first-start-error").textContent="";
+  try {
+    const d=new FormData(e.target);
+    await api("/setup",{method:"POST",body:JSON.stringify(Object.fromEntries(d))});
+    $("#login-form").elements.username.value=d.get("username");e.target.reset();
+    e.target.hidden=true;$("#login-form").hidden=false;toast("Administratorkonto angelegt. Bitte anmelden.");
+  } catch(error){$("#first-start-error").textContent=error.message;}
+  finally{button.disabled=false;}
+});
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const d = new FormData(e.target),
@@ -997,6 +1008,10 @@ setInterval(async () => {
   paintIcons();
   localize(document);
   try {
+    const setup = await api("/setup");
+    $("#first-start-form").hidden=!setup.required;
+    $("#login-form").hidden=setup.required;
+    if (setup.required) { showLogin(); return; }
     const r = await api("/session");
     state.csrf = r.csrf;
     state.account = r;

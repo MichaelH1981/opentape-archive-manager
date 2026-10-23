@@ -39,6 +39,7 @@ def parser() -> argparse.ArgumentParser:
     web_init.add_argument("--role", choices=("archive", "catalog"), default="archive")
     web_init.add_argument("--source", type=Path, action="append", default=[])
     web_init.add_argument("--password-file", type=Path, help="Mode 0600 file; otherwise prompt securely")
+    web_init.add_argument("--first-start", action="store_true", help="Enroll administrator in browser using a private local setup token")
     for name in ("serve", "worker"):
         web_command = sub.add_parser(name, help="Run the optional web server or separate durable worker")
         web_command.add_argument("--config", required=True, type=Path)
@@ -130,7 +131,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "web-init":
             import getpass
             from .web.config import initialize
-            if args.password_file:
+            if args.first_start and args.password_file:
+                raise SafetyError("Choose first-start or password-file, not both")
+            if args.first_start:
+                password = None
+            elif args.password_file:
                 if args.password_file.is_symlink() or args.password_file.stat().st_mode & 0o077:
                     raise SafetyError("Password file requires mode 0600 and must not be a symlink")
                 password = args.password_file.read_text().rstrip("\r\n")

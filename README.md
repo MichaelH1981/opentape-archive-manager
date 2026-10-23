@@ -1,6 +1,8 @@
 # OpenTape Archive Manager (OTAM)
 
-Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.8.3 mit kombinierter lokaler Validierung, überlappender physischer Rücklesung mit vollständiger SHA-Prüfung, aktuellem Archivplan auf der Übersicht und ausdrücklich wählbarem Batchmodus für unbegonnene Medien.** Dazu kommen deutsche/englische Weboberfläche, lokale Benutzerverwaltung, separater Worker und eigenständiger Katalogdienst. Ein persistenter Bandsimulator ermöglicht Tests ohne Hardware. Physische Initialisierung, Archivierung und Mehrbandbetrieb besitzen getrennte, standardmäßig deaktivierte administrative Gates. Der aktuelle Abnahmestand und die Grenzen einer Freigabe stehen in [production-readiness.md](docs/production-readiness.md).
+Offener, sicherheitsorientierter Archivierungskern für private Linux-Bandarchive. **Version 0.8.6 mit geführter Ersteinrichtung ohne Standardpasswort, kombinierter Quellenübernahme, detailliertem Fortschritt und sequenzieller Bandverifikation.** Dazu kommen deutsche/englische Weboberfläche, lokale Benutzerverwaltung, separater Worker und eigenständiger Katalogdienst. Ein persistenter Bandsimulator ermöglicht Tests ohne Hardware. Physische Initialisierung, Archivierung und Mehrbandbetrieb besitzen getrennte, standardmäßig deaktivierte administrative Gates. Der aktuelle Abnahmestand und die Grenzen einer Freigabe stehen in [production-readiness.md](docs/production-readiness.md).
+
+[Debian 13 installieren](docs/debian-installation.md) · [Bedienungsanleitung](docs/user-guide.md) · [First steps in English](docs/getting-started-en.md)
 
 [Projektübersicht und Funktionsstand](docs/project-overview.md) · [Weboberfläche und Installation](docs/web.md) · [Modulare Architektur](docs/architecture/modular-web.md)
 
@@ -33,13 +35,13 @@ Planung, Staging, bestätigte Archivierung, Dateisuche, selektiver Restore, Medi
 ```bash
 python -m pip install -r packaging/requirements-web.lock
 python -m pip install --no-deps --no-build-isolation .
-otam web-init --config /srv/otam/node.json --root /srv/otam/archive-node --source /mnt/readonly-source
+otam web-init --config /srv/otam/node.json --root /srv/otam/archive-node --source /mnt/readonly-source --first-start
 otam serve --config /srv/otam/node.json
 # Separater Prozess:
 otam worker --config /srv/otam/node.json
 ```
 
-Standardzugriff: http://127.0.0.1:8765. Eigenes Passwort bei Initialisierung; kein Standardpasswort. [Konfigurationsreferenz](docs/web-configuration.md), [Modularer Betrieb und Einsatzbeispiele](docs/web.md) und Vorlagen für systemd/Container im Verzeichnis `packaging/`.
+Standardzugriff: http://127.0.0.1:8765. Bei `--first-start` Administratorkonto im Browser mit privatem lokalem Einrichtungsschlüssel anlegen; ohne diesen Schalter Passwort sicher im Terminal setzen. Kein Standardpasswort. [Konfigurationsreferenz](docs/web-configuration.md), [Modularer Betrieb und Einsatzbeispiele](docs/web.md) und Vorlagen für systemd/Container im Verzeichnis `packaging/`.
 
 ![OTAM-Weboberfläche mit synthetischen Vorschaudaten](docs/images/otam-dashboard.jpg)
 

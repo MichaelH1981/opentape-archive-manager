@@ -5,6 +5,13 @@ physische Bandarchive; der Simulator ist zusätzlich unter macOS testbar.
 Der Betrieb benötigt weder Internetzugriff noch externe Datenbankdienste.
 Der aktuelle Freigabestand steht in [production-readiness.md](production-readiness.md).
 
+## Debian-Paket und erste Anmeldung
+
+Für Neuinstallationen auf Debian 13: [Debian-Anleitung](debian-installation.md).
+Die geführte Ersteinrichtung verlangt ein eigenes Administratorkonto und einen
+lokalen einmaligen Einrichtungsschlüssel; kein Standardpasswort.
+[Bedienungsanleitung](user-guide.md).
+
 ## Software und Dienste
 
 ```bash

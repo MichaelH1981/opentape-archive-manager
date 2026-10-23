@@ -35,6 +35,17 @@
           <span class="eyebrow green">WILLKOMMEN ZURÜCK</span>
           <h2>Dein Archiv wartet.</h2>
           <p>Melde dich an, um deinen Archivbestand zu verwalten.</p>
+          <form id="first-start-form" hidden>
+            <h3>OTAM erstmals einrichten</h3>
+            <p>Lege dein Administratorkonto an. Es gibt kein Standardpasswort.</p>
+            <label>Einrichtungsschlüssel<input name="token" required autocomplete="off" type="password" minlength="32" maxlength="256"></label>
+            <p class="hint">Den lokalen Schlüssel zeigt auf dem Server: <code>sudo cat /var/lib/otam/state/first-start.token</code>. Bei eigener Installation gilt der konfigurierte Zustandspfad.</p>
+            <label>Benutzername<input name="username" value="admin" autocomplete="username" required minlength="3" maxlength="64"></label>
+            <label>Neues Passwort<input name="password" type="password" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
+            <label>Passwort wiederholen<input name="confirmation" type="password" autocomplete="new-password" required minlength="12" maxlength="1024"></label>
+            <button class="button primary wide" type="submit">Administratorkonto erstellen</button>
+            <p id="first-start-error" class="error-text" role="alert"></p>
+          </form>
           <form id="login-form">
             <label
               >Benutzername<input

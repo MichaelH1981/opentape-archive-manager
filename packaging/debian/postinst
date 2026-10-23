@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+if [ "${1:-}" = configure ]; then
+ getent group otam >/dev/null || addgroup --system otam
+ getent passwd otam >/dev/null || adduser --system --ingroup otam --home /var/lib/otam --no-create-home --disabled-login otam
+ install -d -o otam -g otam -m 0700 /var/lib/otam /var/lib/otam/tmp
+ install -d -o root -g otam -m 0750 /etc/otam
+ if [ ! -e /etc/otam/node.json ]; then
+  /usr/bin/otam web-init --config /etc/otam/node.json --root /var/lib/otam --first-start >/dev/null
+  chown root:otam /etc/otam/node.json
+  chmod 0640 /etc/otam/node.json
+  chown otam:otam /var/lib/otam/state /var/lib/otam/state/first-start.token
+  echo 'OTAM: open http://127.0.0.1:8765 and create your administrator account.'
+  echo 'Setup token: sudo cat /var/lib/otam/state/first-start.token'
+ fi
+ if command -v deb-systemd-helper >/dev/null; then
+  deb-systemd-helper enable otam-web.service otam-worker.service >/dev/null
+ fi
+ if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload
+  deb-systemd-invoke start otam-web.service otam-worker.service
+ fi
+fi

@@ -56,7 +56,7 @@ from .worker import mounted, validate_command
 from . import initialization, reset, reinitialization
 from . import resources, maintenance, physical_archive
 from . import diagnostics
-from . import accounts, power
+from . import accounts, power, first_start
 
 STATIC = Path(__file__).parent / "static"
 
@@ -72,6 +72,14 @@ class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class FirstStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=3,max_length=64)
+    password: str = Field(min_length=12,max_length=1024)
+    confirmation: str = Field(min_length=12,max_length=1024)
+    token: str = Field(min_length=32,max_length=256)
 
 
 class NewUserRequest(BaseModel):
@@ -144,7 +152,8 @@ def create_app(config: WebConfig) -> FastAPI:
                 "SQLite-Node-Daten benötigen ein lokales persistentes Dateisystem, keine Netzwerkfreigabe"
             )
     control = Control(config.state)
-    accounts.bootstrap(control, config.username, config.password)
+    if config.setup_token_file is None:
+        accounts.bootstrap(control, config.username, config.password)
     if config.role == "archive":
         catalog = Catalog(config.catalog)
         catalog.close()
@@ -203,6 +212,15 @@ def create_app(config: WebConfig) -> FastAPI:
     @app.get("/healthz")
     def health():
         return {"status": "ok", "role": config.role}
+
+    @app.get("/api/v1/setup")
+    def setup_status():
+        return {"required":first_start.required(config,control)}
+
+    @app.post("/api/v1/setup")
+    def setup_admin(data: FirstStartRequest, request: Request):
+        ip=request.client.host if request.client else 'local'
+        return first_start.enroll(config,control,data.username,data.password,data.confirmation,data.token,ip)
 
     @app.post("/api/v1/login")
     def sign_in(data: LoginRequest, request: Request, response: Response):

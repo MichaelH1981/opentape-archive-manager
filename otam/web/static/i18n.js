@@ -1,6 +1,13 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "OTAM erstmals einrichten": "Set up OTAM",
+  "Lege dein Administratorkonto an. Es gibt kein Standardpasswort.": "Create your administrator account. There is no default password.",
+  "Einrichtungsschlüssel": "Setup token",
+  "Neues Passwort": "New password",
+  "Passwort wiederholen": "Repeat password",
+  "Administratorkonto erstellen": "Create administrator account",
+  "Administratorkonto angelegt. Bitte anmelden.": "Administrator account created. Please sign in.",
   "Medien zuordnen & lokal vorbereiten": "Assign media and prepare locally",
   "Dateien hashen und TAR erstellen": "Hash files and create TAR",
   "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen.": "Capacity checked. Checksums and local preparation are in progress.",

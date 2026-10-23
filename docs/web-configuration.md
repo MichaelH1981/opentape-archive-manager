@@ -308,3 +308,23 @@ Backhitches. Schreibpuffer/-limit und alle Write-/EOD-/Medienprüfungen bleiben
 unverändert. Simulierte Gerätewartezeiten belegen einen Softwaregewinn; der
 tatsächliche Banddurchsatz muss beim nächsten regulären Lauf nach Reinigung
 beobachtet werden, ohne redundanten großen Abnahmelauf.
+
+## Ersteinrichtung ohne Standardpasswort (ab 0.8.6)
+
+`otam web-init --first-start` erzeugt eine private Konfiguration und einen lokalen
+Einrichtungsschlüssel unter `<root>/state/first-start.token`. Die Konfiguration
+enthält `setup_token_file` als absoluten Pfad. Es wird noch kein Administrator
+angelegt. Nach Öffnen der Weboberfläche Schlüssel, Benutzername und ein mindestens
+zwölfstelliges Passwort zweimal eingeben. Der Schlüssel dient als lokaler
+Besitznachweis, wird nicht über eine öffentliche API ausgegeben und ist nicht
+Teil einer URL. Nach erfolgreicher Transaktion wird der Einrichtungsweg dauerhaft
+gesperrt; normale Anmeldung bleibt erforderlich. Bestehende Benutzerkonten werden
+weder ersetzt noch wegen eines Updates erneut eingerichtet.
+
+Ohne `--first-start` bleibt die bisherige sichere Terminal-Passworteingabe bzw.
+`--password-file` erhalten. Beide Modi lassen sich nicht gleichzeitig auswählen.
+Das Debian-Paket verwendet die Browser-Ersteinrichtung und bindet standardmäßig
+nur an Loopback. Anmeldedaten und Einrichtungsschlüssel gehören nicht in Issues,
+Git, Katalogsnapshots oder Diagnoseanhänge. Bei einem verlorenen lokalen
+Zustandskatalog nicht wahllos ein neues Administratorkonto initialisieren: zuerst
+Konfiguration, Control-Backup und bestehende Zustandsdaten untersuchen.

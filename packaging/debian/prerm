@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+# Do not stop or replace a running tape operation during package removal.
+if [ "${1:-}" = remove ]; then
+ /var/lib/dpkg/info/opentape-archive-manager.preinst upgrade
+fi

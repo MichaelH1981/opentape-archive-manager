@@ -79,11 +79,14 @@ class WebConfig:
     physical_initialization: bool = False
     physical_reset: bool = False
     physical_reinitialization: bool = False
+    setup_token_file: Path | None = None
 
     def validate(self) -> None:
         uuid.UUID(self.node_id)
         if self.role not in {"archive", "catalog"}:
             raise SafetyError("Unbekannte Node-Rolle")
+        if self.setup_token_file is not None and not self.setup_token_file.is_absolute():
+            raise SafetyError("Absoluter Pfad zum Einrichtungsschlüssel erforderlich")
         if not self.password.startswith("pbkdf2_sha256$"):
             raise SafetyError("Passwort-Hash fehlt")
         for path in (
@@ -209,6 +212,7 @@ class WebConfig:
             "media_root",
             "restore_root",
             "peer_key_file",
+            "setup_token_file",
             "nas_backup",
         ):
             if data.get(k) is not None:
@@ -229,7 +233,7 @@ class WebConfig:
 
 
 def initialize(
-    path: Path, root: Path, role: str, password: str, sources: list[Path] | None = None
+    path: Path, root: Path, role: str, password: str | None, sources: list[Path] | None = None
 ) -> None:
     """Create a new private configuration; never overwrite an existing installation."""
     root = root.resolve()
@@ -243,7 +247,7 @@ def initialize(
         "staging": str(root / "staging"),
         "media_root": str(root / "media"),
         "restore_root": str(root / "restores"),
-        "password": password_hash(password),
+        "password": password_hash(password if password is not None else secrets.token_urlsafe(48)),
         "sources": [
             {
                 "id": f"source-{i+1}",
@@ -253,6 +257,15 @@ def initialize(
             for i, source in enumerate(sources or [])
         ],
     }
+    if password is None:
+        if path.exists() or path.is_symlink():
+            raise SafetyError("Konfiguration existiert bereits")
+        state=root/'state';state.mkdir(mode=0o700,exist_ok=True)
+        setup_file=state/'first-start.token'
+        token_fd=os.open(setup_file,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(token_fd,'w') as stream:
+            stream.write(secrets.token_urlsafe(48)+'\n');stream.flush();os.fsync(stream.fileno())
+        data['setup_token_file']=str(setup_file)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as stream:

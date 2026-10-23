@@ -1371,3 +1371,19 @@ Wheel-SHA256 ce4fddeaf5febce6350050a9299b6498d25efbc62b880a9c552c8dc1a08ccd0d.
 Rückweg 0.8.4 vorhanden. Keine Bandwrites, keine redundante physische Vollprüfung;
 realer NAS-Zeitgewinn bleibt beim nächsten regulären Job zu messen. Rohdaten
 ausschließlich lokal ignoriert in combined-capture-085/ mit SHA256SUMS.
+
+
+### Veröffentlichung 0.8.6 mit Ersteinrichtung und Debian-Paket
+
+Geführte erste Administratoranlage über privaten lokalen Einmal-Schlüssel,
+Passwortbestätigung, transaktionale Einmaligkeit, Versuchslimit und bestehende
+Konten unverändert. 279 Tests mit Debian-13-Distributionsbibliotheken in 99,257 s
+bestanden; lokal 279 mit einem Skip. Paketbau und entpackter Paket-/Login-/
+Neustart-Smoke-Test unter Dienstkonto an isoliertem Zustand bestanden. Eine
+Probe auf dem standardmäßigen RAM-TMPDIR wurde von der Speicherpolitik korrekt
+abgewiesen und anschließend auf dem qualifizierten lokalen Test-TMPDIR ausgeführt.
+Die bestehende manuelle Bandserverinstallation bleibt unverändert auf 0.8.5;
+kein .deb darüber installiert, keine produktiven Konten geändert, keine Bandaktion.
+Details, Veröffentlichungsprüfung und Grenzen:
+[public-release-086.md](public-release-086.md). Debian-Installation, Bedienung
+und englischer Einstieg sind verlinkt. Rohdaten ausschließlich lokal ignoriert.
