@@ -1320,3 +1320,14 @@ und Tunnel aktiv. Katalogschema und Archivformat unverändert. Rückweg 0.8.3
 vorhanden. Wheel-SHA256:
 8e55891bd18c966e5243a2a1b1eaedd2e550426efdd6fc9b149d9a2850ec9b1b.
 Rohbelege ausschließlich lokal ignoriert unter dashboard-links-084/ mit SHA256SUMS.
+
+
+### Fotos-Master, 23.10.2026: Analyse des regulären 0.8.4-Laufs
+
+61.034 Dateien, 525,07 GB Nutzdaten, acht Archive und acht physische
+Verifikationen VERIFIED, kein Katalogfehler. Batch-Backup 7h29m02s;
+Schreibdatenstrom 112,56 MB/s, Rücklesung mit vollständiger Prüfung
+114,94 MB/s. Rücklese-Positionierungszähler bleiben über alle acht TARs
+konstant. Keine Gerätearbeit für diese Auswertung. Details und Grenzen:
+[performance-fotos-084.md](architecture/performance-fotos-084.md).
+Rohdaten samt acht mbuffer-Datenlogs ausschließlich lokal ignoriert mit SHA256SUMS.
