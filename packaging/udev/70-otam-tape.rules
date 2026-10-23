@@ -1,0 +1,3 @@
+# Optional: only tape character devices, never disks. Create group otam-tape first.
+SUBSYSTEM=="scsi_tape", KERNEL=="nst[0-9]*", GROUP="otam-tape", MODE="0660"
+SUBSYSTEM=="scsi_generic", ATTRS{type}=="1", GROUP="otam-tape", MODE="0660"

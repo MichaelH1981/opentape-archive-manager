@@ -10,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ from otam.archive import add_bytes, metadata_tar, verify_archive
 from otam.catalog import Catalog
 from otam.cli import main
 from otam.common import SafetyError, encode, sha256
-from otam.service import ArchiveService, scan
+from otam.service import ArchiveService, scan, inspect_catalogued_media
 from otam.tape import LinuxTape, SimulatedTape
 
 
@@ -179,12 +180,101 @@ class Workflows(unittest.TestCase):
                 tiny.append(data, media)
             self.assertEqual(tiny.positions(), [0])
 
+    def test_selected_files_and_subdirectory_are_only_inventory(self) -> None:
+        plan = self.service.plan(self.source, self.media, selected=["notes.txt", "nested"])
+        paths = [entry["path"] for archive in plan["archives"] for entry in archive["files"]]
+        self.assertEqual(paths, ["nested/picture ü\n.jpg", "notes.txt"])
+        self.assertNotIn("empty", paths)
+        self.assertEqual(plan["selected_paths"], ["nested", "notes.txt"])
+        result = self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.assertEqual(result["state"], "VERIFIED")
+        self.assertEqual(result["files"], 2)
+        for selection in (["../notes.txt"], ["missing.txt"], []):
+            with self.assertRaises(SafetyError):
+                self.service.plan(self.source, self.media, selected=selection)
+
+    def test_deferred_media_verification_reads_all_before_commit(self) -> None:
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        self.assertGreater(len(plan["archives"]), 1)
+        result = self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.assertEqual(result["state"], "VERIFIED")
+        self.assertEqual(result["verification"], "media")
+        self.assertEqual(len(result["archives"]), len(plan["archives"]))
+        self.assertEqual(self.service.verify(self.media)["archives"], len(plan["archives"]))
+
+    def test_deferred_read_error_never_claims_verified(self) -> None:
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        with patch.object(self.tape, "open_read", side_effect=OSError("readback failed")):
+            with self.assertRaises(OSError):
+                self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.assertGreater(len(self.tape.positions()), 1)
+        self.assertEqual(self.catalog.db.execute(
+            "SELECT count(*) FROM archives WHERE job_id=? AND state='VERIFIED'", (plan["job_id"],)
+        ).fetchone()[0], 0)
+        self.assertEqual(self.catalog.db.execute(
+            "SELECT state FROM jobs WHERE id=?", (plan["job_id"],)
+        ).fetchone()[0], "FAILED")
+        self.assertTrue(any(self.spool.rglob("*.tar")))
+
+    def test_deferred_resume_after_cleanup_crash_does_not_rewrite(self) -> None:
+        from otam.staging import StagingStore
+
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        original_cleanup = StagingStore.cleanup
+        calls = 0
+
+        def interrupted_cleanup(store, job, archive):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("simulated crash during cleanup")
+            return original_cleanup(store, job, archive)
+
+        with patch.object(StagingStore, "cleanup", interrupted_cleanup):
+            with self.assertRaises(OSError):
+                self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        before = self.tape.positions()
+        report = self.service.backup(plan["job_id"], plan["job_id"], self.spool, resume=True)
+        self.assertEqual(report["state"], "VERIFIED")
+        self.assertEqual(self.tape.positions(), before)
+        self.assertEqual(self.catalog.db.execute(
+            "SELECT count(*) FROM archives WHERE job_id=? AND state='VERIFIED'",
+            (plan["job_id"],)).fetchone()[0], len(plan["archives"]))
+
     def test_unexpected_end_of_medium_marks_incomplete(self) -> None:
         plan = self.service.plan(self.source, self.media)
         with patch.object(self.tape, "append", side_effect=SafetyError("Injected EOM")):
             with self.assertRaises(SafetyError):
                 self.service.backup(plan["job_id"], plan["job_id"], self.spool)
         self.assertEqual(self.catalog.db.execute("SELECT state FROM archives").fetchone()[0], "INCOMPLETE")
+
+    def failed_position_query(self, mode):
+        plan = self.service.plan(self.source, self.media, verify_mode=mode)
+        original_used = self.tape.used
+        failed = False
+        def write(*args):
+            nonlocal failed
+            failed = True
+            raise OSError("primary tape write failure")
+        def used():
+            if failed:
+                raise OSError("position no longer available")
+            return original_used()
+        with patch.object(self.tape, "append", side_effect=write), patch.object(self.tape, "used", side_effect=used):
+            with self.assertRaisesRegex(OSError, "primary tape write failure"):
+                self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        row = self.catalog.db.execute("SELECT state,error FROM jobs WHERE id=?", (plan["job_id"],)).fetchone()
+        self.assertEqual(row["state"], "FAILED")
+        self.assertEqual(row["error"], "primary tape write failure")
+        media = self.catalog.db.execute("SELECT state,used,capacity FROM media WHERE id=?", (self.media,)).fetchone()
+        self.assertEqual(media["state"], "SUSPECT")
+        self.assertEqual(media["used"], media["capacity"])
+
+    def test_position_failure_after_write_error_remains_durable(self):
+        self.failed_position_query("archive")
+
+    def test_position_failure_after_batch_write_error_remains_durable(self):
+        self.failed_position_query("media")
 
     def test_corruption_demotes_verified_and_restore_fails(self) -> None:
         self.backup()
@@ -198,6 +288,45 @@ class Workflows(unittest.TestCase):
         with self.assertRaises(SafetyError):
             self.service.restore(self.media, self.base / "bad-restore")
 
+    def test_receipt_preflight_is_not_a_payload_verification(self) -> None:
+        self.backup()
+        with (self.tape.path / "00000001.tar").open("r+b") as stream:
+            stream.seek(-1, os.SEEK_END)
+            stream.write(b"x")
+        with self.tape.locked():
+            self.assertEqual(len(inspect_catalogued_media(self.catalog, self.tape, self.media)), 1)
+        # Only a real full verification may claim payload integrity.
+        with self.assertRaisesRegex(SafetyError, "readback"):
+            self.service.verify(self.media)
+
+    def test_receipt_preflight_rejects_unknown_or_unverified_sequence(self) -> None:
+        self.backup()
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE archives SET state='WRITING'")
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "Unverified"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+        with self.catalog.db:
+            self.catalog.db.execute("DELETE FROM files")
+            self.catalog.db.execute("DELETE FROM verifications")
+            self.catalog.db.execute("DELETE FROM archives")
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "sequence differs"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+
+    def test_receipt_preflight_rejects_changed_receipt_and_tail(self) -> None:
+        self.backup()
+        receipt_path = self.tape.path / "00000002.tar"
+        original = receipt_path.read_bytes()
+        with tarfile.open(receipt_path) as tar:
+            receipt = json.load(tar.extractfile("receipt.json"))
+        receipt["sha256"] = "0" * 64
+        metadata_tar(receipt_path, "receipt.json", receipt)
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "receipt differs"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+        receipt_path.write_bytes(original)
+        (self.tape.path / "00000003.partial").write_bytes(b"incomplete")
+        with self.tape.locked(), self.assertRaisesRegex(SafetyError, "incomplete tape tail"):
+            inspect_catalogued_media(self.catalog, self.tape, self.media)
+
     def test_catalog_loss_rebuild_and_restore(self) -> None:
         self.backup(target=1000)
         self.catalog.close()
@@ -208,6 +337,127 @@ class Workflows(unittest.TestCase):
         self.assertFalse(report["incomplete_tail"])
         self.assertEqual(len(self.catalog.search()), 3)
         self.assertEqual(self.service.restore(self.media, self.base / "recovered")["files"], 3)
+
+    def test_catalog_loss_rebuilds_deferred_receipts_by_reading_data(self) -> None:
+        plan = self.service.plan(self.source, self.media, target=1000, verify_mode="media")
+        self.service.backup(plan["job_id"], plan["job_id"], self.spool)
+        self.catalog.close()
+        self.catalog = Catalog(self.base / "deferred-rebuilt.sqlite")
+        self.service = ArchiveService(self.catalog, self.tape)
+        report = self.service.rebuild(self.media)
+        self.assertEqual(report["archives"], len(plan["archives"]))
+        self.assertEqual(len(self.catalog.search()), 3)
+        self.assertEqual(self.service.restore(self.media, self.base / "deferred-restored")["files"], 3)
+
+    def test_restore_reads_archive_as_stream_without_local_tape_copy(self) -> None:
+        self.backup()
+        original_read = self.tape.read
+
+        def metadata_only(position: int) -> Path:
+            if position % 2:
+                raise AssertionError("Data archive must use the streaming API")
+            return original_read(position)
+
+        @contextmanager
+        def open_read(position: int):
+            with (self.tape.path / f"{position:08d}.tar").open("rb") as stream:
+                yield stream
+
+        self.tape.read = metadata_only  # type: ignore[method-assign]
+        self.tape.open_read = open_read  # type: ignore[method-assign]
+        report = self.service.restore(self.media, self.base / "stream-restored")
+        self.assertEqual(report["files"], 3)
+        self.assertEqual(
+            sha256(self.base / "stream-restored" / "notes.txt"),
+            sha256(self.source / "notes.txt"),
+        )
+
+    def test_restore_reads_each_data_archive_once_in_physical_order(self) -> None:
+        self.backup(target=1000)
+        reads = []
+        original = self.tape.read
+
+        def tracked(position):
+            reads.append(position)
+            return original(position)
+
+        with patch.object(self.tape, "read", side_effect=tracked):
+            result = self.service.restore(self.media, self.base / "sequential")
+        self.assertEqual(result["files"], 3)
+        self.assertEqual([position for position in reads if position > 0], list(range(1, 7)))
+        self.assertFalse(list((self.base / "sequential").glob(".otam-restore-*")))
+
+    def test_selected_restore_skips_unselected_payloads_and_stops_after_last_receipt(self) -> None:
+        first = self.backup()
+        self.backup()
+        reads = []
+        original = self.tape.read
+
+        def tracked(position):
+            reads.append(position)
+            return original(position)
+
+        with patch.object(self.tape, "read", side_effect=tracked):
+            report = self.service.restore(self.media, self.base / "only-first",
+                                          archive_id=first["archives"][0])
+        self.assertEqual(report["files"], 3)
+        self.assertEqual([p for p in reads if p > 0], [1, 2])
+
+    def test_later_selected_restore_checks_preceding_receipts_but_skips_payloads(self) -> None:
+        self.backup()
+        second = self.backup()
+        original = self.tape.read
+        reads = []
+
+        def tracked(position):
+            reads.append(position)
+            if position == 1:
+                raise AssertionError("Unselected data must not be read")
+            return original(position)
+
+        with patch.object(self.tape, "read", side_effect=tracked):
+            self.service.restore(self.media, self.base / "only-second",
+                                 archive_id=second["archives"][0])
+        self.assertEqual([p for p in reads if p > 0], [2, 3, 4])
+        with tarfile.open(self.tape.path / "00000002.tar", "r") as tar:
+            receipt = json.load(tar.extractfile("receipt.json"))
+        receipt["previous"] = "0" * 64
+        metadata_tar(self.tape.path / "00000002.tar", "receipt.json", receipt)
+        with self.assertRaisesRegex(SafetyError, "Receipt mismatch"):
+            self.service.restore(self.media, self.base / "bad-prefix",
+                                 archive_id=second["archives"][0])
+
+    def test_restore_publishes_nothing_if_receipt_or_tar_padding_is_corrupt(self) -> None:
+        self.backup()
+        data = self.tape.path / "00000001.tar"
+        receipt = self.tape.path / "00000002.tar"
+        original_data, original_receipt = data.read_bytes(), receipt.read_bytes()
+        for kind in ("padding", "receipt"):
+            with self.subTest(kind=kind):
+                data.write_bytes(original_data)
+                receipt.write_bytes(original_receipt)
+                if kind == "padding":
+                    with data.open("r+b") as stream:
+                        stream.seek(-1, os.SEEK_END)
+                        stream.write(b"x")
+                else:
+                    with tarfile.open(receipt, "r") as archive:
+                        value = json.load(archive.extractfile("receipt.json"))
+                    value["sha256"] = "0" * 64
+                    metadata_tar(receipt, "receipt.json", value)
+                target = self.base / ("invalid-" + kind)
+                with self.assertRaises(SafetyError):
+                    self.service.restore(self.media, target)
+                self.assertEqual(list(target.iterdir()), [])
+
+    def test_restore_rejects_catalog_hash_disagreement_before_publication(self) -> None:
+        self.backup()
+        with self.catalog.db:
+            self.catalog.db.execute("UPDATE files SET sha256=? WHERE path='notes.txt'", ("0" * 64,))
+        target = self.base / "catalog-mismatch"
+        with self.assertRaisesRegex(SafetyError, "catalog selection"):
+            self.service.restore(self.media, target)
+        self.assertEqual(list(target.iterdir()), [])
 
     def test_rebuild_preserves_prior_pairs_with_incomplete_tail(self) -> None:
         first = self.backup()

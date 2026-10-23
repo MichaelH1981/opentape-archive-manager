@@ -1,4 +1,4 @@
-"""CLI adapter. No physical tape mutation commands are exposed."""
+"""CLI adapter; physical commands use the separately gated durable worker."""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +7,7 @@ import json
 import sqlite3
 import tarfile
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -20,10 +21,31 @@ from .benchmark import run_benchmark
 
 
 def parser() -> argparse.ArgumentParser:
-    cli = argparse.ArgumentParser(description="OTAM simulator preview; real tape writes disabled")
+    cli = argparse.ArgumentParser(description="OTAM catalog, simulator and explicitly enabled physical archive worker")
     cli.add_argument("--db", type=Path, default=Path(".otam/catalog.sqlite"))
     sub = cli.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Read-only environment inventory; does not open tape devices")
+    physical = sub.add_parser("physical-command", help="Queue a reviewed physical-node command through the durable worker")
+    physical.add_argument("--config", required=True, type=Path)
+    physical.add_argument("--kind", required=True, choices=("register-physical", "initialize-physical", "reset-physical", "reinitialize-physical", "plan-source", "bind-plan", "plan", "stage", "backup", "backup-set", "set-verification-mode", "verify", "restore", "recover", "rebuild"))
+    physical.add_argument("--payload-file", required=True, type=Path)
+    physical.add_argument("--idempotency-key", default=None)
+    physical_status = sub.add_parser("physical-command-status", help="Inspect a queued physical command without device access")
+    physical_status.add_argument("--config", required=True, type=Path)
+    physical_status.add_argument("--command-id", required=True)
+    web_init = sub.add_parser("web-init", help="Create a private node configuration; no tape operations")
+    web_init.add_argument("--config", required=True, type=Path)
+    web_init.add_argument("--root", required=True, type=Path)
+    web_init.add_argument("--role", choices=("archive", "catalog"), default="archive")
+    web_init.add_argument("--source", type=Path, action="append", default=[])
+    web_init.add_argument("--password-file", type=Path, help="Mode 0600 file; otherwise prompt securely")
+    web_init.add_argument("--first-start", action="store_true", help="Enroll administrator in browser using a private local setup token")
+    for name in ("serve", "worker"):
+        web_command = sub.add_parser(name, help="Run the optional web server or separate durable worker")
+        web_command.add_argument("--config", required=True, type=Path)
+        if name == "worker":
+            web_command.add_argument("--once", action="store_true")
+
     create = sub.add_parser("init-sim", help="Create a NEW simulator directory, never a physical tape")
     create.add_argument("medium", type=Path)
     create.add_argument("--label", default="Test medium")
@@ -46,6 +68,7 @@ def parser() -> argparse.ArgumentParser:
     stage = sub.add_parser("stage", help="Prepare all TARs locally without accessing the tape")
     stage.add_argument("job_id")
     stage.add_argument("--staging", "--spool", dest="spool", type=Path, default=Path(".otam/staging"))
+    stage.add_argument("--revalidate-ready", action="store_true", help="Explicit full recertification of metadata-only READY changes before any tape attempt")
     status = sub.add_parser("staging-status")
     status.add_argument("--staging", required=True, type=Path)
     status.add_argument("--job-id")
@@ -78,7 +101,69 @@ def main(argv: list[str] | None = None) -> int:
     catalog = None
     try:
         result: Any
-        if args.command == "doctor":
+        if args.command in ("physical-command", "physical-command-status"):
+            from .web.config import WebConfig
+            from .web.control import Control
+            from .web import physical_archive
+            from .web.worker import validate_command
+            config = WebConfig.load(args.config)
+            control = Control(config.state)
+            if args.command == "physical-command":
+                physical_archive.require_mode(config, control, archive=args.kind != "register-physical")
+                if args.payload_file.stat().st_size > 1024**2:
+                    raise SafetyError("Command payload exceeds 1 MiB")
+                payload = json.loads(args.payload_file.read_text())
+                if not isinstance(payload, dict):
+                    raise SafetyError("Command payload must be a JSON object")
+                validate_command(config, control, args.kind, payload)
+                row = control.enqueue(args.kind, payload, args.idempotency_key or str(uuid.uuid4()))
+                result = {key: row[key] for key in ("id", "kind", "state", "idempotency")}
+            else:
+                uuid.UUID(args.command_id)
+                with control.connect() as db:
+                    row = db.execute("SELECT * FROM commands WHERE id=?", (args.command_id,)).fetchone()
+                if row is None:
+                    raise SafetyError("Command not found")
+                result = dict(row)
+                for key in ("payload", "result"):
+                    if result[key] is not None:
+                        result[key] = json.loads(result[key])
+        elif args.command == "web-init":
+            import getpass
+            from .web.config import initialize
+            if args.first_start and args.password_file:
+                raise SafetyError("Choose first-start or password-file, not both")
+            if args.first_start:
+                password = None
+            elif args.password_file:
+                if args.password_file.is_symlink() or args.password_file.stat().st_mode & 0o077:
+                    raise SafetyError("Password file requires mode 0600 and must not be a symlink")
+                password = args.password_file.read_text().rstrip("\r\n")
+            else:
+                password = getpass.getpass("Neues OTAM-Passwort (mindestens 12 Zeichen): ")
+                if password != getpass.getpass("Passwort wiederholen: "):
+                    raise SafetyError("Passwörter stimmen nicht überein")
+            initialize(args.config, args.root, args.role, password, args.source)
+            result = {"config": str(args.config.resolve()), "role": args.role, "state": "CONFIGURED"}
+        elif args.command in ("serve", "worker"):
+            from .web.config import WebConfig
+            config = WebConfig.load(args.config)
+            if args.command == "worker":
+                from .web.worker import run_worker
+                run_worker(config, once=args.once)
+            else:
+                try:
+                    import uvicorn
+                    from .web.app import create_app
+                except ImportError as error:
+                    raise SafetyError("Web dependencies missing; install OTAM with the [web] extra") from error
+                uvicorn.run(create_app(config), host=config.host, port=config.port,
+                            proxy_headers=bool(config.trusted_proxy_ips),
+                            forwarded_allow_ips=",".join(config.trusted_proxy_ips),
+                            server_header=False, workers=1,
+                            timeout_keep_alive=5, limit_concurrency=100)
+            return 0
+        elif args.command == "doctor":
             result = discover()
         else:
             catalog = Catalog(args.db)
@@ -100,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Staging is deliberately independent of a currently attached drive/medium.
                 class NoTape:
                     pass
-                result = ArchiveService(catalog, NoTape()).stage(args.job_id, args.spool)
+                result = ArchiveService(catalog, NoTape()).stage(args.job_id, args.spool, revalidate_ready=args.revalidate_ready)
             elif args.command == "search":
                 result = catalog.search(args.query, args.sha256)
             elif args.command == "jobs":

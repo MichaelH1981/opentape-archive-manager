@@ -1,0 +1,23 @@
+[Unit]
+Description=Verify and execute one OTAM administrator shutdown request
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Must match TMPDIR in otam-web.service and otam-worker.service.
+Environment=TMPDIR=/var/lib/otam/tmp
+ExecStart=/opt/otam/venv/bin/python -m otam.web.power --config /etc/otam/node.json
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/otam
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX

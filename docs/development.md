@@ -20,3 +20,9 @@ Aktuell werden vor Append konservativ alle vorhandenen Archive erneut gelesen. E
 Verbindlicher Ablauf und Benchmark-Gate: [Staging](staging.md). Tests unter Linux benötigen ein persistentes lokales Dateisystem; standardmäßig /var/tmp, alternativ OTAM_TEST_TMPDIR auf passendem Datenträger. Nicht tmpfs als Teststaging freigeben.
 
 GitHub Actions führt die vollständigen Simulator-Workflows auf macOS/APFS mit Python 3.11 und 3.13 aus. Ein eigener Linux-Job prüft die Speicher-Richtlinie mit synthetischen Gerätebäumen. Der zuerst verwendete gehostete Linux-Runner bot keinen für OTAM verifizierbaren lokalen Blockgerätepfad; seine ext4-Staging-Fläche wurde deshalb korrekt verweigert. Keine Sicherheitsprüfung für CI deaktivieren. Der vollständige Linux-Testlauf einschließlich O_DIRECT erfolgt separat auf einem geeigneten persistenten lokalen Dateisystem; auf dem Debian-Archivserver bestanden bereits alle 50 Tests. Gehostete CI ersetzt weder diesen Linux-Lauf noch eine physische Bandabnahme.
+
+## Webmodule
+
+`otam/web/config.py` enthält die Node-Konfiguration, `control.py` die separate Steuerdatenbank, `query.py` ausschließlich lesende Katalogansichten, `worker.py` die getrennte Auftragsausführung, `replication.py` die signierte Snapshot-Veröffentlichung, `security.py` Authentifizierung/CSRF und `app.py` die rollenabhängige FastAPI-Komposition. Die ES-Module unter `static/` trennen HTTP, Zustand, Darstellung und Bedienung. Alle Assets werden im Wheel mitgeliefert; kein Frontend-Build für Installation erforderlich.
+
+Webtests benötigen die optionale Web-Laufzeit: `python -m pip install -r packaging/requirements-web.lock`. Ohne diese Pakete werden nur die Webtests übersprungen. Das ist keine Web-Abnahme. CI installiert die Web-Laufzeit ausdrücklich. Hardwaretests bleiben getrennt.

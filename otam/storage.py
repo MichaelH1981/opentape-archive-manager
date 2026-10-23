@@ -15,6 +15,10 @@ from typing import Any, Iterator
 
 from .common import SafetyError
 
+
+class IOBusyError(SafetyError):
+    """A concurrent heavy I/O operation holds the shared scheduling lock."""
+
 LOCAL_LINUX = {"ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs", "jfs", "reiserfs", "bcachefs"}
 
 
@@ -123,7 +127,7 @@ def io_lock() -> Iterator[None]:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise SafetyError("Another OTAM staging, benchmark or tape operation is active") from error
+            raise IOBusyError("Another OTAM staging, benchmark or tape operation is active") from error
         yield
     finally:
         os.close(fd)

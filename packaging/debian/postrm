@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+# Archive catalogs, credentials, sources, staging and safety journals are retained,
+# including on purge. Never delete an account owning retained archives.
+if [ "${1:-}" = remove ] || [ "${1:-}" = purge ]; then
+ if command -v deb-systemd-helper >/dev/null; then
+  deb-systemd-helper disable otam-web.service otam-worker.service >/dev/null || true
+ fi
+ if [ -d /run/systemd/system ]; then systemctl daemon-reload; fi
+fi

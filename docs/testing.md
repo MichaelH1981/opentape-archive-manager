@@ -1,5 +1,13 @@
 # Softwaretests und physische Abnahme
 
+Der aktuelle, ausdrücklich **nicht freigegebene** Produktionsstand und die noch offenen Freigabeschritte stehen in [Produktionsfreigabe](production-readiness.md).
+
+## Version 0.5 – Simulatorabnahme
+
+Die Softwaretests prüfen die Auswahl einzelner Dateien und rekursiver Ordner im freigegebenen Quellbereich, gesperrte Pfad-Traversal-/Symlink-Zugriffe, einen übergeordneten Auftrag auf zwei Simulatormedien, falsche Medienreihenfolge, `WAITING_MEDIA` und Abschluss nach dem zweiten Medium. Der Modus für verzögerte Rücklesung wird mit vollständigem Medien-Scan, tatsächlichem Rücklesefehler nach dem Schreiben, Staging-Erhalt, Katalogverlust und Wiederaufnahme nach Abbruch während der Bereinigung getestet. Die kleinen synthetischen Medien stehen für einen Ordner über der Kapazität eines einzelnen LTO-4-Bandes; ein 800-GB-Hardwaretest wurde damit nicht ersetzt.
+
+Für die Freigabe an echten Bändern fehlen weiterhin LTO-Positionierungs-/Filemark-/EOM-Abnahme, ein langer Staging-Durchsatznachweis und ein ausdrücklich freigegebener Testlauf. Physische Archivierungswrites sind im Produkt weiter gesperrt.
+
 ## Automatisierte Tests (ohne Bandhardware)
 
 Aufruf: `python3 -m unittest discover -v`. Nur temporäre reguläre Testdateien; Tests greifen niemals auf /dev/nst* oder /dev/sg* zu. LinuxTape ist ausdrücklich schreibgesperrt.
@@ -46,3 +54,78 @@ Die Suite enthält jetzt 50 Tests. Zusätzlich geprüft: persistente Phasen, sch
 - Reale mbuffer-/nst-Integration und Puffer-/Positionierungs-Telemetrie bleiben Teil der gesonderten physischen Abnahme. Keine Bandzugriffe oder produktiven Quelldatenänderungen.
 
 Für Tests auf Linux kann OTAM_TEST_TMPDIR ein neues Testverzeichnis auf lokalem persistentem Dateisystem vorgeben. Standard ist /var/tmp; /tmp kann tmpfs sein und ist kein Staging-Ersatz.
+
+## Web- und Standalone-Katalog-Abnahme (Version 0.3)
+
+Mit installierter Web-Laufzeit umfasst die Suite 70 Tests. Auf dem Debian-Archivserver bestanden alle 70 in einer eigens angelegten und anschließend entfernten Umgebung unter /var/tmp; keine Systeminstallation und keine Bandzugriffe. Auf macOS wird der Linux-O_DIRECT-Test übersprungen. Neue Tests prüfen HTTP-Archivzyklus, authentifizierte Rollen/CSRF/Origin/Host, durable/idempotente Queue, Workerexklusivität, Filter/Pagination/Kopien, sichere Exporte, Restore ohne Überschreiben, vollständige Snapshotvalidierung/Replay/Orphan-Recovery, NAS-Zielmarker und ausdrücklich bestätigte Staging-Nachprüfung.
+
+Zusätzliche manuelle Browserabnahme: Planung und lokales Staging per Formular, bestätigter Simulator-Archivjob, Dateisuche/Auswahl und erfolgreicher Einzeldatei-Restore; unabhängige Catalog-Node-Weboberfläche nach tatsächlichem Stoppen von Archive-Webdienst und Worker weiterhin durchsuchbar. Zwei Archivkopien derselben Datei wurden am eigenständigen Node angezeigt. Responsive Prüfung im In-App-Browser auf Desktop- und Mobilbreiten; dies ersetzt keine tatsächliche iPhone-Geräteabnahme. Der Container-Imagebau und die reale Proxmox-/NAS-Installation sind mangels vorhandener Zielumgebung nicht abgenommen.
+
+## Expliziter kleiner Bandlayout-Test
+
+`tools/tape_layout_acceptance.py` ist ein **separater destruktiver Hardwaretest**,
+kein Bestandteil der automatisierten Tests. Ausschließlich für ein ausdrücklich
+freigegebenes entbehrliches Medium: Laufwerk und MAM-Seriennummer müssen exakt
+angegeben und mit `--confirm 'TESTEN <Laufwerks-SN> <Medien-SN>'` bestätigt werden.
+Der reguläre Worker muss zuvor ohne aktive Aufträge pausiert sein. Der Test läuft
+als unprivilegierter Workerbenutzer mit dessen Tape-Gerätegruppe, gleichem TMPDIR
+und `--state`-Verzeichnis; er hält Worker-, I/O- und Gerätesperre.
+
+`--output` muss ein neues privates Verzeichnis auf einem bestätigten lokalen,
+schreibbaren Dateisystem mit mindestens 512 MiB freiem Platz sein. Es werden nur
+eigene synthetische Quelldateien und vollständig lokale PAX-TARs erstellt, keine
+externen Nutzdaten akzeptiert. Das bestehende Band wird ab BOT überschrieben.
+Header, Daten und Receipt werden einzeln geschrieben und vollständig zurückgelesen.
+Receipts erhalten erst nach erfolgreichem tatsächlichem Daten-Readback einen
+Verifikationszeitpunkt. Vor Append wird der bestehende vollständige Präfix erneut
+gelesen; EOD muss die erwartete Banddatei sowie `EOD=true` und
+`block_number=-1` melden. Block 0 gilt für BOT und bestätigte Dateianfänge, nicht
+für die EOD-Markierung. Jede
+unbekannte Position führt zum Abbruch, ohne Schreibversuch an dieser Position.
+Nach Append werden sämtliche vorherigen und neuen Banddateien in anderer
+Reihenfolge mit BOT+fsf gelesen und komplett gehasht; GNU tar prüft ihre Lesbarkeit.
+Job-ID, Bewegungen, Positionen, Hashes und Abschlussstatus werden atomar im
+Testverzeichnis gespeichert. Bei Fehlern kein automatischer Neustart oder Replay.
+
+Auch ein erfolgreicher `LAYOUT_READBACK_VERIFIED`-Test ersetzt weder vollständige
+Medienqualifikation noch EOM-/Abbruch-/Medienwechselabnahme und schaltet keinen
+produktiven Backendzugriff frei. Standalone-Restore und Katalogrekonstruktion
+können anschließend ausschließlich mit den lokalen Test-Rücklesedateien geprüft
+werden. Produktive Kataloge dürfen dafür nicht gelöscht werden.
+
+## Reale Testband-Abnahme 18.10.2026
+
+Der Nutzer gab das eingelegte Medium ausdrücklich zum Löschen frei. Am
+freigegebenen IBM ULT3580-HH4 (Firmware A233) wurden getrennte Wartungstests
+ausgeführt; reguläre Dateiarchivierung blieb gesperrt. Die privaten Rohberichte
+enthalten die konkreten Seriennummern, Identitätsdaten, Roh-SCSI-Logs und
+zeitgestempelten Fortschrittseinträge.
+
+- Ein begrenzter, rekonstruierbarer 256-GiB-Datenstrom wurde geschrieben und
+  vollständig zurückgelesen. SHA-256 und jeder Record stimmten überein;
+  Gesamtrate Schreiben 117,29 MB/s, Lesen 77,11 MB/s. Kein EOM; dies ist keine
+  Vollbandqualifikation.
+- Ein zweiter vollständiger Rückleselauf desselben 256-GiB-Stroms bestätigte
+  erneut exakt dieselbe SHA-256-Prüfsumme: 117,55 MB/s, 37,1 % mittlere
+  System-CPU-Auslastung. Ein separater 32-GiB-Präfixlauf maß 118,42 MB/s.
+- Der kleine PAX-/Filemark-/Append-Test erreichte fünf Banddateien. Jede wurde
+  einzeln zurückgelesen und gehasht; vor dem Anhängen wurden alle bisherigen
+  Banddateien erneut geprüft. Beim ersten Anlauf stoppte die Positionssicherung
+  korrekt an EOD: Das Laufwerk meldete die nächste Datei, `EOD=true` und
+  `block_number=-1`. Ein Testfehler hatte fälschlich Block 0 auch an EOD verlangt.
+  Die Prüfung akzeptiert nun ausschließlich diesen expliziten EOD-Zustand; die
+  Simulation und anschließend der vollständige reale Layoutlauf bestanden.
+- Zwei Testarchive wurden mit dem isolierten System-Python wiederhergestellt.
+  Ein neuer SQLite-Katalog rekonstruierte zwei Archive und vier Dateikopien;
+  `PRAGMA integrity_check` ergab `ok`. Der Livekatalog blieb unverändert.
+- Das freigegebene Kurzlöschen wurde vom Laufwerk abgeschlossen. Das ist keine
+  zertifizierte oder forensisch sichere Datenvernichtung. Danach meldete das
+  Laufwerk keine aktiven TapeAlert-Flags und null unkorrigierte Fehler. Die
+  Temperaturseite war nicht verfügbar.
+
+Ergebnis: reale Banddatei-/Filemark-Positionierung und Append wurden im kleinen
+Testlayout bestätigt. Nicht abgenommen sind Schreiben bis zum echten EOM, eine
+vollständige 800-GB-LTO-4-Medienqualifikation, kontrollierter Abbruch,
+Medienwechsel sowie die reguläre OTAM-Archivpipeline mit mbuffer und Staging.
+Der Tape-Backend-Schreibschutz bleibt daher aktiv. Die gemessenen Raten sind
+Testdurchschnitte, keine zugesicherte Mindestleistung.

@@ -99,6 +99,39 @@ class Catalog:
     def close(self) -> None:
         self.db.close()
 
+    def interrupt_unfinished(self, media: str | None = None) -> int:
+        """Record process loss locally; never infer a safe tape position or resume.
+
+        Call only after obtaining exclusive ownership of the executor/catalog.
+        This deliberately preserves staged files, hashes and pending markers.
+        Physical inspection is still required before any recovery or append.
+        """
+        reason = "Process ended without a terminal result; inspect medium"
+        now = time.time()
+        scope, args = ("", ()) if media is None else (" AND media_id=?", (media,))
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            rows = self.db.execute(
+                "SELECT id FROM jobs WHERE state IN ('RUNNING','PLANNING')" + scope, args
+            ).fetchall()
+            for row in rows:
+                self.db.execute("UPDATE jobs SET state='INTERRUPTED',updated=?,error=? WHERE id=?",
+                                (now, reason, row["id"]))
+                self.db.execute("INSERT INTO events(job_id,time,level,event,details_json) VALUES(?,?,?,?,?)",
+                                (row["id"], now, "ERROR", "job_interrupted",
+                                 encode({"state": "INTERRUPTED", "error": reason,
+                                         "automatic_resume": False}).decode()))
+            self.db.execute("UPDATE archives SET state='INCOMPLETE' WHERE state='WRITING'" + scope, args)
+            self.db.execute("UPDATE media SET state='SUSPECT' WHERE id IN "
+                            "(SELECT media_id FROM archives WHERE state='INCOMPLETE'" + scope + ")", args)
+            self.db.execute("UPDATE restores SET state='INTERRUPTED' WHERE state='RUNNING' AND job_id IN "
+                            "(SELECT id FROM jobs WHERE state='INTERRUPTED'" + scope + ")", args)
+            self.db.execute("UPDATE staged_archives SET state='INTERRUPTED',updated=?,error=? "
+                            "WHERE state='RUNNING' AND job_id IN "
+                            "(SELECT id FROM jobs WHERE state='INTERRUPTED'" + scope + ")",
+                            (now, "Process ended; phase must be rechecked", *args))
+        return len(rows)
+
     def event(self, job: str, event: str, level: str = "INFO", **details: Any) -> None:
         with self.db:
             self.db.execute("INSERT INTO events(job_id,time,level,event,details_json) VALUES(?,?,?,?,?)",

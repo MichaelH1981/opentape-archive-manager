@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from otam.archive import create_archive, verify_stream
-from otam.benchmark import require_qualification, run_benchmark
+from otam.benchmark import CHUNK, buffer_analysis, require_qualification, run_benchmark, run_managed_speedtest, transfer_recommendation
 from otam.catalog import Catalog, SCHEMA
 from otam.cli import main
 from otam.common import SafetyError, sha256
@@ -54,7 +54,7 @@ class Staging(unittest.TestCase):
 
     def test_incomplete_staging_is_retained_and_restarted_without_overwrite(self):
         plan = self.plan()
-        def interrupted(path, root, manifest, progress=None):
+        def interrupted(path, root, manifest, progress=None, **kwargs):
             path.write_bytes(b'incomplete TAR')
             raise KeyboardInterrupt('staging interrupted')
         with patch('otam.staging.create_archive', side_effect=interrupted):
@@ -340,9 +340,101 @@ class Staging(unittest.TestCase):
         self.assertFalse(report['qualified'])
         self.assertTrue(report['direct_io'])
         self.assertGreater(report['bytes'], 0)
+        self.assertIn('average_system_cpu_percent', report)
+        self.assertIn('peak_io_wait_percent', report)
+        self.assertIn('transfer_recommendation', report)
         self.assertEqual(path.stat().st_size, 8 * 1024 * 1024)
         with self.assertRaises(SafetyError):
             require_qualification(self.catalog, self.spool)
+
+
+class TransferRecommendation(unittest.TestCase):
+    def test_short_dip_can_be_buffered_and_recovered(self):
+        samples = [
+            {'bytes': 200_000_000, 'seconds': 1, 'bytes_per_second': 200_000_000,
+             'system_cpu_percent': 20, 'io_wait_percent': 2},
+            {'bytes': 100_000_000, 'seconds': 1, 'bytes_per_second': 100_000_000,
+             'system_cpu_percent': 25, 'io_wait_percent': 5},
+            {'bytes': 200_000_000, 'seconds': 1, 'bytes_per_second': 200_000_000,
+             'system_cpu_percent': 20, 'io_wait_percent': 2},
+        ]
+        result = transfer_recommendation(samples, memory_bytes=8 * 1024 ** 3)
+        self.assertEqual(result['write_rate_bytes_per_second'], 120_000_000)
+        self.assertEqual(result['buffer_bytes'] % (64 * 1024 ** 2), 0)
+        self.assertLessEqual(result['buffer_bytes'], 4 * 1024 ** 3)
+        self.assertTrue(result['advisory_only'])
+        self.assertTrue(buffer_analysis(samples, 120_000_000, result['buffer_bytes'])['qualified'])
+        samples[1]['io_wait_percent'] = 35
+        stressed = transfer_recommendation(samples, memory_bytes=8 * 1024 ** 3)
+        self.assertEqual(stressed['write_rate_bytes_per_second'], 120_000_000)
+        self.assertTrue(stressed['system_load_warning'])
+
+    def test_sustained_slowdown_exhausts_buffer(self):
+        samples = ([{'bytes': 150_000_000, 'seconds': 1, 'bytes_per_second': 150_000_000}] * 20
+                   + [{'bytes': 40_000_000, 'seconds': 1, 'bytes_per_second': 40_000_000}] * 30)
+        model = buffer_analysis(samples, 120_000_000, 1024 ** 3)
+        self.assertFalse(model['qualified'])
+        self.assertFalse(model['buffer_sufficient'])
+
+    def test_ending_in_unrecovered_deficit_fails(self):
+        samples = ([{'bytes': 200_000_000, 'seconds': 1, 'bytes_per_second': 200_000_000}] * 20
+                   + [{'bytes': 20_000_000, 'seconds': 1, 'bytes_per_second': 20_000_000}] * 8)
+        model = buffer_analysis(samples, 120_000_000, 4 * 1024 ** 3)
+        self.assertTrue(model['buffer_sufficient'])
+        self.assertFalse(model['recovered'])
+        self.assertFalse(model['qualified'])
+
+    def test_production_gate_requires_new_buffer_model_and_same_disk(self):
+        with tempfile.TemporaryDirectory(prefix='otam-buffer-gate-') as directory:
+            root = Path(directory)
+            catalog = Catalog(root / 'catalog.sqlite')
+            storage = {'mount': str(root), 'type': 'ext4', 'source': '/dev/test', 'device': 123}
+            samples = [{'bytes': 160_000_000, 'seconds': 1, 'bytes_per_second': 160_000_000},
+                       {'bytes': 100_000_000, 'seconds': 1, 'bytes_per_second': 100_000_000},
+                       {'bytes': 160_000_000, 'seconds': 1, 'bytes_per_second': 160_000_000}]
+            model = buffer_analysis(samples, 120_000_000, 4 * 1024 ** 3)
+            self.assertTrue(model['qualified'])
+            report = {'qualified': True, 'direct_io': True, 'seconds': 1800,
+                      'required_rate': 120_000_000, 'file_bytes': 12 * 1024 ** 3,
+                      'minimum_sample_rate': 100_000_000, 'storage': storage,
+                      'buffer_model': model}
+            try:
+                with catalog.db:
+                    catalog.db.execute('INSERT INTO storage_benchmarks VALUES(?,?,?,?)',
+                                       ('test', 1, str(root.resolve()), json.dumps(report)))
+                with patch('otam.benchmark.require_local', return_value=storage):
+                    with self.assertRaises(SafetyError):
+                        require_qualification(catalog, root)
+                    report['qualification_version'] = 2
+                    with catalog.db:
+                        catalog.db.execute('UPDATE storage_benchmarks SET report_json=? WHERE id=?',
+                                           (json.dumps(report), 'test'))
+                    require_qualification(catalog, root)
+                with patch('otam.benchmark.require_local', return_value={**storage, 'device': 124}):
+                    with self.assertRaises(SafetyError):
+                        require_qualification(catalog, root)
+            finally:
+                catalog.close()
+
+    def test_managed_fixture_cleans_only_its_own_file(self):
+        with tempfile.TemporaryDirectory(prefix='otam-speedtest-') as directory:
+            root = Path(directory)
+            protected = root / 'keep.txt'
+            protected.write_text('existing data')
+            with patch('otam.benchmark.MIN_FILE', CHUNK), \
+                 patch('otam.benchmark.require_local', return_value={}), \
+                 patch('otam.benchmark.run_benchmark', return_value={
+                     'id': 'synthetic-id', 'seconds': 1, 'qualified': False,
+                 }) as measure:
+                catalog = Catalog(root / 'catalog.sqlite')
+                try:
+                    result = run_managed_speedtest(catalog, root, seconds=1, file_bytes=CHUNK)
+                    self.assertEqual(result['managed_fixture_bytes'], CHUNK)
+                    self.assertEqual(measure.call_args.kwargs['_already_locked'], True)
+                    self.assertFalse(list((root / '.otam-speedtest').iterdir()))
+                    self.assertEqual(protected.read_text(), 'existing data')
+                finally:
+                    catalog.close()
 
 
 if __name__ == '__main__':

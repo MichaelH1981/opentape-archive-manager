@@ -1,0 +1,22 @@
+services:
+  catalog:
+    build:
+      context: ../..
+      dockerfile: packaging/container/Dockerfile
+    restart: unless-stopped
+    ports:
+      # Keep local by default; explicitly change to a trusted internal/WireGuard IP.
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ./node.json:/etc/otam/node.json:ro
+      - ./peer.key:/etc/otam/peer.key:ro
+      - catalog-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  catalog-data:

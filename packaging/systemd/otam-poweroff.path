@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch for a confirmed OTAM administrator shutdown request
+
+[Path]
+# Must match <state>/poweroff.request in the archive node configuration.
+PathExists=/var/lib/otam/state/poweroff.request
+Unit=otam-poweroff.service
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=3
+
+[Install]
+WantedBy=multi-user.target

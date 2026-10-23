@@ -16,7 +16,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Run simulator tests (no tape hardware)
+      - name: Install optional web runtime from lockfile
+        run: python -m pip install -r packaging/requirements-web.lock
+      - name: Run core, web and replication tests (no tape hardware)
         run: python -m unittest discover -v
   linux-storage-policy:
     runs-on: ubuntu-24.04
@@ -25,8 +27,42 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13'
-      - name: Check Linux storage policy with synthetic device trees
+      - name: Install optional web runtime from lockfile
+        run: python -m pip install -r packaging/requirements-web.lock
+      - name: Check Linux storage policy and standalone replication
         run: >-
           python -m unittest -v
           tests.test_staging.Staging.test_linux_local_block_chain_rejects_network_and_opaque_devices
           tests.test_staging.Staging.test_network_unknown_and_ram_filesystems_rejected
+          tests.test_web.WebAcceptance.test_authentication_csrf_origin_and_host
+          tests.test_web.WebAcceptance.test_snapshot_authentication_replay_identity_and_idempotence
+          tests.test_web.WebAcceptance.test_snapshot_validates_schema_and_recovers_orphan_publication
+          tests.test_web.WebAcceptance.test_queue_is_durable_idempotent_and_interrupts_without_retry
+          tests.test_web.WebAcceptance.test_local_catalog_needs_no_targets_and_optional_configuration_is_durable
+          tests.test_web.WebAcceptance.test_multiple_targets_isolate_failure_and_retry_only_unsent_catalog
+          tests.test_web.WebAcceptance.test_target_configuration_is_authenticated_validated_and_marker_is_explicit
+          tests.test_web.WebAcceptance.test_legacy_targets_remain_removed_after_restart_and_target_intervals
+          tests.test_web.WebAcceptance.test_destinations_use_distinct_keys_and_revalidate_directory_resolution
+          tests.test_physical
+          tests.test_web.WebAcceptance.test_resource_picker_and_persistent_source_registration
+          tests.test_web.WebAcceptance.test_physical_mode_and_one_use_approval_require_fresh_identified_media
+          tests.test_web.WebAcceptance.test_storage_and_maintenance_api_keep_authentication_and_catalog_role_boundaries
+          tests.test_diagnostics
+          tests.test_web.WebAcceptance.test_hardware_status_and_diagnostics_are_authenticated_cached_and_role_bound
+  debian-package:
+    runs-on: ubuntu-24.04
+    container: debian:trixie-slim
+    steps:
+      - name: Install Debian build and runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3 python3-fastapi python3-uvicorn python3-httpx dpkg adduser init-system-helpers
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Build and install the Debian package in a disposable container
+        run: |
+          python3 packaging/debian/build.py --output /tmp/otam-deb
+          apt-get install -y /tmp/otam-deb/*.deb
+          otam --help
+          test -s /etc/otam/node.json
+          test "$(stat -c %a /var/lib/otam/state/first-start.token)" = 600
+          python3 -c 'from otam.web.config import WebConfig; from pathlib import Path; c=WebConfig.load(Path("/etc/otam/node.json")); assert c.host=="127.0.0.1"; assert c.setup_token_file is not None; assert not c.physical_archiving'

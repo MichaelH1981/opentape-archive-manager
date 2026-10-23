@@ -1,0 +1,18 @@
+export const state = {
+  csrf: "",
+  account: null,
+  node: null,
+  overview: null,
+  media: [],
+  commands: [],
+  page: "dashboard",
+  files: [],
+  selection: new Map(),
+  sourceSelection: { sourceId: "", paths: [] },
+  transferProfiles: [],
+  offset: 0,
+  filters: {},
+  advanced: false,
+  notified: new Set(),
+  polling: false,
+};

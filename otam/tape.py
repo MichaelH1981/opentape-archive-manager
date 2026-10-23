@@ -1,9 +1,14 @@
-"""Hardware boundary. Real tape writes intentionally unavailable before acceptance."""
+"""Tape boundaries; the physical backend remains gated by operator workflows."""
 from __future__ import annotations
 
 import fcntl
+import hashlib
+import io
 import os
+import re
+import stat
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -11,7 +16,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, Callable, Iterator, Protocol, ContextManager
 
 from .archive import metadata_tar, read_metadata
-from .common import BLOCK, FORMAT, SafetyError, sync_dir
+from .common import BLOCK, FORMAT, SafetyError, sha256, sync_dir
 
 
 class Tape(Protocol):
@@ -152,6 +157,597 @@ class SimulatedTape:
         return position
 
 
+class TapeRecordReader(io.RawIOBase):
+    """Adapt st records to byte reads, latching the first physical filemark.
+
+    A small os.read buffer cannot receive a larger variable tape record. Also,
+    after returning EOF, st can advance into the next tape file on another read.
+    The latch prevents a BufferedReader from silently crossing that boundary.
+    """
+
+    def __init__(self, fd: int):
+        super().__init__()
+        self.fd = fd
+        self.pending = b""
+        self.eof = False
+        self.started = time.monotonic()
+        self.creator_thread = threading.get_ident()
+        self.creator_cpu = time.thread_time()
+        self.read_seconds = 0.0
+        self.read_bytes = 0
+        self.read_calls = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def read_record(self) -> bytes:
+        """One st record without RawIOBase.read's extra zeroed buffer/copy.
+
+        A sole prefetch producer owns this method. Return any existing record
+        remainder first, and latch the first physical filemark permanently.
+        """
+        if self.closed:
+            raise ValueError("Read from closed tape file")
+        if self.pending:
+            data, self.pending = self.pending, b""
+            return data
+        if self.eof:
+            return b""
+        started = time.monotonic()
+        self.read_calls += 1
+        try:
+            data = os.read(self.fd, BLOCK)
+        finally:
+            self.read_seconds += time.monotonic() - started
+        self.read_bytes += len(data)
+        if not data:
+            self.eof = True
+        return data
+
+    def readinto(self, target) -> int:
+        if self.closed:
+            raise ValueError("Read from closed tape file")
+        if not len(target):
+            return 0
+        if not self.pending and not self.eof:
+            self.pending = self.read_record()
+        count = min(len(target), len(self.pending))
+        target[:count] = self.pending[:count]
+        self.pending = self.pending[count:]
+        return count
+
+    def metrics(self) -> dict[str, Any]:
+        # Time inside os.read includes kernel/driver work and waiting. The
+        # remaining elapsed time includes parsing, hashing and progress writes
+        # only in synchronous mode. Prefetch overlaps these times. Neither is a
+        # measurement of internal mechanical tape repositioning.
+        return {"reader_mode": "synchronous", "device_read_bytes": self.read_bytes,
+                "device_read_calls": self.read_calls,
+                "device_read_seconds": self.read_seconds,
+                "consumer_cpu_seconds": (time.thread_time()-self.creator_cpu
+                    if threading.get_ident() == self.creator_thread else None),
+                "reader_elapsed_seconds": time.monotonic() - self.started}
+
+    def close(self) -> None:
+        if not self.closed:
+            try:
+                os.close(self.fd)
+            finally:
+                super().close()
+
+
 class LinuxTape:
-    def __init__(self, device: Path):
-        raise SafetyError("Real tape backend disabled: test-band acceptance and explicit write approval required")
+    """Conservative Linux st backend for an already initialized OTAM medium.
+
+    A missing receipt, an uncertain EOD, or an interrupted write blocks further
+    appends.  Initialization/overwriting is deliberately a separate operation.
+    """
+
+    def __init__(self, expected: dict[str, Any], state: Path | None = None, *, buffer_mib: int = 512,
+                 write_rate: int | None = None, read_ahead: bool = True):
+        from .physical import LinuxMaintenance
+
+        if state is None or not isinstance(expected, dict):
+            raise SafetyError("Physical tape requires a discovered drive, MAM identity and state directory")
+        if not 64 <= buffer_mib <= 4096:
+            raise SafetyError("Invalid mbuffer size")
+        if not expected.get("medium_serial") or not expected.get("serial"):
+            raise SafetyError("Physical drive and MAM serial are required")
+        if not re.fullmatch(r"/dev/nst[0-9]+", expected.get("device", "")):
+            raise SafetyError("Only Linux non-rewinding tape devices are supported")
+        self.device = LinuxMaintenance(expected, state / "drive-locks", writable=False)
+        self.state = state
+        self._reader = None
+        self.buffer_mib = buffer_mib
+        if type(read_ahead) is not bool:
+            raise SafetyError("Invalid read-ahead selection")
+        self.read_ahead = read_ahead
+        if write_rate is not None:
+            from .transfer import selected_speed_profile
+            profile = selected_speed_profile({"time": time.time(), "drives": [expected]}, expected["id"])
+            if type(write_rate) is not int or profile is None or write_rate not in profile["speed_steps_bytes_per_second"]:
+                raise SafetyError("Write target is not supported by the identified drive/media profile")
+        self.write_rate = write_rate
+        self._locked = False
+        self._monitor: Callable[[dict[str, Any]], None] | None = None
+        self._metadata: list[Path] = []
+        self._metadata_cache: dict[int, Path] = {}
+        self._count_cache: int | None = None
+        self._used_cache: tuple[int, int] | None = None
+        self._positioning_commands: dict[str, int] = {}
+        self._pending = state / "physical-pending" / (hashlib.sha256(
+            expected["medium_serial"].encode()).hexdigest() + ".json")
+        self._reset = state / "physical-reset" / self._pending.name
+        self._next_receipt: int | None = None
+        self._pending_used: int | None = None
+        self._receipt_expected: dict[str, Any] | None = None
+
+    @contextmanager
+    def locked(self) -> Iterator[None]:
+        if self._locked:
+            raise SafetyError("Nested device access")
+        with self.device.locked():
+            self._locked = True
+            self._positioning_commands.clear()
+            try:
+                self._driver_mode()
+                self.device.mt("setblk", "0")
+                yield
+            finally:
+                self._locked = False
+                self._next_receipt = None
+                self._pending_used = None
+                self._receipt_expected = None
+                for path in self._metadata:
+                    path.unlink(missing_ok=True)
+                self._metadata.clear()
+                self._metadata_cache.clear()
+                self._count_cache = None
+                self._used_cache = None
+
+    def _driver_mode(self) -> None:
+        """Only the Linux st close/EOF semantics validated on the test medium."""
+        path = Path("/sys/class/scsi_tape") / Path(self.device.device).name / "options"
+        try:
+            options = int(path.read_text().strip(), 16)
+        except (OSError, ValueError) as error:
+            raise SafetyError("Cannot establish Linux st filemark/EOF mode") from error
+        # buffer-writes, async-writes, read-ahead, can-bsr. In particular no
+        # two-fm, fast-mteom, sysv, nowait or nowait-eof may be enabled.
+        if options & ~0x107:
+            raise SafetyError("Linux st options differ from the accepted filemark/EOF mode")
+
+    def _check(self) -> None:
+        if not self._locked:
+            raise SafetyError("Device lock required")
+        self.device.check()
+
+    def _move(self, operation: str, count: int | None = None) -> None:
+        from .physical import run
+
+        arguments = ["mt", "-f", self.device.device, operation]
+        if count is not None:
+            arguments.append(str(count))
+        self._positioning_commands[operation] = self._positioning_commands.get(operation, 0) + 1
+        run(arguments, timeout=900)
+
+    def _count(self, *, force: bool = False) -> int:
+        from .physical import status
+
+        self._check()
+        if self._count_cache is not None and not force:
+            return self._count_cache
+        self._move("eod")
+        value = status(self.device.device)
+        count = value["file_number"]
+        if not value["eod"] or value["block_number"] != -1 or not 0 <= count <= 4095:
+            raise SafetyError("Physical EOD/file count is not confirmed")
+        if count != self._count_cache:
+            self._used_cache = None
+        self._count_cache = count
+        return count
+
+    def _seek(self, position: int) -> None:
+        from .physical import status
+
+        self._check()
+        if position < 0 or position >= self._count():
+            raise SafetyError("Tape file does not exist")
+        current = status(self.device.device)
+        if current["file_number"] == position and current["block_number"] == 0:
+            return
+        if (0 <= current["file_number"] < position and current["block_number"] >= 0):
+            self._move("fsf", position - current["file_number"])
+        else:
+            self._move("rewind")
+            if position:
+                self._move("fsf", position)
+        value = status(self.device.device)
+        if value["file_number"] != position or value["block_number"] != 0:
+            raise SafetyError("Physical tape position is unconfirmed")
+
+    def positions(self) -> list[int]:
+        return list(range(self._count()))
+
+    def has_partial(self) -> bool:
+        return self._pending.exists() or self._reset.exists() or self._reset.is_symlink() or self._count() % 2 == 0
+
+    def read(self, position: int) -> Path:
+        """Materialize only the small header/receipt TARs used by the service."""
+        self._check()
+        if position != 0 and position % 2:
+            raise SafetyError("Large data archives must be read as a stream")
+        if position in self._metadata_cache:
+            return self._metadata_cache[position]
+        self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with tempfile.NamedTemporaryFile(prefix="otam-tape-meta-", suffix=".tar",
+                                         dir=self.state, delete=False) as target:
+            path = Path(target.name)
+            self._metadata.append(path)
+            with self.open_read(position) as incoming:
+                total = 0
+                while chunk := incoming.read(BLOCK):
+                    total += len(chunk)
+                    if total > 64 * 1024 * 1024:
+                        raise SafetyError("Physical metadata TAR exceeds 64 MiB")
+                    target.write(chunk)
+            target.flush()
+            os.fsync(target.fileno())
+        self._metadata_cache[position] = path
+        return path
+
+    @contextmanager
+    def open_read(self, position: int) -> Iterator[BinaryIO]:
+        self._seek(position)
+        fd = self.device.reader()
+        raw = TapeRecordReader(fd)
+        # Metadata remains synchronous. Payloads overlap device waiting and
+        # inspection with one producer, avoiding RawIOBase's per-record copies.
+        # No positioning can begin until that producer has joined on close.
+        try:
+            prefetched = False
+            if position % 2 and self.read_ahead:
+                from .prefetch import PrefetchReader
+                from .benchmark import available_memory
+                try:
+                    capacity = min(64 * 1024**2, self.buffer_mib * 1024**2, available_memory() // 8)
+                except (OSError, SafetyError, ValueError):
+                    capacity = 0  # Optional acceleration must not prevent a safe read.
+                if capacity >= 16 * 1024**2:
+                    raw = PrefetchReader(raw, BLOCK, capacity)
+                    prefetched = True
+            self._reader = raw
+            stream = raw if prefetched else io.BufferedReader(raw, buffer_size=BLOCK)
+            with stream:
+                yield stream
+        finally:
+            raw.close()  # Join before releasing the reader or positioning.
+            self._reader = None
+
+    def read_metrics(self) -> dict[str, Any]:
+        if self._reader is not None and hasattr(self._reader, 'metrics'):
+            return {**self._reader.metrics(), 'positioning_commands': dict(self._positioning_commands)}
+        return {}
+
+    def header(self) -> dict[str, Any]:
+        header = read_metadata(self.read(0), "media.json", recovery=True)
+        if (header.get("format") != FORMAT or header.get("backend") != "physical"
+                or header.get("medium_serial") != self.device.expected["medium_serial"]):
+            raise SafetyError("Unknown physical format or wrong MAM medium")
+        uuid.UUID(header["media_id"])
+        return header
+
+    def set_monitor(self, callback: Callable[[dict[str, Any]], None] | None) -> None:
+        self._monitor = callback
+
+    def initialize(self, label: str, capacity: int, media_class: str,
+                   confirmation: str) -> dict[str, Any]:
+        """Explicit destructive initialization, separate from ordinary append."""
+        if self._reset.exists() or self._reset.is_symlink():
+            raise SafetyError("Physical reset is unresolved")
+        return self._initialize_header(label, capacity, media_class, confirmation)
+
+    def _initialize_header(self, label: str, capacity: int, media_class: str,
+                           confirmation: str) -> dict[str, Any]:
+        import json
+        from .physical import status
+
+        self._check()
+        self._driver_mode()
+        serial = self.device.expected["medium_serial"]
+        if confirmation != f"INITIALIZE {serial}":
+            raise SafetyError("Explicit MAM-bound initialization confirmation is required")
+        if (not 1 <= len(label.strip()) <= 100
+                or media_class not in ("permanent", "rotation")
+                or not 32768 <= capacity <= 100_000_000_000_000):
+            raise SafetyError("Invalid physical media metadata")
+        if self._pending.exists():
+            raise SafetyError("Previous physical operation is unresolved")
+        self._metadata_cache.clear()
+        self._count_cache = None
+        self._used_cache = None
+        header = {"format": FORMAT, "media_id": str(uuid.uuid4()), "label": label.strip(),
+                  "capacity": capacity, "class": media_class, "created": time.time(),
+                  "backend": "physical", "medium_serial": serial}
+        self.state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with tempfile.NamedTemporaryFile(prefix="otam-new-header-", suffix=".tar",
+                                         dir=self.state, delete=False) as target:
+            path = Path(target.name)
+        try:
+            metadata_tar(path, "media.json", header, recovery=True)
+            checksum = sha256(path)
+            self.device.mt("setblk", "0")
+            self.device.mt("compression", "0")
+            self.device.check()
+            self._move("rewind")
+            value = status(self.device.device)
+            if (not value["bot"] or value["file_number"] != 0
+                    or value["block_number"] != 0 or value["write_protected"]):
+                raise SafetyError("Physical BOT or write protection is unconfirmed")
+            self._pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with self._pending.open("x") as marker:
+                json.dump({"operation": "initialize", "medium_serial": serial,
+                           "media_id": header["media_id"], "started": time.time()}, marker)
+                marker.flush()
+                os.fsync(marker.fileno())
+            sync_dir(self._pending.parent)
+            fd = self.device.writer()
+            try:
+                with path.open("rb") as source:
+                    while chunk := source.read(BLOCK):
+                        if os.write(fd, chunk) != len(chunk):
+                            raise SafetyError("Incomplete physical header write")
+            finally:
+                os.close(fd)
+            value = status(self.device.device)
+            if value["file_number"] != 1 or value["block_number"] != 0:
+                raise SafetyError("Physical header filemark was not confirmed")
+            if self._count(force=True) != 1 or self.header() != header or sha256(self.read(0)) != checksum:
+                raise SafetyError("Physical header readback mismatch")
+            self._pending.unlink()
+            sync_dir(self._pending.parent)
+            return header
+        finally:
+            path.unlink(missing_ok=True)
+
+    def reset_interrupted(self, label: str, capacity: int, media_class: str,
+                          pending_sha256: str, approval_id: str, confirmation: str) -> dict[str, Any]:
+        """Explicit BOT replacement under a durable separate reset guard.
+
+        The worker must independently authorize an uncatalogued MAM identity.
+        Old uncertainty is archived, never discarded; the reset guard remains
+        until the worker publishes and confirms the new header/catalog binding.
+        """
+        import json
+        self._check()
+        uuid.UUID(approval_id)
+        serial = self.device.expected["medium_serial"]
+        if confirmation != f"RESET {self.device.expected['serial']} {serial}":
+            raise SafetyError("Explicit drive/MAM reset confirmation required")
+        if self._reset.exists() or self._reset.is_symlink():
+            raise SafetyError("Physical reset is unresolved")
+        if (not self._pending.is_file() or self._pending.is_symlink()
+                or self._pending.stat().st_size > 65536 or sha256(self._pending) != pending_sha256):
+            raise SafetyError("Reviewed pending journal changed or is unsafe")
+        original = json.loads(self._pending.read_bytes())
+        if original.get("medium_serial") != serial:
+            raise SafetyError("Pending journal belongs to another cartridge")
+        history = self.state / "physical-reset-history"
+        for folder in (self._reset.parent, history):
+            folder.mkdir(mode=0o700, exist_ok=True)
+            if folder.is_symlink():
+                raise SafetyError("Unsafe reset journal directory")
+        sync_dir(self.state)
+        old = history / (approval_id + "-previous-pending.json")
+        if old.exists() or old.is_symlink():
+            raise SafetyError("Reset audit already exists")
+        with self._reset.open("x") as stream:
+            json.dump({"operation": "reset", "approval_id": approval_id, "medium_serial": serial,
+                       "drive_serial": self.device.expected["serial"], "started": time.time(),
+                       "previous_sha256": pending_sha256, "previous_pending": original}, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        sync_dir(self._reset.parent)
+        # The durable reset guard now blocks normal initialization/append even
+        # if the process dies after moving the old, immutable audit evidence.
+        os.rename(self._pending, old)
+        sync_dir(history)
+        sync_dir(self._pending.parent)
+        return self._initialize_header(label, capacity, media_class, "INITIALIZE " + serial)
+
+    def complete_reset(self, approval_id: str, media_id: str) -> None:
+        import json
+        self._check()
+        guard = json.loads(self._reset.read_bytes())
+        if (guard.get("approval_id") != approval_id or guard.get("medium_serial") != self.device.expected["medium_serial"]
+                or self._pending.exists() or self._pending.is_symlink() or self.header()["media_id"] != media_id):
+            raise SafetyError("Reset completion is not confirmed")
+        history = self.state / "physical-reset-history"
+        target = history / (approval_id + "-completed.json")
+        if target.exists() or target.is_symlink():
+            raise SafetyError("Reset completion audit already exists")
+        # The original intent and old pending bytes remain permanently in history.
+        os.rename(self._reset, target)
+        sync_dir(history)
+        sync_dir(self._reset.parent)
+
+    def used(self) -> int:
+        count = self._count()
+        if count == 0:
+            return 0
+        if count % 2 == 0 and count == self._next_receipt and self._pending_used is not None:
+            return self._pending_used
+        if count % 2 == 0 or self._pending.exists():
+            return self.header()["capacity"]
+        if self._used_cache is not None and self._used_cache[0] == count:
+            return self._used_cache[1]
+        total = self.read(0).stat().st_size
+        for position in range(2, count, 2):
+            receipt = self.read(position)
+            value = read_metadata(receipt, "receipt.json")
+            if value.get("tape_file") != position - 1 or not isinstance(value.get("bytes"), int):
+                raise SafetyError("Invalid physical receipt; capacity unknown")
+            total += value["bytes"] + receipt.stat().st_size
+        self._used_cache = (count, total)
+        return total
+
+    def _mbuffer_command(self, source_fd: int, log: Path) -> list[str]:
+        command = ["mbuffer", "-e", "-q", "-s", "256k", "-m", f"{self.buffer_mib}M",
+                   "-P", "90", "-l", str(log)]
+        if self.write_rate is not None:
+            command.extend(["-R", str(self.write_rate)])
+        return command + ["-i", f"/proc/self/fd/{source_fd}"]
+
+    @staticmethod
+    def _buffer_percent(log: Path) -> float | None:
+        with log.open("rb") as stream:
+            stream.seek(max(0, os.fstat(stream.fileno()).st_size - 8192))
+            samples = re.findall(rb"buffer\s+([0-9]+(?:\.[0-9]+)?)%\s+full", stream.read(8192))
+        if samples:
+            value = float(samples[-1])
+            if 0 <= value <= 100:
+                return value
+        return None
+
+    def append(self, source: Path, expected_media: str) -> int:
+        import json
+        import subprocess
+        from .physical import BLOCK_SIZE, status
+
+        self._check()
+        # An unresolved write cannot be made safe by repositioning. Refuse
+        # before reading the header or moving to EOD/BOT on every retry.
+        if self._pending.exists() or self._reset.exists() or self._reset.is_symlink():
+            raise SafetyError("Incomplete or uncertain physical tape tail")
+        self._driver_mode()
+        header = self.header()
+        if header["media_id"] != expected_media:
+            raise SafetyError("Wrong physical medium")
+        count = self._count()
+        if self._pending.exists() or (count % 2 == 0 and count != self._next_receipt):
+            raise SafetyError("Incomplete or uncertain physical tape tail")
+        if not source.is_file() or source.is_symlink():
+            raise SafetyError("Unsafe staged TAR")
+        if count % 2 == 0:
+            receipt = read_metadata(source, "receipt.json")
+            if (self._receipt_expected is None
+                    or any(receipt.get(key) != value for key, value in self._receipt_expected.items())):
+                raise SafetyError("Receipt differs from the data just written")
+        from .storage import require_local
+        from .benchmark import available_memory
+        require_local(source.parent)
+        memory = available_memory()
+        if self.buffer_mib * 1024**2 > min(memory * 3 // 4, max(0, memory - 1024**3)):
+            raise SafetyError("Insufficient available RAM for the selected transfer buffer")
+        size = source.stat().st_size
+        used_before = self.used()
+        if size <= 0 or used_before + size + 10240 > header["capacity"]:
+            raise SafetyError("Archive exceeds native physical capacity")
+        # Recheck identity and exact EOD immediately before opening for write.
+        self.device.mt("setblk", "0")
+        self.device.mt("compression", "0")
+        if self._count(force=True) != count:
+            raise SafetyError("Physical file count changed")
+        value = status(self.device.device)
+        if (not value["eod"] or value["file_number"] != count
+                or value["block_number"] != -1 or value["write_protected"]):
+            raise SafetyError("Append position or write protection is unconfirmed")
+        self._pending.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        logs = self.state / "transfer-logs"
+        logs.mkdir(mode=0o700, exist_ok=True)
+        log = logs / ("mbuffer-" + str(uuid.uuid4()) + ".log")
+        with log.open("xb"):
+            pass
+        with self._pending.open("x") as marker:
+            json.dump({"medium_serial": self.device.expected["medium_serial"],
+                       "media_id": expected_media, "position": count,
+                       "source": str(source), "bytes": size, "started": time.time(),
+                       "transfer_log": str(log), "buffer_bytes": self.buffer_mib * 1024**2,
+                       "write_rate_bytes_per_second": self.write_rate}, marker)
+            marker.flush()
+            os.fsync(marker.fileno())
+        sync_dir(self._pending.parent)
+        started = time.monotonic()
+        written = 0
+        written_hash = hashlib.sha256()
+        last_status = 0.0
+        buffer_percent = None
+        source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            before = os.fstat(source_fd)
+            if (not stat.S_ISREG(before.st_mode) or before.st_size != size
+                    or before.st_mode & 0o222 or size % 512):
+                raise SafetyError("Staged TAR changed before write")
+            tape_fd = self.device.writer()
+            try:
+                command = self._mbuffer_command(source_fd, log)
+                with tempfile.TemporaryFile(dir=self.state) as errors:
+                    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors,
+                                          pass_fds=(source_fd,)) as process:
+                        try:
+                            assert process.stdout is not None
+                            while chunk := process.stdout.read(BLOCK_SIZE):
+                                if written + len(chunk) > size:
+                                    raise SafetyError("Staged TAR grew during physical write")
+                                # A short record can be early EOM. Never retry.
+                                if os.write(tape_fd, chunk) != len(chunk):
+                                    raise SafetyError("Short physical tape write; medium is incomplete")
+                                written += len(chunk)
+                                written_hash.update(chunk)
+                                if self._monitor:
+                                    now = time.monotonic()
+                                    if now - last_status >= 1 or written == size:
+                                        buffer_percent = self._buffer_percent(log)
+                                        last_status = now
+                                    self._monitor({"bytes": written,
+                                        "bytes_per_second": written / max(time.monotonic() - started, 1e-9),
+                                        "buffer_fill": buffer_percent / 100 if buffer_percent is not None else None,
+                                        "buffer_fill_percent": buffer_percent,
+                                        "buffer_bytes": self.buffer_mib * 1024**2,
+                                        "write_rate_bytes_per_second": self.write_rate,
+                                        "prefill_percent": 90, "transfer_log": str(log),
+                                        "positioning_commands": dict(self._positioning_commands),
+                                        "drive_status": "writing", "repositions": None})
+                            result = process.wait()
+                            errors.seek(max(0, errors.tell() - 512))
+                            error = errors.read(512)
+                            if result or written != size:
+                                raise SafetyError("mbuffer failed or wrote an incomplete tape file: "
+                                                  + error.decode(errors="replace"))
+                        finally:
+                            if process.poll() is None:
+                                process.terminate()
+                                try:
+                                    process.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    process.kill()
+                                    process.wait()
+                with log.open("rb") as persisted_log:
+                    os.fsync(persisted_log.fileno())
+            finally:
+                os.close(tape_fd)  # st writes one filemark on close in the accepted mode.
+            after = os.fstat(source_fd)
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise SafetyError("Staged TAR changed during physical write")
+            value = status(self.device.device)
+            if value["file_number"] != count + 1 or value["block_number"] != 0:
+                raise SafetyError("Tape filemark was not confirmed after write")
+            self._count_cache = count + 1
+            # Exact byte accounting for confirmed filemarks in this lock
+            # session only. This is not a physical verification/cache of receipts.
+            self._used_cache = (count + 1, used_before + size)
+            self._pending.unlink()
+            sync_dir(self._pending.parent)
+            if count % 2:
+                self._next_receipt = count + 1
+                self._pending_used = used_before + size
+                self._receipt_expected = {"media_id": expected_media, "tape_file": count,
+                                          "sha256": written_hash.hexdigest(), "bytes": size}
+            else:
+                self._next_receipt = None
+                self._pending_used = None
+                self._receipt_expected = None
+            return count
+        finally:
+            os.close(source_fd)

@@ -1,0 +1,16 @@
+{
+  "node_id": "REPLACE_WITH_CATALOG_NODE_UUID",
+  "name": "OTAM Katalog",
+  "role": "catalog",
+  "state": "/data/state",
+  "catalog": "/data/unused-primary.sqlite",
+  "staging": "/data/unused-staging",
+  "media_root": "/data/unused-media",
+  "restore_root": "/data/unused-restores",
+  "password": "REPLACE_WITH_GENERATED_PBKDF2_HASH",
+  "host": "0.0.0.0",
+  "port": 8765,
+  "allowed_hosts": ["localhost", "127.0.0.1", "REPLACE_WITH_INTERNAL_HOSTNAME"],
+  "publisher_id": "REPLACE_WITH_ARCHIVE_NODE_UUID",
+  "peer_key_file": "/etc/otam/peer.key"
+}
