@@ -11,7 +11,7 @@ class SinglePassValidation(TestCase):
     setUp=fixtures.Workflows.setUp
     tearDown=fixtures.Workflows.tearDown
 
-    def test_new_archive_has_two_combined_local_passes_not_eight(self):
+    def test_new_archive_has_one_independent_local_pass(self):
         plan=self.service.plan(self.source,self.media)
         calls=[];original=StagingStore._inspect
         def inspect(store,path,manifest,checksum,job):
@@ -20,10 +20,10 @@ class SinglePassValidation(TestCase):
         with patch.object(StagingStore,'_inspect',new=inspect):
             result=self.service.backup(plan['job_id'],plan['job_id'],self.spool)
         self.assertEqual(result['state'],'VERIFIED')
-        self.assertEqual(len(calls),2*len(plan['archives']))
-        self.assertEqual(sum(size for _,size in calls),2*sum(r[0] for r in self.catalog.db.execute('select bytes from archives')))
+        self.assertEqual(len(calls),len(plan['archives']))
+        self.assertEqual(sum(size for _,size in calls),sum(r[0] for r in self.catalog.db.execute('select bytes from archives')))
 
-    def test_media_batch_also_has_two_passes_and_readback_progress(self):
+    def test_media_batch_has_one_pass_and_readback_progress(self):
         plan=self.service.plan(self.source,self.media,target=30000,verify_mode='media')
         calls=[];original=StagingStore._inspect
         def inspect(store,path,manifest,checksum,job):
@@ -32,7 +32,7 @@ class SinglePassValidation(TestCase):
         with patch.object(StagingStore,'_inspect',new=inspect):
             result=self.service.backup(plan['job_id'],plan['job_id'],self.spool)
         self.assertEqual(result['state'],'VERIFIED')
-        self.assertEqual(len(calls),2*len(plan['archives']))
+        self.assertEqual(len(calls),len(plan['archives']))
         import json
         events=[json.loads(r[0]) for r in self.catalog.db.execute("select details_json from events where job_id=? and event='io_progress'",(plan['job_id'],))]
         read=[e for e in events if e['phase']=='TAPE_READBACK']
@@ -56,26 +56,26 @@ class SinglePassValidation(TestCase):
     def test_batch_validates_every_tar_before_first_write(self):
         plan=self.service.plan(self.source,self.media,target=1000,verify_mode='media')
         validated=[];events=[]
-        original=StagingStore.validate_ready;append=self.tape.append
-        def validate(store,job,manifest):
-            result=original(store,job,manifest)
+        original=StagingStore._inspect;append=self.tape.append
+        def validate(store,path,manifest,checksum,job):
+            result=original(store,path,manifest,checksum,job)
             validated.append(manifest['archive_id']);events.append('validation')
             return result
         def write(path,media):
             self.assertEqual(set(validated),{m['archive_id'] for m in plan['archives']})
             events.append('write')
             return append(path,media)
-        with patch.object(StagingStore,'validate_ready',new=validate),patch.object(self.tape,'append',side_effect=write):
+        with patch.object(StagingStore,'_inspect',new=validate),patch.object(self.tape,'append',side_effect=write):
             self.assertEqual(self.service.backup(plan['job_id'],plan['job_id'],self.spool)['state'],'VERIFIED')
         self.assertNotIn('validation',events[events.index('write'):])
 
     def test_batch_late_prevalidation_failure_never_opens_writer(self):
         plan=self.service.plan(self.source,self.media,target=1000,verify_mode='media')
-        original=StagingStore.validate_ready;last=plan['archives'][-1]['archive_id']
-        def validate(store,job,manifest):
+        original=StagingStore._inspect;last=plan['archives'][-1]['archive_id']
+        def validate(store,path,manifest,checksum,job):
             if manifest['archive_id']==last:raise SafetyError('last TAR corrupt')
-            return original(store,job,manifest)
-        with patch.object(StagingStore,'validate_ready',new=validate),patch.object(self.tape,'append') as append:
+            return original(store,path,manifest,checksum,job)
+        with patch.object(StagingStore,'_inspect',new=validate),patch.object(self.tape,'append') as append:
             with self.assertRaisesRegex(SafetyError,'last TAR corrupt'):
                 self.service.backup(plan['job_id'],plan['job_id'],self.spool)
             append.assert_not_called()

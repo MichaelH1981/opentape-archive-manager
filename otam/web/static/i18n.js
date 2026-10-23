@@ -1,6 +1,9 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Medien zuordnen & lokal vorbereiten": "Assign media and prepare locally",
+  "Dateien hashen und TAR erstellen": "Hash files and create TAR",
+  "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen.": "Capacity checked. Checksums and local preparation are in progress.",
   "Ausgeschlossene Pfade (optional)": "Excluded paths (optional)",
   "Ein exakter Pfad je Zeile, relativ zur Quelle; Unterordner sind eingeschlossen. Keine Platzhalter.": "One exact source-relative path per line; includes its descendants. No wildcards.",
   "Ausdrücklich ausgeschlossene Pfade": "Explicitly excluded paths",

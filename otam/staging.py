@@ -25,6 +25,7 @@ def fingerprint(path: Path) -> list[int]:
 
 class StagingStore:
     def __init__(self, catalog: Catalog, root: Path):
+        self._validated = {}
         self.catalog = catalog
         self.root = root.resolve()
         ancestor = self.root
@@ -101,6 +102,7 @@ class StagingStore:
         """One full pass checks TAR, file digests and the complete archive digest."""
         before = fingerprint(path)
         last = 0.0
+        started = time.monotonic()
         total = before[2]
         def progress(done):
             nonlocal last
@@ -110,6 +112,8 @@ class StagingStore:
             with self.catalog.db:
                 self.catalog.db.execute("UPDATE staged_archives SET progress_bytes=?,total_bytes=?,updated=? WHERE job_id=? AND archive_id=?",
                     (done,total,time.time(),job,manifest['archive_id']))
+            self.catalog.event(job,'validation_progress',archive=manifest['archive_id'],bytes=done,
+                               total_bytes=total,bytes_per_second=done/max(now-started,1e-9))
             last = now
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, 'rb') as stream:
@@ -158,6 +162,7 @@ class StagingStore:
         self._inspect(path, manifest, row["sha256"], job)
         if fingerprint(path) != before:
             raise SafetyError("Prepared TAR changed during validation")
+        self._validated[(job, archive)] = (before, row["sha256"])
         self.phase(job, archive, 'READY', 'COMPLETE', progress_bytes=before[2], total_bytes=before[2])
         return path
 
@@ -181,13 +186,29 @@ class StagingStore:
         self.catalog.event(job, "staging_explicitly_revalidated", archive=archive,
                            original_sha256=row["sha256"], previous_fingerprint=previous, fingerprint=before)
 
-    def prepare(self, job: str, root: Path, manifest: dict[str, Any]) -> Path:
+    def validate_for_write(self, job: str, manifest: dict[str, Any]) -> Path:
+        path = self.assert_ready_identity(job, manifest)
+        row = self.row(job, manifest['archive_id'])
+        if self._validated.get((job, manifest['archive_id'])) != (fingerprint(path), row['sha256']):
+            return self.validate_ready(job, manifest)
+        return path
+
+    def prepare(self, job: str, root: Path, manifest: dict[str, Any], *,
+                single_pass: bool = False, expected=None, reuse_validated: bool = False) -> Path:
         archive = manifest["archive_id"]
         directory = self.directory(job, archive)
         row = self.row(job, archive)
         ready = directory / "ready.tar"
         if ready.exists() or ready.is_symlink():
             try:
+                if reuse_validated and row['phase']=='READY' and row['state']=='COMPLETE':
+                    # Only a sealed combined-capture plan enables this path.
+                    # One independent full inspection was persisted before plan
+                    # publication. Write hashing and physical readback still
+                    # compare the exact saved TAR digest before VERIFIED.
+                    result=self.assert_ready_identity(job,manifest)
+                    self._validated[(job,archive)]=(fingerprint(result),row['sha256'])
+                    return result
                 if row["fingerprint_json"] is None and row["sha256"] and row["path"] == str(ready):
                     owned = self.catalog.db.execute("SELECT * FROM staging_artifacts WHERE job_id=? AND archive_id=? AND name='ready.tar'",
                                                     (job, archive)).fetchone()
@@ -228,6 +249,8 @@ class StagingStore:
         self.track(job, archive, partial)
         self.phase(job, archive, "STAGING", path=str(partial), progress_bytes=0)
         last = time.monotonic()
+        started = last
+        activity = {}
         def progress(done: int) -> None:
             nonlocal last
             now = time.monotonic()
@@ -236,10 +259,11 @@ class StagingStore:
                     self.catalog.db.execute("UPDATE staged_archives SET progress_bytes=?,updated=? WHERE job_id=? AND archive_id=?",
                                             (done, time.time(), job, archive))
                 self.catalog.event(job, "staging_progress", archive=archive, bytes=done,
-                                   elapsed_seconds=now - last)
+                                   elapsed_seconds=now-started, bytes_per_second=done/max(now-started,1e-9),
+                                   total_bytes=row["total_bytes"], **activity)
                 last = now
         try:
-            create_archive(partial, root, manifest, progress=progress, validate=False)
+            create_archive(partial, root, manifest, progress=progress, validate=False, single_pass=single_pass, expected=expected, activity=activity.update)
             self.phase(job, archive, "VALIDATION", progress_bytes=0, total_bytes=partial.stat().st_size)
             checksum = self._inspect(partial, manifest, None, job)
             with partial.open("rb") as stream:
@@ -261,6 +285,7 @@ class StagingStore:
                                         (job, archive, partial.name))
                 self.catalog.db.execute("UPDATE staged_archives SET path=?,sha256=?,bytes=?,fingerprint_json=? WHERE job_id=? AND archive_id=?",
                     (str(ready), checksum, final[2], encode(final).decode(), job, archive))
+            self._validated[(job, archive)] = (final, checksum)
             self.phase(job, archive, "READY", "COMPLETE", progress_bytes=final[2], total_bytes=final[2])
             return ready
         except BaseException as error:

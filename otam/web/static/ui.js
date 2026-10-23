@@ -41,9 +41,11 @@ const progress = (p) => {
 };
 function jobProgress(p) {
   if (!p) return "";
+  if (p.planning)
+    return `<div class="job-progress"><strong>${esc(labels[p.phase] || p.phase)}</strong>${progress(p.percent)}<p>${num(p.files)}${p.total_files ? ` / ${num(p.total_files)}` : ""} Dateien · ${bytes(p.bytes)}${p.total_bytes ? ` / ${bytes(p.total_bytes)}` : " erfasst"}</p><p class="hint">${p.phase === "HASHING" ? `${bytes(p.bytes_per_second)}/s · ` : ""}Letzter Stand ${esc(ago(p.updated))}</p><div class="hint mono">${esc(p.path || "")}</div></div>`;
   if (["WAITING_MEDIA","PLANNED","STAGED"].includes(p.job_state))
     return `<div class="job-progress"><p><strong>Plan bereit · wartet auf Bestätigung</strong></p><p>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs dieses Mediums verifiziert</p></div>`;
-  return `<div class="job-progress"><div class="progress-meta"><strong>${esc(labels[p.phase] || p.phase)}</strong><span>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs verifiziert</span></div>${progress(p.percent)}<p class="hint">${p.percent === null ? "" : `${bytes(p.bytes)} / ${bytes(p.total_bytes)} · `}Letzter Stand ${esc(ago(p.updated))}${p.phase === "TAPE_READBACK" && p.percent === 100 && p.job_state !== "VERIFIED" ? " · Lesepass beendet; Abschlussprüfungen laufen noch." : ""}</p></div>`;
+  return `<div class="job-progress"><div class="progress-meta"><strong>${esc(labels[p.phase] || p.phase)}</strong><span>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs verifiziert</span></div>${progress(p.percent)}<p class="hint">${p.percent === null ? "" : `${bytes(p.bytes)} / ${bytes(p.total_bytes)} · `}${p.bytes_per_second ? `${bytes(p.bytes_per_second)}/s · ` : ""}Letzter Stand ${esc(ago(p.updated))}${p.phase === "TAPE_READBACK" && p.percent === 100 && p.job_state !== "VERIFIED" ? " · Lesepass beendet; Abschlussprüfungen laufen noch." : ""}</p>${p.total_files ? `<p class="hint">${num(p.files)} / ${num(p.total_files)} Dateien im aktuellen TAR</p>` : ""}${p.path ? `<div class="hint mono">${esc(p.path)}</div>` : ""}</div>`;
 }
 function modal(title, html) {
   $("#modal-title").textContent = title;

@@ -71,7 +71,7 @@ class BatchReview(TestCase):
         bound,_,_=self.start()
         with patch('otam.web.resources.require_local',return_value={'free':1}):
             info=batch.offer(self.config,self.control,bound['job_id'])
-        self.assertFalse(info['available']);self.assertGreater(info['required_new_bytes'],1)
+        self.assertTrue(info['available']);self.assertEqual(info['required_new_bytes'],0)  # Combined binding already prepared every TAR.
 
     def test_physical_cli_queues_explicit_mode_review_without_changing_plan(self):
         import io

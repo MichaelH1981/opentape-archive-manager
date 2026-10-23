@@ -1331,3 +1331,43 @@ Schreibdatenstrom 112,56 MB/s, Rücklesung mit vollständiger Prüfung
 konstant. Keine Gerätearbeit für diese Auswertung. Details und Grenzen:
 [performance-fotos-084.md](architecture/performance-fotos-084.md).
 Rohdaten samt acht mbuffer-Datenlogs ausschließlich lokal ignoriert mit SHA256SUMS.
+
+
+### Kombinierte Quellenübernahme und Fortschritt 0.8.5, 23.10.2026
+
+Neue Quellenbindungen lesen Nutzdaten bei ausreichendem lokalem Staging nur
+einmal: Datei-SHA während TAR-Erstellung, private gleich lange Manifestkorrektur,
+danach eine unabhängige vollständige lokale TAR-/Datei-/Gesamthashprüfung.
+Nur versiegelte `source_capture=single-pass-v1`-Pläne dürfen vollständig geprüfte,
+unveränderte und schreibgeschützte READY-Dateien ohne zweiten lokalen Vollread
+verwenden. Geschriebener Hashvergleich und vollständige physische Rücklesung
+bleiben verpflichtend. Legacy-Pläne und Platzmangel-Rückfall bleiben unterstützt.
+[Architektur und Grenzen](architecture/combined-source-capture.md).
+
+Fortschritt im Jobdialog und in der Jobliste: gefundene Dateien/Größen/Pfad bei
+Inventarisierung ohne erfundene Gesamtprozente; bei Hashing bzw. TAR-Erstellung
+und lokaler Prüfung tatsächliche Byteanteile und Rate, bei TAR-Erstellung auch
+Dateizähler und aktueller Pfad. Browserprüfung mit ausschließlich synthetischen
+Vorschaudaten; keine produktiven Jobs erzeugt.
+
+273/273 Debian-Softwaretests in 96,772 s bestanden, lokal 273 mit einem Skip
+in 15,951 s. Zwei vorherige unvollständige Testpakete enthielten versehentlich
+`tools/` nicht: beide Fehlerlogs bleiben erhalten; korrigiertes vollständiges
+Paket bestand. Nach dem Python-Gesamtlauf wurde ausschließlich die zusätzliche
+TAR-Dateizähler-/Pfaddarstellung in ui.js ergänzt, per JavaScript-Syntaxprüfung
+und Browser kontrolliert und in einem getrennten UI-Releasekandidaten abgelegt.
+Keine Änderung am getesteten Pythoncode oder an laufenden Testkandidaten.
+
+Kompatibilität an isolierter Livekatalogkopie: Schema 2, 25 VERIFIED-Archive,
+unveränderte vier LP-/Foto-Jobdatensätze und Planhashes. Installation im erneut
+geprüften Leerlauf, keine Geräte-FDs des Workers, SQLite-/Konfigurationsbackup,
+umask 022, Dienstkontoimport, exakter Wheel-Dateivergleich und Health ok.
+Web/Worker/Tunnel aktiv, Konfiguration und vier Jobs danach exakt unverändert.
+Backup (historischer Skriptnamenspräfix, enthält vorherige Version 0.8.4):
+/var/backups/otam/before-dashboard-links-084-20261023T173910.
+Kandidat /var/lib/otam/acceptance-code/combined-capture-085-release-ui-20261023,
+Report /var/lib/otam/reports/combined-capture-085-release-20261023-r1/installation.json.
+Wheel-SHA256 ce4fddeaf5febce6350050a9299b6498d25efbc62b880a9c552c8dc1a08ccd0d.
+Rückweg 0.8.4 vorhanden. Keine Bandwrites, keine redundante physische Vollprüfung;
+realer NAS-Zeitgewinn bleibt beim nächsten regulären Job zu messen. Rohdaten
+ausschließlich lokal ignoriert in combined-capture-085/ mit SHA256SUMS.

@@ -26,7 +26,7 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
              target: int, selected: list[str] | None = None,
              verify_mode: str = "archive", *, catalogue_only: bool = False,
              expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
     if not 2 <= len(media_tapes) <= 32 or len({m for m, _ in media_tapes}) != len(media_tapes):
         raise SafetyError("Choose two to 32 distinct media in order")
     if verify_mode not in ("archive", "media") or target <= 0:
@@ -77,7 +77,13 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
             assignments[media].append(manifest)
             remaining[media] -= required
         # Only after every complete TAR fits the selected media, hash sources.
-        entries = inventory(root, selected, expected=expected, excluded=excluded)
+        if staging is None:
+            from .capture import progress_recorder
+            entries = inventory(root, selected, expected=expected, excluded=excluded,
+                                progress=progress_recorder(catalog,source_job) if source_job else None)
+        else:
+            inventory(root, selected, metadata_only=True, expected=expected, excluded=excluded)
+            entries = estimate_entries(expected)
         hashes = {e['path']: e for e in entries}
         for group in assignments.values():
             for manifest in group:
@@ -85,11 +91,17 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
         parent_id = str(uuid.uuid4())
         children = []
         child_plans = []
+        if staging is not None:
+            from .staging import StagingStore
+            StagingStore(catalog,staging).require_space(sum(sizes))
         for media, _ in media_tapes:
             group = assignments[media]
             if not group:
                 continue
             child_id = str(uuid.uuid4())
+            if staging is not None:
+                from .capture import prepare_combined
+                prepare_combined(catalog,child_id,root,group,expected,staging,source_job=source_job)
             child = {"media_id": media, "source": str(root), "archives": group,
                      "required_estimate": available[media] - remaining[media],
                      "available": available[media],
@@ -97,6 +109,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                      "file_count": sum(len(m["files"]) for m in group),
                      "expected_tape_files": positions[media], "verify_mode": verify_mode,
                      "parent_job": parent_id}
+            if staging is not None:
+                child["source_capture"] = "single-pass-v1"
             if selected is not None:
                 child["selected_paths"] = sorted(set(selected))
             if excluded is not None:
@@ -128,10 +142,11 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                 (parent_id, now, now, encode(parent).decode()))
             for child_id, child in child_plans:
                 catalog.db.execute("""INSERT INTO jobs(id,kind,state,media_id,created,updated,plan_json,phase)
-                    VALUES(?,'archive','PLANNED',?,?,?,?, 'INVENTORY')""",
+                    VALUES(?,'archive','PLANNED',?,?,?,?, 'INVENTORY')
+                ON CONFLICT(id) DO UPDATE SET state=excluded.state,plan_json=excluded.plan_json,phase=excluded.phase,updated=excluded.updated""",
                     (child_id, child["media_id"], now, now, encode(child).decode()))
                 for manifest in child["archives"]:
-                    catalog.db.execute("""INSERT INTO staged_archives
+                    catalog.db.execute("""INSERT OR IGNORE INTO staged_archives
                         (job_id,archive_id,phase,state,total_bytes,updated)
                         VALUES(?,?,'INVENTORY','COMPLETE',?,?)""",
                         (child_id, manifest["archive_id"],

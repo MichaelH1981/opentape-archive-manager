@@ -91,7 +91,7 @@ const labels = {
   PENDING: "Ausstehend",
   WRITING: "Schreiben",
   INVENTORY: "Inventar",
-  STAGING: "Staging",
+  STAGING: "Dateien hashen und TAR erstellen",
   VALIDATION: "Validierung",
   TAPE_WRITE: "Schreiben",
   TAPE_READBACK: "Rücklesen",

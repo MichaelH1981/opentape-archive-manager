@@ -65,3 +65,14 @@ dass mathematisch keine andere Packung existiert; die Oberfläche benennt dies.
 Der gespeicherte LP-Quellenplan mit 17 TARs und 1.522.733.735.390 geschätzten Bytes
 passt softwareseitig auf zwei native 800-GB-Medien ohne Komprimierungsannahme.
 Keine Bandbewegung oder neue Bandqualifikation für diese Änderung erforderlich.
+
+
+## Ab 0.8.5: kombinierte Quellenübernahme bei ausreichend Staging
+
+Die Metadatenvorplanung bleibt unverändert vor der Medienwahl. Die Bindung
+verbindet nach ausreichender Medien-/Stagingkapazität Inhalts-Hashing und
+TAR-Erstellung. Details zu privater Manifestfinalisierung, einer unabhängigen
+Vollprüfung, unveränderten READY-TARs und dem Platzmangel-Rückfall:
+[combined-source-capture.md](combined-source-capture.md). Bestehende Pläne
+werden nicht nachträglich umgestellt. Planung kann nun bereits alle lokalen
+TARs vorbereiten; das ist ausdrücklich auf dem Bestätigungsknopf benannt.

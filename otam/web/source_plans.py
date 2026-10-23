@@ -103,7 +103,8 @@ def _prepare(config,control,kind,payload):
                 if c.path.is_relative_to(root):raise SafetyError('Katalog darf nicht in der Quelle liegen')
                 job=c.job('source-plan',None,'PLANNING')
                 try:
-                    entries=inventory(root,payload.get('selected_paths'),metadata_only=True,excluded=payload.get('excluded_paths'))
+                    from ..capture import progress_recorder
+                    entries=inventory(root,payload.get('selected_paths'),metadata_only=True,excluded=payload.get('excluded_paths'),progress=progress_recorder(c,job))
                     # Only size estimation uses a fixed-width checksum placeholder;
                     # the persisted draft contains no file hash or media identity.
                     estimated=estimate_entries(entries)
@@ -158,13 +159,22 @@ def execute(config,control,kind,payload):
         physical=maintenance.mode(config,control)=='physical'
         if not physical:
             from .worker import mounted
+        binding=control.get('job_storage:'+payload['job_id'])
+        staging=resources.staging_for(config,control,binding['staging_id'])
+        from ..storage import require_local
+        free=require_local(staging)['free']
+        combined=free >= draft['required_estimate']
+        c.event(payload['job_id'],'combined_capture_policy',selected=combined,
+                required_bytes=draft['required_estimate'],free_bytes=free,
+                reason='enough local staging' if combined else 'legacy path; insufficient space for all TARs')
+        if not combined:staging=None
         if len(payload['media_ids'])>1:
             pairs=[(m,None if physical else mounted(config,control,m)) for m in payload['media_ids']]
-            plan=plan_set(c,root,pairs,draft['target'],draft['selected_paths'],draft['verify_mode'],catalogue_only=physical,expected=draft['source_entries'],excluded=draft.get('excluded_paths'))
+            plan=plan_set(c,root,pairs,draft['target'],draft['selected_paths'],draft['verify_mode'],catalogue_only=physical,expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
         else:
             service=ArchiveService(c,None if physical else mounted(config,control,payload['media_ids'][0]))
             planner=service.plan_catalogued if physical else service.plan
-            plan=planner(root,payload['media_ids'][0],draft['target'],draft['selected_paths'],draft['verify_mode'],expected=draft['source_entries'],excluded=draft.get('excluded_paths'))
+            plan=planner(root,payload['media_ids'][0],draft['target'],draft['selected_paths'],draft['verify_mode'],expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
         binding=control.get('job_storage:'+payload['job_id'])
         control.set('job_storage:'+plan['job_id'],binding)
         for child in plan.get('children',[]):control.set('job_storage:'+child['job_id'],binding)

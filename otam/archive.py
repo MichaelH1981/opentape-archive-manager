@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import stat
@@ -86,13 +87,23 @@ def source_fd(root: Path, name: str) -> int:
 
 def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: bool = False,
               expected: list[dict[str, Any]] | None = None,
-              excluded: list[str] | None = None) -> list[dict[str, Any]]:
+              excluded: list[str] | None = None,
+              progress: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
     if excluded is not None and (not isinstance(excluded,list) or len(excluded)>10000 or any(not isinstance(p,str) or len(p)>4096 for p in excluded)):
         raise SafetyError("Invalid source exclusions")
     exclusions = tuple(sorted({safe_path(p) for p in (excluded or [])}))
     def is_excluded(name):
         return any(name == prefix or name.startswith(prefix+'/') for prefix in exclusions)
     entries: list[dict[str, Any]] = []
+    started = time.monotonic()
+    done_bytes = 0
+    expected_bytes = sum(e["size"] for e in expected) if expected is not None else None
+    def notify(name, current=0, complete=False):
+        if progress:
+            progress({"complete":complete, "phase": "INVENTORY" if metadata_only else "HASHING", "files": len(entries),
+                      "bytes": done_bytes + current, "path": name, "elapsed_seconds": time.monotonic()-started,
+                      "total_bytes": expected_bytes,
+                      "total_files": len(expected) if expected is not None else None})
     expected_map = {e['path']: e for e in expected} if expected is not None else None
     def fingerprint(value):
         return [value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,value.st_ctime_ns]
@@ -129,6 +140,7 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
     walks = [root / p for p in sorted(selected_dirs)] if selected is not None else [root]
     seen: set[str] = set()
     def add_file(name: str) -> None:
+        nonlocal done_bytes
         if name in seen or is_excluded(name):
             return
         try:
@@ -143,7 +155,15 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
             if expected_map is not None and (name not in expected_map or
                     expected_map[name]['fingerprint'] != fingerprint(before)):
                 raise SafetyError(f"Source changed since source plan: {name}; create a new source plan")
-            checksum = None if metadata_only else digest(stream)
+            if metadata_only:
+                checksum = None
+            elif progress:
+                h = hashlib.sha256(); current = 0
+                while chunk := stream.read(1024*1024):
+                    h.update(chunk); current += len(chunk); notify(name, current)
+                checksum = h.hexdigest()
+            else:
+                checksum = digest(stream)
             after = os.fstat(stream.fileno())
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_size, after.st_mtime_ns, after.st_ctime_ns):
@@ -156,6 +176,8 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
         else:
             entry['sha256'] = checksum
         entries.append(entry)
+        done_bytes += before.st_size
+        notify(name)
     for name in sorted(selected_files):
         add_file(name)
     for walk_root in walks:
@@ -173,6 +195,7 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
         raise SafetyError("Source contains no regular files")
     if expected_map is not None and seen != set(expected_map):
         raise SafetyError("Source selection changed since source plan; create a new source plan")
+    notify(entries[-1]["path"], complete=True)
     return sorted(entries, key=lambda entry: entry["path"])
 
 
@@ -215,7 +238,10 @@ def plan_archives(entries: list[dict[str, Any]], media: str, target: int) -> lis
 
 
 def create_archive(path: Path, root: Path, manifest: dict[str, Any],
-                   progress: Callable[[int], None] | None = None, *, validate: bool = True) -> None:
+                   progress: Callable[[int], None] | None = None, *, validate: bool = True,
+                   single_pass: bool = False, expected: list[dict[str, Any]] | None = None,
+                   activity: Callable[[dict[str, Any]], None] | None = None) -> None:
+    expected_map = {e["path"]: e for e in (expected or [])}
     with tarfile.open(path, "w", format=tarfile.PAX_FORMAT, copybufsize=1024 * 1024) as tar:
         manifest_bytes = encode(manifest)
         if len(manifest_bytes) > MAX_META:
@@ -225,23 +251,51 @@ def create_archive(path: Path, root: Path, manifest: dict[str, Any],
         class ProgressReader:
             def __init__(self, stream: BinaryIO):
                 self.stream = stream
+                self.hasher = hashlib.sha256()
+                self.count = 0
             def read(self, size: int = -1) -> bytes:
                 nonlocal done
                 data = self.stream.read(size)
+                self.hasher.update(data)
+                self.count += len(data)
                 done += len(data)
+                if activity:
+                    activity({"path":entry["path"], "files":file_index + int(self.count == entry["size"]), "total_files":len(manifest["files"])})
                 if progress:
                     progress(done)
                 return data
-        for entry in manifest["files"]:
+        for file_index, entry in enumerate(manifest["files"]):
             with os.fdopen(source_fd(root, entry["path"]), "rb") as stream:
                 info_stat = os.fstat(stream.fileno())
                 if (info_stat.st_size, info_stat.st_mtime_ns) != (entry["size"], entry["mtime_ns"]):
                     raise SafetyError(f"Source changed since planning: {entry['path']}")
+                before = [info_stat.st_dev, info_stat.st_ino, info_stat.st_size, info_stat.st_mtime_ns, info_stat.st_ctime_ns]
+                if single_pass and (entry['path'] not in expected_map or before != expected_map[entry['path']]['fingerprint']):
+                    raise SafetyError("Source changed since source plan: " + entry['path'])
                 info = tarfile.TarInfo("data/" + entry["path"])
                 info.size = entry["size"]
                 info.mtime = entry["mtime_ns"] / 1_000_000_000
                 info.mode = 0o600
-                tar.addfile(info, ProgressReader(stream))
+                reader = ProgressReader(stream)
+                tar.addfile(info, reader)
+                after = os.fstat(stream.fileno())
+                if [after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns] != before or reader.count != entry['size']:
+                    raise SafetyError("Source changed during TAR creation: " + entry['path'])
+                if single_pass:
+                    entry['sha256'] = reader.hasher.hexdigest()
+                elif reader.hasher.hexdigest() != entry['sha256']:
+                    raise SafetyError("Source checksum changed during TAR creation: " + entry['path'])
+    if single_pass:
+        final = encode(manifest)
+        if len(final) != len(manifest_bytes):
+            raise SafetyError("Final manifest size changed")
+        # Private, unpublished TAR only: fixed-width hashes replace placeholders.
+        # The mandatory independent full inspection below certifies final bytes.
+        with path.open('r+b') as stream:
+            stream.seek(512)
+            stream.write(final)
+            stream.flush()
+            os.fsync(stream.fileno())
     if validate:
         verify_archive(path, manifest)
 

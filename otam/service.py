@@ -140,7 +140,7 @@ class ArchiveService:
     def plan(self, source: Path, media: str, target: int = 75_000_000_000,
              selected: list[str] | None = None, verify_mode: str = "archive",
              expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
         if verify_mode not in ("archive", "media"):
             raise SafetyError("Unknown verification mode")
         root = source.resolve()
@@ -149,6 +149,8 @@ class ArchiveService:
         tape_path = getattr(self.tape, "path", None)
         if tape_path is not None and (tape_path.is_relative_to(root) or root.is_relative_to(tape_path)):
             raise SafetyError("Source and simulator medium must be separate")
+        if staging is not None and tape_path is not None and (staging.resolve().is_relative_to(tape_path) or tape_path.is_relative_to(staging.resolve())):
+            raise SafetyError("Staging and medium must be separate")
         with io_lock(), self.tape.locked():
             record = self._identity(media)
             if record["state"] not in ("READY", "IN_USE"):
@@ -159,12 +161,12 @@ class ArchiveService:
                 scan(self.tape, media)
             return self._plan_inventory(root, media, target, selected, verify_mode,
                                         record["capacity"] - self.tape.used(),
-                                        len(self.tape.positions()), expected=expected, excluded=excluded)
+                                        len(self.tape.positions()), expected=expected, excluded=excluded, staging=staging, source_job=source_job)
 
     def plan_catalogued(self, source: Path, media: str, target: int = 75_000_000_000,
                         selected: list[str] | None = None, verify_mode: str = "archive",
                         expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
         """Advisory physical plan without opening or positioning any tape device."""
         from .planning import catalogue_snapshot
         if verify_mode not in ("archive", "media") or target <= 0:
@@ -176,16 +178,17 @@ class ArchiveService:
             snapshot = catalogue_snapshot(self.catalog, media)
             return self._plan_inventory(root, media, target, selected, verify_mode,
                                         snapshot["record"]["capacity"] - snapshot["used"],
-                                        snapshot["expected_tape_files"], catalogue_only=True, expected=expected, excluded=excluded)
+                                        snapshot["expected_tape_files"], catalogue_only=True, expected=expected, excluded=excluded, staging=staging, source_job=source_job)
 
     def _plan_inventory(self, root: Path, media: str, target: int, selected: list[str] | None,
                         verify_mode: str, available: int, expected_tape_files: int,
                         *, catalogue_only: bool = False, expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
         job = self.catalog.job("archive", media, "PLANNING")
         with self.catalog.db:
             self.catalog.db.execute("UPDATE jobs SET phase='INVENTORY' WHERE id=?", (job,))
         self.catalog.event(job, "job_phase", phase="INVENTORY")
+        if source_job:self.catalog.event(source_job,"planning_child",child_job=job)
         try:
             expected = expected if expected is not None else inventory(root, selected, metadata_only=True, excluded=excluded)
             preflight = plan_archives(estimate_entries(expected), media, target)
@@ -193,8 +196,16 @@ class ArchiveService:
                 raise SafetyError("Manifest exceeds limit; reduce archive target size")
             if sum(estimate(m['files']) + 10240 for m in preflight) > available:
                 raise SafetyError("Plan exceeds native capacity; select additional media before hashing")
-            entries = inventory(root, selected, expected=expected, excluded=excluded)
-            manifests = plan_archives(entries, media, target)
+            from .capture import prepare_combined, progress_recorder
+            progress = progress_recorder(self.catalog, job)
+            if staging is not None:
+                inventory(root, selected, metadata_only=True, expected=expected, excluded=excluded, progress=progress)
+                manifests = preflight
+                prepare_combined(self.catalog, job, root, manifests, expected, staging, source_job=source_job)
+                entries = [e for m in manifests for e in m['files']]
+            else:
+                entries = inventory(root, selected, expected=expected, excluded=excluded, progress=progress)
+                manifests = plan_archives(entries, media, target)
             if any(len(encode(m)) > MAX_META for m in manifests):
                 raise SafetyError("Manifest exceeds limit; reduce archive target size")
             required = sum(estimate(m["files"]) + 10240 for m in manifests)
@@ -204,6 +215,8 @@ class ArchiveService:
                     "required_estimate": required, "available": available,
                     "payload_bytes": sum(e["size"] for e in entries), "file_count": len(entries),
                     "expected_tape_files": expected_tape_files}
+            if staging is not None:
+                plan["source_capture"] = "single-pass-v1"
             if selected is not None:
                 plan["selected_paths"] = sorted(set(selected))
             if excluded is not None:
@@ -272,7 +285,7 @@ class ArchiveService:
                 for manifest in plan["archives"]:
                     if revalidate_ready and store.row(job, manifest["archive_id"])["fingerprint_json"]:
                         store.revalidate_ready(job, manifest)
-                    store.prepare(job, Path(plan["source"]), manifest)
+                    store.prepare(job, Path(plan["source"]), manifest, reuse_validated=plan.get("source_capture")=="single-pass-v1")
                 report = {"job_id": job, "state": "STAGED", "archives": len(plan["archives"]), "staging": str(store.root)}
                 self.catalog.finish(job, "STAGED", report=report)
                 return report
@@ -360,13 +373,13 @@ class ArchiveService:
                 if prepare_all:
                     for manifest in todo:
                         current = manifest["archive_id"]
-                        store.prepare(job, Path(plan["source"]), manifest)
+                        store.prepare(job, Path(plan["source"]), manifest, reuse_validated=plan.get("source_capture")=="single-pass-v1")
                 for manifest in todo:
                     archive = manifest["archive_id"]
                     current = archive
-                    data = store.prepare(job, Path(plan["source"]), manifest)
+                    data = store.prepare(job, Path(plan["source"]), manifest, reuse_validated=plan.get("source_capture")=="single-pass-v1")
                     # Locality, identity, readonly mode, full hash and TAR consistency are rechecked immediately before write.
-                    data = store.validate_ready(job, manifest)
+                    data = store.validate_for_write(job, manifest)
                     ready = store.row(job, archive)
                     data_hash, size = ready["sha256"], ready["bytes"]
                     if self.tape.used() + size + 10240 > record["capacity"]:
@@ -458,13 +471,13 @@ class ArchiveService:
         try:
             for manifest in todo:
                 current = manifest["archive_id"]
-                store.prepare(job, Path(plan["source"]), manifest)
+                store.prepare(job, Path(plan["source"]), manifest, reuse_validated=plan.get("source_capture")=="single-pass-v1")
             # Complete all full local reads before the first write. During the
             # write sequence only unchanged read-only identities are accepted;
             # the backend hashes the written bytes and readback verifies them.
             for manifest in todo:
                 current = manifest["archive_id"]
-                store.validate_ready(job, manifest)
+                store.validate_for_write(job, manifest)
             previous = sha256(self.tape.read(len(self.tape.positions()) - 1)) if todo else None
             for manifest in todo:
                 current = manifest["archive_id"]
