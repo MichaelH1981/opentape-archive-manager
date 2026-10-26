@@ -11,6 +11,7 @@ from ..sets import plan_set
 from ..allocation import allocate
 from ..storage import io_lock
 from . import maintenance, resources, physical_archive, additive
+from .. import source_capture
 
 
 def load(catalog, ident):
@@ -52,6 +53,21 @@ def validate(config,control,kind,payload):
                 raise SafetyError('Ungültige Ausschlüsse')
             for p in paths:safe_path(p)
         resources.staging_for(config,control,payload.get('staging_id',resources.default_staging_id(config,control)))
+        return
+    if kind=='stage-source':
+        if set(payload)!={'job_id','source_plan_hash'}:
+            raise SafetyError('Quellenübernahme benötigt Quellenplan und Hash, keine Medien')
+        c=Catalog(config.catalog)
+        try:
+            state,draft=load(c,payload['job_id'])
+            if state!='WAITING_MEDIA' or draft['sha256']!=payload['source_plan_hash'] or not draft['file_count']:
+                raise SafetyError('Quellenplan nicht bereit oder verändert')
+            if draft['source_id'] not in {s.id for s in config.sources if str(s.path.resolve())==draft['source']}:
+                raise SafetyError('Planquelle ist nicht mehr freigegeben')
+            binding=control.get('job_storage:'+payload['job_id'])
+            if not binding:raise SafetyError('Staging-Bindung fehlt')
+            resources.staging_for(config,control,binding['staging_id'])
+        finally:c.close()
         return
     if set(payload)!={'job_id','source_plan_hash','media_ids'}:
         raise SafetyError('Quellenplan, unveränderter Planhash und Zielmedien erforderlich')
@@ -151,6 +167,24 @@ def _prepare(config,control,kind,payload):
                     return {'job_id':job,'state':'WAITING_MEDIA',**{k:draft[k] for k in ('sha256','file_count','payload_bytes','required_estimate','largest_archive')}}
                 except BaseException as error:
                     c.finish(job,'FAILED',str(error));raise
+            if kind=='stage-source':
+                validate(config,control,kind,payload)
+                _,draft=load(c,payload['job_id'])
+                binding=control.get('job_storage:'+payload['job_id'])
+                staging=resources.staging_for(config,control,binding['staging_id'])
+                if draft.get('source_capture'):
+                    source_capture.validate(staging,payload['job_id'],draft['source_capture'])
+                    return {'state':'WAITING_MEDIA','job_id':payload['job_id'],'sha256':draft['sha256'],'source_captured':True}
+                with c.db:c.db.execute("UPDATE jobs SET state='RUNNING',phase='STAGING' WHERE id=?",(payload['job_id'],))
+                try:
+                    draft['source_capture']=source_capture.prepare(c,payload['job_id'],draft,staging)
+                    draft.pop('sha256',None);draft['sha256']=hashlib.sha256(encode(draft)).hexdigest()
+                    with c.db:c.db.execute("UPDATE jobs SET state='WAITING_MEDIA',phase='MEDIA_SELECTION',plan_json=?,updated=? WHERE id=?",(encode(draft).decode(),time.time(),payload['job_id']))
+                    c.event(payload['job_id'],'source_capture_ready',bytes=draft['source_capture']['bytes'])
+                    return {'state':'WAITING_MEDIA','job_id':payload['job_id'],'sha256':draft['sha256'],'source_captured':True}
+                except BaseException as error:
+                    failed='INTERRUPTED' if source_capture.location(staging,payload['job_id']).exists() else 'WAITING_MEDIA'
+                    c.finish(payload['job_id'],failed,str(error));raise
             state,draft=load(c,payload['job_id'])
             # Recheck after acquiring the global lock, not only at queue time.
             validate(config,control,kind,payload)
@@ -167,7 +201,7 @@ def _prepare(config,control,kind,payload):
                 c.event(payload['job_id'],'more_media_required',**result)
                 return result
             root=Path(draft['source'])
-            if inventory(root,draft['selected_paths'],metadata_only=True,excluded=draft.get('excluded_paths'))!=draft.get('inventory_entries',draft['source_entries']):
+            if not draft.get('source_capture') and inventory(root,draft['selected_paths'],metadata_only=True,excluded=draft.get('excluded_paths'))!=draft.get('inventory_entries',draft['source_entries']):
                 raise SafetyError('Quelle seit Planung verändert; zuerst neuen Quellenplan erstellen')
             if draft.get('backup_mode')=='additive':
                 if maintenance.mode(config,control)!=draft['backend']:
@@ -192,25 +226,36 @@ def execute(config,control,kind,payload):
             from .worker import mounted
         binding=control.get('job_storage:'+payload['job_id'])
         staging=resources.staging_for(config,control,binding['staging_id'])
+        if draft.get('source_capture'):
+            root,expected=source_capture.validate(staging,payload['job_id'],draft['source_capture'])
+            draft={**draft,'source_entries':expected,'selected_paths':None,'capture_paths':None,'excluded_paths':None}
         from ..storage import require_local
         free=require_local(staging)['free']
         combined=free >= draft['required_estimate']
         c.event(payload['job_id'],'combined_capture_policy',selected=combined,
                 required_bytes=draft['required_estimate'],free_bytes=free,
                 reason='enough local staging' if combined else 'legacy path; insufficient space for all TARs')
+        if draft.get('source_capture') and not combined:
+            raise SafetyError('Für die TAR-Erstellung aus der lokalen Quellkopie fehlt Staging-Platz')
         if not combined:staging=None
         if len(payload['media_ids'])>1:
             pairs=[(m,None if physical else mounted(config,control,m)) for m in payload['media_ids']]
-            plan=plan_set(c,root,pairs,draft['target'],draft.get('capture_paths',draft['selected_paths']),draft['verify_mode'],catalogue_only=physical,expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
+            plan=plan_set(c,root,pairs,draft['target'],draft.get('capture_paths',draft['selected_paths']),draft['verify_mode'],catalogue_only=physical,expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'],origin=Path(draft['source']) if draft.get('source_capture') else None)
         else:
             service=ArchiveService(c,None if physical else mounted(config,control,payload['media_ids'][0]))
             planner=service.plan_catalogued if physical else service.plan
-            plan=planner(root,payload['media_ids'][0],draft['target'],draft.get('capture_paths',draft['selected_paths']),draft['verify_mode'],expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
+            plan=planner(root,payload['media_ids'][0],draft['target'],draft.get('capture_paths',draft['selected_paths']),draft['verify_mode'],expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'],origin=Path(draft['source']) if draft.get('source_capture') else None)
         binding=control.get('job_storage:'+payload['job_id'])
         control.set('job_storage:'+plan['job_id'],binding)
         for child in plan.get('children',[]):control.set('job_storage:'+child['job_id'],binding)
         result={'state':'PLANNED','job_id':plan['job_id'],'source_job_id':payload['job_id'],'sha256':plan['sha256']}
         c.finish(payload['job_id'],'BOUND',report=result)
+        if draft.get('source_capture'):
+            try:
+                source_capture.cleanup(staging,payload['job_id'],draft['source_capture'])
+                c.event(payload['job_id'],'source_capture_cleaned',final_tar_job=plan['job_id'])
+            except Exception as error:
+                c.event(payload['job_id'],'source_capture_cleanup_deferred',level='WARNING',error=str(error))
         return result
     except Exception as error:
         c.finish(payload['job_id'],'INTERRUPTED' if plan is not None else 'WAITING_MEDIA',str(error),

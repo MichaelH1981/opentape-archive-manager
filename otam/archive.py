@@ -196,6 +196,8 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
             else:
                 checksum = digest(stream)
             after = os.fstat(stream.fileno())
+        if expected_map is not None and not metadata_only and expected_map[name].get('sha256') is not None and checksum!=expected_map[name]['sha256']:
+            raise SafetyError('Captured source checksum changed: '+name)
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
                 after.st_size, after.st_mtime_ns, after.st_ctime_ns):
             raise SafetyError(f"Source changed while hashing: {name}")
@@ -316,6 +318,8 @@ def create_archive(path: Path, root: Path, manifest: dict[str, Any],
                 if [after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns] != before or reader.count != entry['size']:
                     raise SafetyError("Source changed during TAR creation: " + entry['path'])
                 if single_pass:
+                    if expected_map[entry['path']].get('sha256') is not None and reader.hasher.hexdigest()!=expected_map[entry['path']]['sha256']:
+                        raise SafetyError('Captured source checksum changed: '+entry['path'])
                     entry['sha256'] = reader.hasher.hexdigest()
                 elif reader.hasher.hexdigest() != entry['sha256']:
                     raise SafetyError("Source checksum changed during TAR creation: " + entry['path'])

@@ -105,6 +105,7 @@ const kindLabel = (k) =>
     archive: "Archivierung",
     "archive-set": "Mehrbandarchivierung",
     plan: "Archiv planen",
+    "stage-source": "Quellen lokal übernehmen",
     "plan-source": "Quellenumfang ermitteln",
     "bind-plan": "Zielmedien zuordnen",
     "source-plan": "Quellenplan",

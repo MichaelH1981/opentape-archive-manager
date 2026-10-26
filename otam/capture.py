@@ -1,5 +1,7 @@
 """Single source pass into privately finalized, independently inspected TARs."""
 import time
+import json
+import hashlib
 from .common import SafetyError
 from .archive import estimate
 from .staging import StagingStore
@@ -22,7 +24,15 @@ def prepare_combined(catalog, job, root, manifests, expected, spool, *, source_j
     """Never publish a plan with placeholder hashes; interrupted files stay owned."""
     spool=spool.resolve()
     if spool.is_relative_to(root) or root.is_relative_to(spool):
-        raise SafetyError('Staging and source must be separate')
+        # An explicitly owned, sealed source snapshot is the only exception.
+        from .source_capture import validate as validate_capture
+        from .common import encode
+        row=catalog.db.execute("SELECT plan_json FROM jobs WHERE id=? AND kind='source-plan'",(source_job,)).fetchone()
+        draft=json.loads(row['plan_json']) if row else {}
+        if not draft.get('source_capture') or draft.get('sha256')!=hashlib.sha256(encode({k:v for k,v in draft.items() if k!='sha256'})).hexdigest():
+            raise SafetyError('Staging and source must be separate')
+        captured,_=validate_capture(spool,source_job,draft['source_capture'])
+        if root!=captured:raise SafetyError('Staging and source must be separate')
     if catalog.path.is_relative_to(spool):
         raise SafetyError('Staging must not contain the catalog')
     store = StagingStore(catalog, spool)

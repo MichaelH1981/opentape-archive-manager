@@ -168,3 +168,29 @@ Linkziele werden niemals verfolgt; reguläre Nutzdateien und andere Fehler wie
 fehlende Leserechte bleiben von dieser Regel unberührt.
 Bereits gespeicherte Pläne werden nicht nachträglich geändert. Nach einem
 fehlgeschlagenen Plan bitte eine neue Quellenplanung starten.
+
+## Optional: Quellen vor der Medienauswahl lokal übernehmen
+
+Der Standardweg bleibt **Quellenplan → Zielmedien zuordnen → TARs lokal
+vorbereiten**. Ein fertiges TAR enthält bereits die UUID des Zielmediums.
+Eine eingelegte Kassette ist für die lokale Vorbereitung nicht erforderlich;
+die Zuordnung vorhandener Medien im Katalog genügt.
+
+Im Quellenplan gibt es zusätzlich den aufklappbaren Schritt **Optional: Quellen
+vor der Medienauswahl lokal übernehmen**. Er wird ausschließlich auf ausdrücklichen
+Knopfdruck gestartet. OTAM kopiert und hasht dabei die geplanten regulären Dateien
+in einen eigenen schreibgeschützten Bereich des lokalen Stagings, ohne Medien
+anzufordern oder Bandaktionen auszuführen. Danach können die Zielmedien zugeordnet
+werden. Die TARs entstehen aus der lokalen Kopie; das NAS wird nicht erneut gelesen.
+
+Das ist eine zusätzliche Quellkopie, noch kein fertiges Bandarchiv. OTAM prüft vorab
+Platz für **Quellkopie plus TARs**. Reicht er nicht, kann der normale Weg mit vorheriger
+Medienzuordnung weiterhin genutzt werden. Die Kopie bleibt an Quelle, Auswahl,
+Staging und Quellenplan gebunden. Fingerprints und SHA-256 werden bei der späteren
+TAR-Erstellung überprüft. Die ursprüngliche Quelle muss weiterhin als Ressource
+freigegeben sein, darf nach erfolgreicher Übernahme aber offline sein.
+
+Sobald alle verbindlichen TARs lokal erstellt und geprüft sind, entfernt OTAM
+nur die eigenen zusätzlichen Quellkopien. Bei Fehlern oder Prozessabbruch bleiben
+unvollständige Daten erhalten; es gibt keine automatische Wiederholung oder
+Überschreibung. Bestehende Pläne werden nicht automatisch in diesen Modus versetzt.

@@ -48,7 +48,7 @@ function applyPermissions(root) {
     $$("#new-source, #new-staging, #new-target, #mode-form, #speedtest-form, .transfer-form, [data-maintenance-drive], [data-register-physical], [data-initialize-physical], [data-reset-physical], [data-reinitialize-physical], [data-remove-resource], [data-edit-target], [data-delete-target], [data-init-target]", root)
       .forEach((element) => (element.hidden = true));
   if (role === "viewer")
-    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-backup-set], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group], #bind-source-plan-form", root)
+    $$("#plan-form, #new-medium, #sync-now, #verify-form, [data-verify], [data-stage], [data-backup], [data-backup-set], [data-resume], [data-revalidate], [data-recover], [data-rebuild], [data-restore-group], #bind-source-plan-form, #stage-source", root)
       .forEach((element) => (element.hidden = true));
 }
 async function render() {
@@ -89,7 +89,7 @@ async function showJob(id) {
   let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.kind === "source-plan" && j.state === "WAITING_MEDIA" ? "MEDIA_SELECTION" : j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.progress?.phase || j.phase] || j.progress?.phase || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
   html += `<div data-live-job="${esc(j.id)}">${jobProgress(j.progress)}</div>`;
   if (j.kind === "source-plan" && p) {
-    html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(!p.file_count ? "Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt." : j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die kombinierte Übernahme ins Staging.", "info")}`;
+    html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(!p.file_count ? "Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt." : p.source_capture ? "Die Quellen sind lokal übernommen und gehasht. Zielmedien können jetzt zugeordnet werden; die TARs entstehen aus der lokalen Kopie." : j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die kombinierte Übernahme ins Staging.", "info")}`;
     if (p.skipped_symlinks?.count) {
       html += `<h3>Übersprungene symbolische Verknüpfungen</h3><p>${num(p.skipped_symlinks.count)}</p><ul>${p.skipped_symlinks.paths.map(path=>`<li>${esc(path)}</li>`).join("")}</ul>${note("Diese Verknüpfungen und ihre Ziele wurden nicht gesichert. Die Pfade sind als Ausschlüsse im Plan gespeichert.", "warning")}`;
     }
@@ -103,6 +103,7 @@ async function showJob(id) {
       if (!p.file_count) html += note("Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt.", "info");
     }
     if (j.state === "WAITING_MEDIA") {
+      if (!p.source_capture) html += `<details><summary>Optional: Quellen vor der Medienauswahl lokal übernehmen</summary><p>Erstellt eine lokale Quellkopie mit SHA-256. Das NAS wird bei der späteren TAR-Erstellung nicht erneut gelesen. Benötigt zusätzlichen Platz für Quellkopie und TARs; keine fertigen Bandarchive.</p><button class="button" id="stage-source">Quellen lokal übernehmen (optional)</button></details>`;
       if (j.report?.message) html += note(j.report.message, "warning");
       if (typeof j.report?.available === "number") html += `<p class="hint">Ausgewählte konservative Kapazität: ${bytes(j.report.available)} · Bedarf: ${bytes(p.required_estimate)}</p>`;
       html += `<form id="bind-source-plan-form"><strong>Zielmedien in Schreibreihenfolge</strong><div class="media-choice-list">${state.media.filter(m=>m.plannable).map(m=>`<label><input type="checkbox" name="media_ids" value="${esc(m.id)}"><span>${esc(m.label)} · nativ ${bytes(Math.max(0, m.capacity - m.used))} verfügbar</span></label>`).join("")}</div><p class="hint">Die angezeigte Reihenfolge gilt für den Bandwechsel. Größere Einzeldateien bleiben zusammen. Bei unzureichender Kapazität bleibt dieser Quellenplan erhalten.</p><div class="form-actions"><button class="button primary" type="submit">Medien zuordnen & lokal vorbereiten</button></div></form>`;
@@ -148,6 +149,12 @@ async function showJob(id) {
   }
   modal(kindLabel(j.kind) + " · " + short(j.id), html);
   applyPermissions($("#modal"));
+  const captureButton = $("#stage-source");
+  if (captureButton) captureButton.addEventListener("click", async () => {
+    captureButton.disabled=true;
+    try { await enqueue("stage-source",{job_id:j.id,source_plan_hash:p.sha256});closeModal();await render(); }
+    catch(error) { toast(error.message,true);captureButton.disabled=false; }
+  });
   const bindForm = $("#bind-source-plan-form");
   if (bindForm) bindForm.addEventListener("submit",async event=>{
     event.preventDefault();const ids=new FormData(bindForm).getAll("media_ids");

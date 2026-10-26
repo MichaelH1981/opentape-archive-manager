@@ -47,6 +47,7 @@ COMMANDS = {
     "reset-physical",
     "reinitialize-physical",
     "plan-source",
+    "stage-source",
     "bind-plan",
     "set-verification-mode",
 }
@@ -90,7 +91,7 @@ def validate_command(
         from . import batch
         batch.validate(config,control,payload)
         return
-    if kind in ("plan-source","bind-plan"):
+    if kind in ("plan-source","stage-source","bind-plan"):
         from . import source_plans
         source_plans.validate(config,control,kind,payload)
         return
@@ -336,7 +337,7 @@ def execute(
     if kind == 'set-verification-mode':
         from . import batch
         return batch.execute(config,control,payload)
-    if kind in ("plan-source","bind-plan"):
+    if kind in ("plan-source","stage-source","bind-plan"):
         from . import source_plans
         return source_plans.execute(config,control,kind,payload)
     if kind == "register-physical":

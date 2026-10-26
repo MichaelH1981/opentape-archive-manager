@@ -140,7 +140,7 @@ class ArchiveService:
     def plan(self, source: Path, media: str, target: int = 75_000_000_000,
              selected: list[str] | None = None, verify_mode: str = "archive",
              expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None, origin: Path | None = None) -> dict[str, Any]:
         if verify_mode not in ("archive", "media"):
             raise SafetyError("Unknown verification mode")
         root = source.resolve()
@@ -161,12 +161,12 @@ class ArchiveService:
                 scan(self.tape, media)
             return self._plan_inventory(root, media, target, selected, verify_mode,
                                         record["capacity"] - self.tape.used(),
-                                        len(self.tape.positions()), expected=expected, excluded=excluded, staging=staging, source_job=source_job)
+                                        len(self.tape.positions()), expected=expected, excluded=excluded, staging=staging, source_job=source_job, origin=origin)
 
     def plan_catalogued(self, source: Path, media: str, target: int = 75_000_000_000,
                         selected: list[str] | None = None, verify_mode: str = "archive",
                         expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None, origin: Path | None = None) -> dict[str, Any]:
         """Advisory physical plan without opening or positioning any tape device."""
         from .planning import catalogue_snapshot
         if verify_mode not in ("archive", "media") or target <= 0:
@@ -178,12 +178,12 @@ class ArchiveService:
             snapshot = catalogue_snapshot(self.catalog, media)
             return self._plan_inventory(root, media, target, selected, verify_mode,
                                         snapshot["record"]["capacity"] - snapshot["used"],
-                                        snapshot["expected_tape_files"], catalogue_only=True, expected=expected, excluded=excluded, staging=staging, source_job=source_job)
+                                        snapshot["expected_tape_files"], catalogue_only=True, expected=expected, excluded=excluded, staging=staging, source_job=source_job, origin=origin)
 
     def _plan_inventory(self, root: Path, media: str, target: int, selected: list[str] | None,
                         verify_mode: str, available: int, expected_tape_files: int,
                         *, catalogue_only: bool = False, expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None, origin: Path | None = None) -> dict[str, Any]:
         job = self.catalog.job("archive", media, "PLANNING")
         with self.catalog.db:
             self.catalog.db.execute("UPDATE jobs SET phase='INVENTORY' WHERE id=?", (job,))
@@ -211,7 +211,7 @@ class ArchiveService:
             required = sum(estimate(m["files"]) + 10240 for m in manifests)
             if required > available:
                 raise SafetyError("Plan exceeds native capacity; use another medium or smaller selection")
-            plan = {"media_id": media, "source": str(root), "archives": manifests,
+            plan = {"media_id": media, "source": str(origin or root), "archives": manifests,
                     "required_estimate": required, "available": available,
                     "payload_bytes": sum(e["size"] for e in entries), "file_count": len(entries),
                     "expected_tape_files": expected_tape_files}

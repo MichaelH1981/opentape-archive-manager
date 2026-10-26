@@ -1,6 +1,12 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Optional: Quellen vor der Medienauswahl lokal übernehmen": "Optional: copy sources locally before choosing media",
+  "Erstellt eine lokale Quellkopie mit SHA-256. Das NAS wird bei der späteren TAR-Erstellung nicht erneut gelesen. Benötigt zusätzlichen Platz für Quellkopie und TARs; keine fertigen Bandarchive.": "Creates a local source copy with SHA-256. Later TAR creation does not read the NAS again. Requires additional space for the copy and TARs; these are not finished tape archives.",
+  "Quellen lokal übernehmen (optional)": "Copy sources locally (optional)",
+  "Die Quellen sind lokal übernommen und gehasht. Zielmedien können jetzt zugeordnet werden; die TARs entstehen aus der lokalen Kopie.": "Sources have been copied locally and hashed. Target media can now be assigned; TARs will be built from the local copy.",
+  "Quellen lokal übernehmen": "Copy sources locally",
+
   "Symbolische Verknüpfungen": "Symbolic links",
   "Überspringen und anzeigen": "Skip and report",
   "Planung anhalten": "Stop planning",

@@ -20,7 +20,7 @@ def job_progress(db, ident, plan, state):
         event=db.execute("SELECT time,details_json FROM events WHERE job_id=? AND event='planning_progress' ORDER BY seq DESC LIMIT 1",(ident,)).fetchone()
         if not event:return None
         d=json.loads(event['details_json']);total=d.get('total_bytes');done=d.get('bytes',0)
-        return {**d,'percent': min(100,100*done/total) if total and d['phase']=='HASHING' else None,
+        return {**d,'percent': min(100,100*done/total) if total and d['phase'] in ('HASHING','STAGING') else None,
                 'total_bytes':total,'updated':event['time'],'job_state':state,'planning':True,
                 'bytes_per_second':done/max(d.get('elapsed_seconds',0),1e-9)}
     row=next((r for r in rows if r['state']=='RUNNING'),rows[0])

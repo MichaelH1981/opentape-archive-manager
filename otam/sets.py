@@ -26,7 +26,7 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
              target: int, selected: list[str] | None = None,
              verify_mode: str = "archive", *, catalogue_only: bool = False,
              expected: list[dict[str, Any]] | None = None,
-             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None) -> dict[str, Any]:
+             excluded: list[str] | None = None, staging: Path | None = None, source_job: str | None = None, origin: Path | None = None) -> dict[str, Any]:
     if not 2 <= len(media_tapes) <= 32 or len({m for m, _ in media_tapes}) != len(media_tapes):
         raise SafetyError("Choose two to 32 distinct media in order")
     if verify_mode not in ("archive", "media") or target <= 0:
@@ -102,7 +102,7 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
             if staging is not None:
                 from .capture import prepare_combined
                 prepare_combined(catalog,child_id,root,group,expected,staging,source_job=source_job)
-            child = {"media_id": media, "source": str(root), "archives": group,
+            child = {"media_id": media, "source": str(origin or root), "archives": group,
                      "required_estimate": available[media] - remaining[media],
                      "available": available[media],
                      "payload_bytes": sum(entry["size"] for m in group for entry in m["files"]),
@@ -123,7 +123,7 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                              "archives": len(group), "files": child["file_count"],
                              "payload_bytes": child["payload_bytes"],
                              "required_estimate": child["required_estimate"]})
-        parent = {"source": str(root), "children": children,
+        parent = {"source": str(origin or root), "children": children,
                   "media_ids": [child["media_id"] for child in children],
                   "verify_mode": verify_mode, "target": target,
                   "payload_bytes": sum(e["size"] for e in entries),
