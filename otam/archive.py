@@ -86,6 +86,7 @@ def source_fd(root: Path, name: str) -> int:
 
 
 def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: bool = False,
+              allow_empty: bool = False,
               expected: list[dict[str, Any]] | None = None,
               excluded: list[str] | None = None,
               progress: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
@@ -110,7 +111,10 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
     if not root.is_dir():
         raise SafetyError("Source must be a directory")
     if selected is not None:
-        if not selected or len(selected) > 10000 or any(not isinstance(p, str) or len(p) > 4096 for p in selected):
+        # The request limit remains 10,000. A sealed metadata inventory may
+        # expand a recursive additive selection into more explicit file paths.
+        if (not selected or any(not isinstance(p, str) or len(p) > 4096 for p in selected)
+                or (len(selected) > 10000 and (expected_map is None or set(selected) != set(expected_map)))):
             raise SafetyError("Invalid source selection")
         chosen = sorted({safe_path(p) for p in selected})
         # Do not resolve links: every selected path component must be a real
@@ -191,11 +195,11 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
             for filename in sorted(files):
                 name = (Path(base) / filename).relative_to(root).as_posix()
                 add_file(name)
-    if not entries:
+    if not entries and not (allow_empty and metadata_only):
         raise SafetyError("Source contains no regular files")
     if expected_map is not None and seen != set(expected_map):
         raise SafetyError("Source selection changed since source plan; create a new source plan")
-    notify(entries[-1]["path"], complete=True)
+    notify(entries[-1]["path"] if entries else "", complete=True)
     return sorted(entries, key=lambda entry: entry["path"])
 
 

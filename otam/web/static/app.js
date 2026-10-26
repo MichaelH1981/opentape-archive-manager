@@ -89,7 +89,13 @@ async function showJob(id) {
   let html = `<dl class="detail-list"><dt>Job-ID</dt><dd class="mono">${esc(j.id)}</dd><dt>Status</dt><dd>${badge(j.kind === "source-plan" && j.state === "WAITING_MEDIA" ? "MEDIA_SELECTION" : j.state)}</dd><dt>Phase</dt><dd>${esc(labels[j.progress?.phase || j.phase] || j.progress?.phase || j.phase || "—")}</dd><dt>Erstellt</dt><dd>${esc(date(j.created))}</dd></dl>`;
   html += `<div data-live-job="${esc(j.id)}">${jobProgress(j.progress)}</div>`;
   if (j.kind === "source-plan" && p) {
-    html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die kombinierte Übernahme ins Staging.", "info")}`;
+    html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(!p.file_count ? "Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt." : j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die kombinierte Übernahme ins Staging.", "info")}`;
+    if (p.additive) {
+      const a=p.additive;
+      html += `<h3>Additive Auswahl</h3><dl class="detail-list"><dt>Neue Dateien</dt><dd>${num(a.new_files)}</dd><dt>Unveränderte Dateien</dt><dd>${num(a.unchanged_files)}</dd><dt>Geänderte Dateien</dt><dd>${num(a.changed_files)}</dd><dt>Geänderte Dateien behandeln</dt><dd>${a.changed_policy === "include" ? "Als neue Version sichern (additiv)" : "Anzeigen und überspringen"}</dd></dl>${note("Bekannte Inhalte wurden nicht erneut gehasht. Nur VERIFIED-Archive derselben Quelle und Betriebsart zählen. Bei leerer Basis werden alle Dateien aufgenommen.", "info")}`;
+      if (a.changed_paths.length) html += `<details><summary>${a.changed_paths_truncated ? "Geänderte Pfade (erste 100)" : "Geänderte Pfade"}</summary><ul>${a.changed_paths.map(path=>`<li>${esc(path)}</li>`).join("")}</ul></details>`;
+      if (!p.file_count) html += note("Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt.", "info");
+    }
     if (j.state === "WAITING_MEDIA") {
       if (j.report?.message) html += note(j.report.message, "warning");
       if (typeof j.report?.available === "number") html += `<p class="hint">Ausgewählte konservative Kapazität: ${bytes(j.report.available)} · Bedarf: ${bytes(p.required_estimate)}</p>`;
@@ -534,6 +540,8 @@ function bindForms(root = $("#content")) {
   on("#plan-form", async (d) => {
     const request = {
       source_id: d.get("source_id"),
+      backup_mode: d.get("backup_mode"),
+      changed_policy: d.get("changed_policy"),
       target: Math.round(Number(d.get("target")) * 1e9),
       staging_id: d.get("staging_id"),
       verify_mode: d.get("verify_mode"),

@@ -238,7 +238,7 @@ class CatalogView:
                     for child in plan["children"]
                 ]}
             if isinstance(plan,dict) and 'source_entries' in plan:
-                plan={k:v for k,v in plan.items() if k!='source_entries'}
+                plan={k:v for k,v in plan.items() if k not in ('source_entries','inventory_entries','capture_paths')}
             result['progress'] = job_progress(db,ident,plan,result['state'])
             result["plan"] = plan
             result["report"] = json.loads(result.pop("report_json") or "null")

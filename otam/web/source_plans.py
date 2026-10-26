@@ -10,7 +10,7 @@ from ..service import ArchiveService
 from ..sets import plan_set
 from ..allocation import allocate
 from ..storage import io_lock
-from . import maintenance, resources, physical_archive
+from . import maintenance, resources, physical_archive, additive
 
 
 def load(catalog, ident):
@@ -27,7 +27,7 @@ def validate(config,control,kind,payload):
     if maintenance.mode(config,control)=='physical':
         physical_archive.require_mode(config,control)
     if kind=='plan-source':
-        if set(payload)-{'source_id','staging_id','target','selected_paths','excluded_paths','verify_mode'}:
+        if set(payload)-{'source_id','staging_id','target','selected_paths','excluded_paths','verify_mode','backup_mode','changed_policy'}:
             raise SafetyError('Quellenplanung akzeptiert noch keine Zielmedien')
         if not isinstance(payload.get('source_id'),str) or payload['source_id'] not in {s.id for s in config.sources}:
             raise SafetyError('Quelle ist nicht freigegeben')
@@ -35,6 +35,10 @@ def validate(config,control,kind,payload):
             raise SafetyError('Ungültige TAR-Zielgröße')
         if payload.get('verify_mode','archive') not in ('archive','media'):
             raise SafetyError('Ungültiger Verifikationsmodus')
+        if payload.get('backup_mode','full') not in ('full','additive'):
+            raise SafetyError('Ungültiger Sicherungsmodus')
+        if payload.get('changed_policy','skip') not in ('skip','include'):
+            raise SafetyError('Ungültige Behandlung geänderter Dateien')
         if 'selected_paths' in payload:
             paths=payload['selected_paths']
             if not isinstance(paths,list) or not 1<=len(paths)<=10000 or any(not isinstance(p,str) or len(p)>4096 for p in paths):
@@ -104,24 +108,37 @@ def _prepare(config,control,kind,payload):
                 job=c.job('source-plan',None,'PLANNING')
                 try:
                     from ..capture import progress_recorder
-                    entries=inventory(root,payload.get('selected_paths'),metadata_only=True,excluded=payload.get('excluded_paths'),progress=progress_recorder(c,job))
+                    entries=inventory(root,payload.get('selected_paths'),metadata_only=True,allow_empty=payload.get('backup_mode')=='additive',excluded=payload.get('excluded_paths'),progress=progress_recorder(c,job))
+                    all_entries=entries
+                    backend=maintenance.mode(config,control)
+                    delta=None
+                    if payload.get('backup_mode','full')=='additive':
+                        known=additive.baseline(c,payload['source_id'],root,backend)
+                        entries,delta=additive.select(entries,known,payload.get('changed_policy','skip'))
                     # Only size estimation uses a fixed-width checksum placeholder;
                     # the persisted draft contains no file hash or media identity.
                     estimated=estimate_entries(entries)
-                    groups=group_entries(estimated,payload.get('target',75_000_000_000))
+                    groups=group_entries(estimated,payload.get('target',75_000_000_000)) if estimated else []
                     if any(len(encode(group)) > MAX_META-1024 for group in groups):
                         raise SafetyError('TAR-Metadaten zu groß; kleinere TAR-Zielgröße wählen')
                     sizes=[estimate(group)+10240 for group in groups]
                     draft={'source':str(root),'source_id':payload['source_id'],'selected_paths':payload.get('selected_paths'),
                            'excluded_paths':payload.get('excluded_paths'),'target':payload.get('target',75_000_000_000),'verify_mode':payload.get('verify_mode','archive'),
                            'source_entries':entries,'archive_sizes':sizes,'required_estimate':sum(sizes),
-                           'largest_archive':max(sizes),'file_count':len(entries),'payload_bytes':sum(e['size'] for e in entries),
+                           'largest_archive':max(sizes,default=0),'file_count':len(entries),'payload_bytes':sum(e['size'] for e in entries),
                            'hashes_calculated':False,'created':time.time()}
+                    if delta is not None:
+                        draft.update(backup_mode='additive',backend=backend,inventory_entries=all_entries,additive=delta,
+                                     capture_paths=[e['path'] for e in entries])
                     draft['sha256']=hashlib.sha256(encode(draft)).hexdigest()
                     with c.db:c.db.execute("UPDATE jobs SET state='WAITING_MEDIA',phase='MEDIA_SELECTION',plan_json=?,updated=? WHERE id=?",(encode(draft).decode(),time.time(),job))
                     control.set('job_storage:'+job,{'source_id':payload['source_id'],
                                 'staging_id':payload.get('staging_id',resources.default_staging_id(config,control)),
                                 'staging_path':str(resources.staging_for(config,control,payload.get('staging_id',resources.default_staging_id(config,control))))})
+                    if not entries:
+                        c.finish(job,'SUCCEEDED',report={'state':'NO_CHANGES','message':'Keine neuen Dateien zu sichern',**delta})
+                        with c.db:c.db.execute("UPDATE jobs SET phase='COMPLETE' WHERE id=?",(job,))
+                        return {'job_id':job,'state':'NO_CHANGES','sha256':draft['sha256'],'file_count':0,**delta}
                     c.event(job,'source_plan_ready',hashes_calculated=False,required_estimate=draft['required_estimate'])
                     return {'job_id':job,'state':'WAITING_MEDIA',**{k:draft[k] for k in ('sha256','file_count','payload_bytes','required_estimate','largest_archive')}}
                 except BaseException as error:
@@ -142,8 +159,14 @@ def _prepare(config,control,kind,payload):
                 c.event(payload['job_id'],'more_media_required',**result)
                 return result
             root=Path(draft['source'])
-            if inventory(root,draft['selected_paths'],metadata_only=True,excluded=draft.get('excluded_paths'))!=draft['source_entries']:
+            if inventory(root,draft['selected_paths'],metadata_only=True,excluded=draft.get('excluded_paths'))!=draft.get('inventory_entries',draft['source_entries']):
                 raise SafetyError('Quelle seit Planung verändert; zuerst neuen Quellenplan erstellen')
+            if draft.get('backup_mode')=='additive':
+                if maintenance.mode(config,control)!=draft['backend']:
+                    raise SafetyError('Betriebsart seit Quellenplanung verändert')
+                current,summary=additive.select(draft['inventory_entries'],additive.baseline(c,draft['source_id'],root,draft['backend']),draft['additive']['changed_policy'])
+                if current!=draft['source_entries'] or summary!=draft['additive']:
+                    raise SafetyError('Additive Katalogbasis verändert; neuen Quellenplan erstellen')
             with c.db:
                 c.db.execute("UPDATE jobs SET state='RUNNING',phase='HASHING',updated=? WHERE id=?",(time.time(),payload['job_id']))
             return {'_binding':draft}
@@ -170,11 +193,11 @@ def execute(config,control,kind,payload):
         if not combined:staging=None
         if len(payload['media_ids'])>1:
             pairs=[(m,None if physical else mounted(config,control,m)) for m in payload['media_ids']]
-            plan=plan_set(c,root,pairs,draft['target'],draft['selected_paths'],draft['verify_mode'],catalogue_only=physical,expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
+            plan=plan_set(c,root,pairs,draft['target'],draft.get('capture_paths',draft['selected_paths']),draft['verify_mode'],catalogue_only=physical,expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
         else:
             service=ArchiveService(c,None if physical else mounted(config,control,payload['media_ids'][0]))
             planner=service.plan_catalogued if physical else service.plan
-            plan=planner(root,payload['media_ids'][0],draft['target'],draft['selected_paths'],draft['verify_mode'],expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
+            plan=planner(root,payload['media_ids'][0],draft['target'],draft.get('capture_paths',draft['selected_paths']),draft['verify_mode'],expected=draft['source_entries'],excluded=draft.get('excluded_paths'),staging=staging,source_job=payload['job_id'])
         binding=control.get('job_storage:'+payload['job_id'])
         control.set('job_storage:'+plan['job_id'],binding)
         for child in plan.get('children',[]):control.set('job_storage:'+child['job_id'],binding)

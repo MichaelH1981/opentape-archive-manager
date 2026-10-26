@@ -132,3 +132,23 @@ OTAM archiviert reguläre Dateiinhalte. ACLs, xattrs, Links, leere Verzeichnisse
 vollständige Systemwiederherstellung, Verschlüsselungsverwaltung und beliebige
 neue Laufwerksprofile sind nicht pauschal abgenommen. Aktuelle Grenzen stehen
 in [production-readiness.md](production-readiness.md) und [tape-format.md](tape-format.md).
+
+## Einen wachsenden Ordner additiv sichern
+
+Bei **Neue Archivierung planen** als Sicherungsumfang **Additiv: nur neue Dateien**
+wählen. OTAM vergleicht die Auswahl mit zugeordneten VERIFIED-Archiven derselben
+Quelle und Betriebsart. Neue Dateien werden gesichert; bekannte Dateien werden
+nicht erneut gehasht. Größe und Änderungszeit dienen zur Erkennung geänderter
+Dateien. Für diese kann man **Anzeigen und überspringen** oder **Als neue Version
+sichern** wählen. Der Quellenplan zeigt die jeweiligen Anzahlen und geänderten
+Pfade vor der Medienzuordnung an.
+
+Die Quellen-ID und das konfigurierte Wurzelverzeichnis müssen zur bisherigen
+Sicherung passen. Ohne eindeutig zuordenbare Basis werden alle Dateien gesichert.
+Bei gleichen Metadaten können Inhaltsänderungen unentdeckt bleiben; eine
+vollständige Sicherung liest und hasht alle ausgewählten Dateien. Gelöschte
+Quelldateien bleiben im Archiv. Ohne neue beziehungsweise einzuschließende Dateien
+endet der Auftrag ohne Medienanforderung. Bei ausreichendem freien Platz kann man
+für die Erweiterung dieselbe Kassette auswählen.
+
+Weitere Details und Grenzen: [Additive Ordnerarchivierung](architecture/additive-backups.md).

@@ -1,6 +1,24 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Sicherungsumfang": "Backup scope",
+  "Alle ausgewählten Dateien": "All selected files",
+  "Additiv: nur neue Dateien": "Additive: new files only",
+  "Abgleich mit VERIFIED-Archiven derselben Quelle und Betriebsart. Bekannte Inhalte werden nicht erneut gehasht.": "Compare with VERIFIED archives of the same source and backend. Known contents are not hashed again.",
+  "Im additiven Modus: geänderte Dateien": "In additive mode: changed files",
+  "Anzeigen und überspringen": "Report and skip",
+  "Als neue Version sichern (additiv)": "Back up as a new version (additive)",
+  "Erkennung über Größe und Änderungszeit. Bei gleichen Metadaten können Inhaltsänderungen unbemerkt bleiben.": "Detection uses size and modification time. Content changes with identical metadata may go unnoticed.",
+  "Additive Auswahl": "Additive selection",
+  "Neue Dateien": "New files",
+  "Unveränderte Dateien": "Unchanged files",
+  "Geänderte Dateien": "Changed files",
+  "Geänderte Dateien behandeln": "Changed file policy",
+  "Bekannte Inhalte wurden nicht erneut gehasht. Nur VERIFIED-Archive derselben Quelle und Betriebsart zählen. Bei leerer Basis werden alle Dateien aufgenommen.": "Known contents were not hashed again. Only VERIFIED archives of the same source and backend count. Without a baseline, all files are included.",
+  "Geänderte Pfade": "Changed paths",
+  "Geänderte Pfade (erste 100)": "Changed paths (first 100)",
+  "Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt.": "No new files to back up. No target media are required.",
+
   "OTAM erstmals einrichten": "Set up OTAM",
   "Lege dein Administratorkonto an. Es gibt kein Standardpasswort.": "Create your administrator account. There is no default password.",
   "Einrichtungsschlüssel": "Setup token",
