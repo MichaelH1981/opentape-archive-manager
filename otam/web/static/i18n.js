@@ -1,6 +1,15 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Symbolische Verknüpfungen": "Symbolic links",
+  "Überspringen und anzeigen": "Skip and report",
+  "Planung anhalten": "Stop planning",
+  "Herstellerunabhängig: Verknüpfungen werden niemals verfolgt. Übersprungene Pfade erscheinen im Quellenplan.": "Vendor independent: links are never followed. Skipped paths are shown in the source plan.",
+  "Übersprungene symbolische Verknüpfungen": "Skipped symbolic links",
+  "Diese Verknüpfungen und ihre Ziele wurden nicht gesichert. Die Pfade sind als Ausschlüsse im Plan gespeichert.": "These links and their targets were not backed up. Their paths are recorded as exclusions in the plan.",
+
+  "Automatisch ausgeschlossene NAS-Vorschauordner": "Automatically excluded NAS preview directories",
+  "Ordner mit dem exakten Namen .@__thumb enthalten NAS-Vorschaudaten und werden nicht gesichert. Symbolischen Verknüpfungen wird nicht gefolgt.": "Directories named exactly .@__thumb contain NAS previews and are excluded from backups. Symbolic links are not followed.",
   "Sicherungsumfang": "Backup scope",
   "Alle ausgewählten Dateien": "All selected files",
   "Additiv: nur neue Dateien": "Additive: new files only",

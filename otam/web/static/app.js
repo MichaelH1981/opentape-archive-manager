@@ -90,6 +90,12 @@ async function showJob(id) {
   html += `<div data-live-job="${esc(j.id)}">${jobProgress(j.progress)}</div>`;
   if (j.kind === "source-plan" && p) {
     html += `<h3>Quellenplan ohne Medienbindung</h3><dl class="detail-list"><dt>Quelle</dt><dd>${esc(p.source)}</dd><dt>Dateien</dt><dd>${num(p.file_count)}</dd><dt>Nutzdaten</dt><dd>${bytes(p.payload_bytes)}</dd><dt>TARs</dt><dd>${num(p.archive_sizes.length)}</dd><dt>Geschätzter Bandbedarf</dt><dd>${bytes(p.required_estimate)}</dd><dt>Größtes vollständiges TAR</dt><dd>${bytes(p.largest_archive)}</dd></dl>${note(!p.file_count ? "Keine neuen Dateien zu sichern. Es werden keine Zielmedien benötigt." : j.state === "BOUND" ? "Die Medien sind zugeordnet. Dateiprüfsummen und Bestätigung findest du im verbindlichen Archivplan." : j.state === "RUNNING" ? "Kapazität geprüft. Dateiprüfsummen und lokale Vorbereitung laufen." : "Dateiinhalte sind noch nicht gehasht. Wähle ausreichend Medien in Schreibreihenfolge; erst danach beginnt die kombinierte Übernahme ins Staging.", "info")}`;
+    if (p.skipped_symlinks?.count) {
+      html += `<h3>Übersprungene symbolische Verknüpfungen</h3><p>${num(p.skipped_symlinks.count)}</p><ul>${p.skipped_symlinks.paths.map(path=>`<li>${esc(path)}</li>`).join("")}</ul>${note("Diese Verknüpfungen und ihre Ziele wurden nicht gesichert. Die Pfade sind als Ausschlüsse im Plan gespeichert.", "warning")}`;
+    }
+    if (p.automatic_exclusions?.count) {
+      html += `<h3>Automatisch ausgeschlossene NAS-Vorschauordner</h3><p>${num(p.automatic_exclusions.count)}</p><ul>${p.automatic_exclusions.paths.map(path=>`<li>${esc(path)}</li>`).join("")}</ul>${note("Ordner mit dem exakten Namen .@__thumb enthalten NAS-Vorschaudaten und werden nicht gesichert. Symbolischen Verknüpfungen wird nicht gefolgt.", "warning")}`;
+    }
     if (p.additive) {
       const a=p.additive;
       html += `<h3>Additive Auswahl</h3><dl class="detail-list"><dt>Neue Dateien</dt><dd>${num(a.new_files)}</dd><dt>Unveränderte Dateien</dt><dd>${num(a.unchanged_files)}</dd><dt>Geänderte Dateien</dt><dd>${num(a.changed_files)}</dd><dt>Geänderte Dateien behandeln</dt><dd>${a.changed_policy === "include" ? "Als neue Version sichern (additiv)" : "Anzeigen und überspringen"}</dd></dl>${note("Bekannte Inhalte wurden nicht erneut gehasht. Nur VERIFIED-Archive derselben Quelle und Betriebsart zählen. Bei leerer Basis werden alle Dateien aufgenommen.", "info")}`;
@@ -541,6 +547,7 @@ function bindForms(root = $("#content")) {
     const request = {
       source_id: d.get("source_id"),
       backup_mode: d.get("backup_mode"),
+      symlink_policy: d.get("symlink_policy"),
       changed_policy: d.get("changed_policy"),
       target: Math.round(Number(d.get("target")) * 1e9),
       staging_id: d.get("staging_id"),

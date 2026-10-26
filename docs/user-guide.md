@@ -152,3 +152,19 @@ endet der Auftrag ohne Medienanforderung. Bei ausreichendem freien Platz kann ma
 für die Erweiterung dieselbe Kassette auswählen.
 
 Weitere Details und Grenzen: [Additive Ordnerarchivierung](architecture/additive-backups.md).
+
+## NAS-Vorschauordner
+
+Neue Quellenpläne schließen Verzeichnisse mit dem exakten Namen `.@__thumb`
+auf jeder Unterordnerebene automatisch aus. Das verhindert Planungsabbrüche an
+NAS-internen Vorschau-Verknüpfungen. Der Quellenplan zeigt die automatisch
+übersprungenen Ordner an; die konkreten Ausschlüsse sind im Planhash enthalten
+und gelten auch beim Hashen und Staging. Reguläre Dateien gleichen Namens sowie
+ähnlich benannte Ordner werden nicht automatisch ausgeschlossen. Andere
+symbolische Verknüpfungen werden herstellerunabhängig standardmäßig ebenfalls
+übersprungen und mit ihren Pfaden im Quellenplan angezeigt. Alternativ lässt sich
+unter **Symbolische Verknüpfungen → Planung anhalten** der strenge Modus wählen.
+Linkziele werden niemals verfolgt; reguläre Nutzdateien und andere Fehler wie
+fehlende Leserechte bleiben von dieser Regel unberührt.
+Bereits gespeicherte Pläne werden nicht nachträglich geändert. Nach einem
+fehlgeschlagenen Plan bitte eine neue Quellenplanung starten.

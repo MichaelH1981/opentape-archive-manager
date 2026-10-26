@@ -27,7 +27,7 @@ def validate(config,control,kind,payload):
     if maintenance.mode(config,control)=='physical':
         physical_archive.require_mode(config,control)
     if kind=='plan-source':
-        if set(payload)-{'source_id','staging_id','target','selected_paths','excluded_paths','verify_mode','backup_mode','changed_policy'}:
+        if set(payload)-{'source_id','staging_id','target','selected_paths','excluded_paths','verify_mode','backup_mode','changed_policy','symlink_policy'}:
             raise SafetyError('Quellenplanung akzeptiert noch keine Zielmedien')
         if not isinstance(payload.get('source_id'),str) or payload['source_id'] not in {s.id for s in config.sources}:
             raise SafetyError('Quelle ist nicht freigegeben')
@@ -35,6 +35,8 @@ def validate(config,control,kind,payload):
             raise SafetyError('Ungültige TAR-Zielgröße')
         if payload.get('verify_mode','archive') not in ('archive','media'):
             raise SafetyError('Ungültiger Verifikationsmodus')
+        if payload.get('symlink_policy','skip') not in ('skip','error'):
+            raise SafetyError('Ungültige Behandlung symbolischer Verknüpfungen')
         if payload.get('backup_mode','full') not in ('full','additive'):
             raise SafetyError('Ungültiger Sicherungsmodus')
         if payload.get('changed_policy','skip') not in ('skip','include'):
@@ -108,7 +110,10 @@ def _prepare(config,control,kind,payload):
                 job=c.job('source-plan',None,'PLANNING')
                 try:
                     from ..capture import progress_recorder
-                    entries=inventory(root,payload.get('selected_paths'),metadata_only=True,allow_empty=payload.get('backup_mode')=='additive',excluded=payload.get('excluded_paths'),progress=progress_recorder(c,job))
+                    ignored=set();links=set()
+                    entries=inventory(root,payload.get('selected_paths'),metadata_only=True,allow_empty=True,excluded=payload.get('excluded_paths'),progress=progress_recorder(c,job),ignored_directory_names=('.@__thumb',),on_ignored=ignored.add,symlink_policy=payload.get('symlink_policy','skip'),on_symlink=links.add)
+                    exclusions=sorted(set(payload.get('excluded_paths') or []) | ignored | links)
+                    if len(exclusions)>10000:raise SafetyError('Zu viele ausgeschlossene Pfade; kleinere Quellenauswahl verwenden')
                     all_entries=entries
                     backend=maintenance.mode(config,control)
                     delta=None
@@ -123,10 +128,13 @@ def _prepare(config,control,kind,payload):
                         raise SafetyError('TAR-Metadaten zu groß; kleinere TAR-Zielgröße wählen')
                     sizes=[estimate(group)+10240 for group in groups]
                     draft={'source':str(root),'source_id':payload['source_id'],'selected_paths':payload.get('selected_paths'),
-                           'excluded_paths':payload.get('excluded_paths'),'target':payload.get('target',75_000_000_000),'verify_mode':payload.get('verify_mode','archive'),
+                           'excluded_paths':exclusions or None,'target':payload.get('target',75_000_000_000),'verify_mode':payload.get('verify_mode','archive'),
                            'source_entries':entries,'archive_sizes':sizes,'required_estimate':sum(sizes),
                            'largest_archive':max(sizes,default=0),'file_count':len(entries),'payload_bytes':sum(e['size'] for e in entries),
                            'hashes_calculated':False,'created':time.time()}
+                    draft['symlink_policy']=payload.get('symlink_policy','skip')
+                    draft['skipped_symlinks']={'count':len(links),'paths':sorted(links)[:100],'truncated':len(links)>100}
+                    draft['automatic_exclusions']={'rule':'NAS preview directory .@__thumb','count':len(ignored),'paths':sorted(ignored)[:100],'truncated':len(ignored)>100}
                     if delta is not None:
                         draft.update(backup_mode='additive',backend=backend,inventory_entries=all_entries,additive=delta,
                                      capture_paths=[e['path'] for e in entries])
@@ -136,9 +144,9 @@ def _prepare(config,control,kind,payload):
                                 'staging_id':payload.get('staging_id',resources.default_staging_id(config,control)),
                                 'staging_path':str(resources.staging_for(config,control,payload.get('staging_id',resources.default_staging_id(config,control))))})
                     if not entries:
-                        c.finish(job,'SUCCEEDED',report={'state':'NO_CHANGES','message':'Keine neuen Dateien zu sichern',**delta})
+                        c.finish(job,'SUCCEEDED',report={'state':'NO_CHANGES' if delta is not None else 'NO_FILES','message':'Keine Dateien zu sichern',**(delta or {}),'skipped_symlinks':draft['skipped_symlinks']})
                         with c.db:c.db.execute("UPDATE jobs SET phase='COMPLETE' WHERE id=?",(job,))
-                        return {'job_id':job,'state':'NO_CHANGES','sha256':draft['sha256'],'file_count':0,**delta}
+                        return {'job_id':job,'state':'NO_CHANGES' if delta is not None else 'NO_FILES','sha256':draft['sha256'],'file_count':0,**(delta or {}),'skipped_symlinks':draft['skipped_symlinks']}
                     c.event(job,'source_plan_ready',hashes_calculated=False,required_estimate=draft['required_estimate'])
                     return {'job_id':job,'state':'WAITING_MEDIA',**{k:draft[k] for k in ('sha256','file_count','payload_bytes','required_estimate','largest_archive')}}
                 except BaseException as error:

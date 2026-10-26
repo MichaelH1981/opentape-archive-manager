@@ -87,13 +87,31 @@ def source_fd(root: Path, name: str) -> int:
 
 def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: bool = False,
               allow_empty: bool = False,
+              symlink_policy: str = "error",
+              on_symlink: Callable[[str], None] | None = None,
+              ignored_directory_names: tuple[str, ...] = (),
+              on_ignored: Callable[[str], None] | None = None,
               expected: list[dict[str, Any]] | None = None,
               excluded: list[str] | None = None,
               progress: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
+    if symlink_policy not in ("error", "skip"):
+        raise SafetyError("Invalid symbolic link policy")
+    def skip_link(name):
+        if symlink_policy == "skip":
+            if on_symlink:on_symlink(name)
+            return True
+        return False
     if excluded is not None and (not isinstance(excluded,list) or len(excluded)>10000 or any(not isinstance(p,str) or len(p)>4096 for p in excluded)):
         raise SafetyError("Invalid source exclusions")
     exclusions = tuple(sorted({safe_path(p) for p in (excluded or [])}))
     def is_excluded(name):
+        parts = name.split("/")
+        for index, part in enumerate(parts):
+            if part in ignored_directory_names and (index < len(parts)-1 or
+                    stat.S_ISDIR(root.joinpath(*parts[:index+1]).lstat().st_mode) or
+                    root.joinpath(*parts[:index+1]).is_symlink()):
+                if on_ignored:on_ignored("/".join(parts[:index+1]))
+                return True
         return any(name == prefix or name.startswith(prefix+'/') for prefix in exclusions)
     entries: list[dict[str, Any]] = []
     started = time.monotonic()
@@ -122,15 +140,23 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
         selected_files: set[str] = set()
         selected_dirs: set[str] = set()
         for name in chosen:
+            if is_excluded(name):continue
             parts = name.split("/")
             current = root
+            skipped = False
             for part in parts[:-1]:
                 current = current / part
-                if current.is_symlink() or not current.is_dir():
+                if current.is_symlink():
+                    if skip_link(current.relative_to(root).as_posix()):
+                        skipped = True;break
+                    raise SafetyError(f"Source directory symlink is unsupported: {current.relative_to(root)}")
+                if not current.is_dir():
                     raise SafetyError("Selected source path is not a real directory")
+            if skipped:continue
             path = current / parts[-1]
             if path.is_symlink():
-                raise SafetyError("Selected source symlinks are unsupported")
+                if skip_link(name):continue
+                raise SafetyError(f"Selected source symlink is unsupported: {name}")
             if path.is_dir():
                 selected_dirs.add(name)
             elif path.is_file():
@@ -151,6 +177,7 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
             fd = source_fd(root, name)
         except OSError as error:
             import errno
+            if error.errno == errno.ELOOP and skip_link(name):return
             if error.errno == errno.ELOOP and metadata_only:
                 raise OSError(error.errno, "Symbolische Verknüpfung nicht unterstützt; ausdrücklich ausschließen oder Auswahl ändern", name) from error
             raise
@@ -189,9 +216,12 @@ def inventory(root: Path, selected: list[str] | None = None, *, metadata_only: b
             continue
         for base, dirs, files in os.walk(walk_root, followlinks=False, onerror=walk_error):
             dirs[:] = sorted(d for d in dirs if not is_excluded((Path(base)/d).relative_to(root).as_posix()))
-            for directory in dirs:
+            for directory in list(dirs):
                 if (Path(base) / directory).is_symlink():
-                    raise SafetyError("Source directory symlinks are unsupported")
+                    name=(Path(base)/directory).relative_to(root).as_posix()
+                    if skip_link(name):
+                        dirs.remove(directory);continue
+                    raise SafetyError(f"Source directory symlink is unsupported: {name}")
             for filename in sorted(files):
                 name = (Path(base) / filename).relative_to(root).as_posix()
                 add_file(name)

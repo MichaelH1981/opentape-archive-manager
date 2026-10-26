@@ -98,6 +98,7 @@ class SourcePlans(TestCase):
         with self.assertRaises(SafetyError):execute(self.config,self.control,'plan-source',{**self.request,'media_id':str(uuid.uuid4())})
         with self.assertRaises(SafetyError):execute(self.config,self.control,'plan-source',{**self.request,'selected_paths':['../escape']})
         self.root.joinpath('source/link').symlink_to(self.root/'source/one')
+        self.request['symlink_policy']='error'
         with self.assertRaises((SafetyError,OSError)):self.preview()
 
     def test_legacy_single_media_plan_checks_capacity_before_hashing(self):
@@ -138,3 +139,81 @@ class SourcePlans(TestCase):
         self.assertEqual([e for group in groups for e in group],entries)
         self.assertTrue(all(len(group)==1 or estimate(group)<=target for group in groups))
         self.assertEqual(group_entries(entries[:2],target-1),[[entries[0]],[entries[1]]])
+
+    def test_nested_nas_previews_automatically_excluded_and_sealed(self):
+        folder=self.root/'source/Anime';folder.mkdir()
+        (folder/'movie.m4v').write_bytes(b'film')
+        cache=folder/'.@__thumb';cache.mkdir()
+        (cache/'a100movie.m4v').symlink_to('/missing/external/target')
+        (cache/'regular-preview.jpg').write_bytes(b'preview')
+        self.request['selected_paths']=['Anime']
+        draft=self.preview()
+        c=Catalog(self.config.catalog)
+        try:
+            _,value=source_plans.load(c,draft['job_id'])
+            self.assertEqual(value['excluded_paths'],['Anime/.@__thumb'])
+            self.assertEqual(value['automatic_exclusions']['count'],1)
+            self.assertEqual([entry['path'] for entry in value['source_entries']],['Anime/movie.m4v'])
+        finally:c.close()
+        bound=self.bind(draft,[self.medium('one')])
+        execute(self.config,self.control,'stage',{'job_id':bound['job_id']})
+
+    def test_nas_cache_directory_symlink_not_followed_but_similar_name_preserved(self):
+        cache=self.root/'source/.@__thumb';cache.symlink_to('/outside/source',target_is_directory=True)
+        normal=self.root/'source/.@__thumb-original';normal.mkdir();(normal/'keep').write_bytes(b'keep')
+        draft=self.preview()
+        c=Catalog(self.config.catalog)
+        try:
+            _,value=source_plans.load(c,draft['job_id'])
+            self.assertEqual(value['automatic_exclusions']['paths'],['.@__thumb'])
+            self.assertIn('.@__thumb-original/keep',[entry['path'] for entry in value['source_entries']])
+        finally:c.close()
+
+    def test_explicitly_selected_preview_link_is_ignored_before_path_validation(self):
+        cache=self.root/'source/.@__thumb';cache.mkdir();(cache/'link').symlink_to('/outside/source')
+        self.request['selected_paths']=['one','.@__thumb/link']
+        draft=self.preview()
+        bound=self.bind(draft,[self.medium('one')])
+        self.assertEqual(draft['file_count'],1)
+        self.assertEqual(bound['state'],'PLANNED')
+
+    def test_regular_file_named_like_cache_is_not_silently_dropped(self):
+        (self.root/'source/.@__thumb').write_bytes(b'actual user file')
+        draft=self.preview()
+        self.assertEqual(draft['file_count'],3)
+
+    def test_vendor_independent_links_are_reported_and_never_followed(self):
+        folder=self.root/'source/SynologyOrOther';folder.mkdir()
+        (folder/'keep').write_bytes(b'keep')
+        (folder/'dangling').symlink_to('/missing/private/file')
+        (folder/'loop').symlink_to(folder,target_is_directory=True)
+        (folder/'relative').symlink_to('keep')
+        self.request['selected_paths']=['SynologyOrOther']
+        result=self.preview()
+        c=Catalog(self.config.catalog)
+        try:
+            _,p=source_plans.load(c,result['job_id'])
+            self.assertEqual(p['skipped_symlinks']['count'],3)
+            self.assertEqual([e['path'] for e in p['source_entries']],['SynologyOrOther/keep'])
+            self.assertEqual(sorted(p['excluded_paths']),p['skipped_symlinks']['paths'])
+        finally:c.close()
+        self.bind(result,[self.medium('one')])
+
+    def test_explicit_selection_through_link_records_parent_exclusion(self):
+        folder=self.root/'source/link';folder.symlink_to('/outside',target_is_directory=True)
+        self.request['selected_paths']=['one','link/private/file']
+        result=self.preview()
+        c=Catalog(self.config.catalog)
+        try:
+            _,p=source_plans.load(c,result['job_id'])
+            self.assertEqual(p['skipped_symlinks']['paths'],['link'])
+            self.assertEqual(result['file_count'],1)
+        finally:c.close()
+        self.bind(result,[self.medium('one')])
+
+    def test_link_only_selection_finishes_without_media_request(self):
+        folder=self.root/'source/only-links';folder.mkdir();(folder/'link').symlink_to('/outside')
+        self.request['selected_paths']=['only-links']
+        result=self.preview()
+        self.assertEqual(result['state'],'NO_FILES')
+        self.assertEqual(result['skipped_symlinks']['count'],1)

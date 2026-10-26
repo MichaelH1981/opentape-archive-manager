@@ -1387,3 +1387,20 @@ kein .deb darüber installiert, keine produktiven Konten geändert, keine Bandak
 Details, Veröffentlichungsprüfung und Grenzen:
 [public-release-086.md](public-release-086.md). Debian-Installation, Bedienung
 und englischer Einstieg sind verlinkt. Rohdaten ausschließlich lokal ignoriert.
+
+### 0.8.7 — additive Sicherung und robuste Quellenplanung (26.10.2026)
+
+301/301 Debian-Softwaretests im getrennten Kandidatenverzeichnis bestanden;
+macOS 301 Tests mit einem plattformbedingten Skip. Neue Quellenpläne unterstützen
+additive Auswahl aus zugeordneten VERIFIED-Archiven und eine herstellerunabhängige
+Symlink-Policy mit sichtbaren, versiegelten Ausschlüssen. NAS-Vorschauordner
+`.@__thumb` werden zusätzlich vor dem Betreten ausgeschlossen. Keine Änderung
+bestehender Planhashes, Bandmanifeste oder Sicherheitsjournale. Details:
+[Quellen-Verknüpfungen](architecture/source-link-policy.md) und
+[additive Sicherungen](architecture/additive-backups.md).
+
+Bandserver im geprüften Leerlauf von 0.8.5 auf 0.8.7 aktualisiert. Vorher wurden
+Katalog, Control, Konfiguration und die bisherige virtuelle Umgebung gesichert.
+Import als Dienstkonto erfolgreich; gespeicherte Jobs/Planhashes und
+Archivzustände sowie Konfiguration blieben beim Update unverändert. Keine
+Bandaktionen und kein automatischer Neustart einer fehlgeschlagenen Planung.
