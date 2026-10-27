@@ -40,7 +40,7 @@ import {
   selectionBar,
 } from "./ui.js";
 import { api, enqueue, refreshBase } from "./api.js";
-import { renderers } from "./views.js";
+import { renderers, driveStatusPanel, hardwareDiscoveryPanel, diagnosticDetails } from "./views.js";
 let renderId = 0;
 function applyPermissions(root) {
   const role = state.account?.role || "viewer";
@@ -999,18 +999,38 @@ $("#logout").addEventListener("click", async () => {
     toast(err.message, true);
   }
 });
-setInterval(async () => {
+async function pollUpdates() {
   if (!state.node || state.polling || document.hidden) return;
   state.polling = true;
   try {
+    const pageBefore=state.page, renderBefore=renderId;
     await refreshBase();
+    if (state.page === "hardware" && pageBefore === "hardware" && !$("#modal").open) {
+      const hardware=await api("/hardware");
+      if (state.page === pageBefore && renderId === renderBefore && !$("#modal").open) {
+        const summary=$(".drive-overview"), drives=$(".hardware-panel");
+        if (summary) summary.outerHTML=driveStatusPanel(hardware.status);
+        if (drives) {
+          const expanded=new Set($$("[data-hardware-drive] details[open]",drives).map(el=>el.closest("[data-hardware-drive]").dataset.hardwareDrive));
+          drives.outerHTML=hardwareDiscoveryPanel(hardware);
+          $$("[data-hardware-drive] details").forEach(el=>{if(expanded.has(el.closest("[data-hardware-drive]").dataset.hardwareDrive))el.open=true;});
+        }
+        const diagnostics=$(".hardware-diagnostics");
+        if (diagnostics) {
+          const expanded=new Set($$("[data-live-detail][open]",diagnostics).map(el=>el.dataset.liveDetail));
+          diagnostics.outerHTML=diagnosticDetails(hardware.status);
+          $$("[data-live-detail]").forEach(el=>{if(expanded.has(el.dataset.liveDetail))el.open=true;});
+        }
+        paintIcons($("#content"));localize($("#content"));applyPermissions($("#content"));
+      }
+    }
     const live = $("#modal").open ? $("[data-live-job]") : null;
     if (live) {
       const current=await api("/jobs/"+encodeURIComponent(live.dataset.liveJob));
       if (live.isConnected) {live.innerHTML=jobProgress(current.progress);localize(live);}
     }
     if (
-      ["dashboard", "jobs", "staging", "integrity", "sync", "logs"].includes(
+      ["dashboard", "jobs", "staging", "integrity", "sync", "logs", "media"].includes(
         state.page,
       ) &&
       !$("#modal").open &&
@@ -1025,7 +1045,9 @@ setInterval(async () => {
   } finally {
     state.polling = false;
   }
-}, 5000);
+}
+setInterval(pollUpdates, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollUpdates(); });
 (async () => {
   paintIcons();
   localize(document);

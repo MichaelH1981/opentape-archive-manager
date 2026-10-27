@@ -276,3 +276,38 @@ class Diagnostics(unittest.TestCase):
             d["busy"] = True
             scan(self.control, force=True)
             self.assertEqual(len(calls), 3)
+
+    def test_current_summary_excludes_historical_identities_and_alerts(self):
+        now=time.time();d=drive()
+        self.control.set('worker_heartbeat',now)
+        self.control.set('hardware_inventory',{'time':now,'drives':[d]})
+        old={**d,'id':'old','medium_serial':'OLD-TAPE','last_seen':now-10000}
+        self.control.set('hardware_last_seen',{'old':old,d['id']:{**d,'last_seen':now-5000}})
+        self.control.set('drive_alerts:old',{'3':{'code':3,'last_seen':now-10000}})
+        result=overview(self.control)
+        self.assertEqual(result['current_drive']['id'],d['id'])
+        self.assertEqual(result['current_drive']['medium_serial'],'TAPE')
+        self.assertEqual(result['current_drive']['last_seen'],now)
+        self.assertEqual(result['observed_drive_count'],1)
+        self.assertEqual(len(result['drives']),2)
+        self.assertEqual(detail(self.control,'old')['warning_history'][0]['code'],3)
+
+    def test_no_observed_drive_never_promotes_a_historical_tape(self):
+        now=time.time();d=drive()
+        self.control.set('worker_heartbeat',now)
+        self.control.set('hardware_inventory',{'time':now,'drives':[]})
+        self.control.set('hardware_last_seen',{d['id']:{**d,'last_seen':now-100}})
+        result=overview(self.control)
+        self.assertIsNone(result['current_drive'])
+        self.assertEqual(result['observed_drive_count'],0)
+        self.assertEqual(len(result['drives']),1)
+
+    def test_multiple_observed_drives_have_one_deterministic_summary(self):
+        now=time.time();a=drive();b={**a,'id':'second','device':'/dev/nst1','serial':'SECOND'}
+        self.control.set('worker_heartbeat',now)
+        self.control.set('hardware_inventory',{'time':now,'drives':[b,a]})
+        result=overview(self.control)
+        self.assertEqual(result['current_drive']['id'],a['id'])
+        self.assertEqual(result['observed_drive_count'],2)
+        self.control.set('hardware_inventory',{'time':now-100,'drives':[a]})
+        self.assertEqual(overview(self.control)['current_drive']['contact_state'],'STALE')

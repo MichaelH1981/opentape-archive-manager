@@ -36,6 +36,13 @@ Fehler nicht durch pauschale Schreibrechte oder stilles Überspringen umgehen.
 
 Unter **Hardware** Laufwerk, eingelegte Kassette und Diagnosen prüfen.
 
+Die Übersicht zeigt genau das aktuell erkannte Band mit Laufwerksstatus.
+Frühere Erkennungen bleiben aufklappbar unter **Diagnosedaten** erhalten; alle
+bekannten Kassetten stehen im **Bandinventar**. Die Anzeige und das Inventar
+aktualisieren sich alle fünf Sekunden, auch nach einer Registrierung. Die
+Hardwareerkennung erfolgt zwischen Aufträgen; während eines Bandjobs bleiben
+die letzten bestätigten Werte sichtbar und werden als solche gekennzeichnet.
+
 - **OTAM-Medium lesend registrieren**: vorhandenen OTAM-Header einlesen und
   zuordnen; Inhalte erhalten. Bei verlorenem Katalog kann zusätzlich eine
   ausdrückliche Katalogrekonstruktion nötig sein, um alle Archive zu erfassen.

@@ -1,6 +1,19 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "Noch nicht im Bandinventar registriert": "Not yet registered in the media inventory",
+  "Bereits im Bandinventar registriert": "Already registered in the media inventory",
+  "Band erfolgreich im Bandinventar registriert.": "Tape successfully registered in the media inventory.",
+
+  "Aktuelles Band & Laufwerksstatus": "Current tape & drive status",
+  "Aktueller Zustand · bekannte Bänder findest du im Bandinventar": "Current status · known tapes are listed in the media inventory",
+  "Eingelegtes Band": "Loaded tape",
+  "Zuletzt bestätigtes Band": "Last confirmed tape",
+  "Bandstatus nicht aktuell": "Tape status is out of date",
+  "Nicht aktuell bestätigt": "Not currently confirmed",
+  "Kein Band eingelegt": "No tape loaded",
+  "Letzte Erkennung": "Last detection",
+
   "Optional: Quellen vor der Medienauswahl lokal übernehmen": "Optional: copy sources locally before choosing media",
   "Erstellt eine lokale Quellkopie mit SHA-256. Das NAS wird bei der späteren TAR-Erstellung nicht erneut gelesen. Benötigt zusätzlichen Platz für Quellkopie und TARs; keine fertigen Bandarchive.": "Creates a local source copy with SHA-256. Later TAR creation does not read the NAS again. Requires additional space for the copy and TARs; these are not finished tape archives.",
   "Quellen lokal übernehmen (optional)": "Copy sources locally (optional)",

@@ -171,9 +171,8 @@ def overview(control: Control) -> dict[str, Any]:
             if ident in present and fresh
             else "STALE" if ident in present else "OFFLINE"
         )
-        drive["last_seen"] = known.get(ident, {}).get(
-            "last_seen", inventory.get("time")
-        )
+        drive["last_seen"] = (inventory.get("time") if ident in present
+                              else known.get(ident, {}).get("last_seen", 0))
         drive["diagnostics"] = detail(control, ident)
         sample = drive["diagnostics"]["sample"]
         drive["diagnostics"]["stale"] = (
@@ -188,7 +187,15 @@ def overview(control: Control) -> dict[str, Any]:
             alert.get("decoded", {}).get("active_flags")
             if not drive["diagnostics"]["stale"] and alert.get("state") == "AVAILABLE" else None)
         drives.append(drive)
+    # The summary is a current observation, never the accumulated device history.
+    # Prefer the drive of the running maintenance operation when it is present.
+    observed = sorted((d for d in drives if d['observed_present']),
+                      key=lambda d: (not bool(active_maintenance and active_maintenance['drive_id']==d['id']),
+                                     d.get('device',''),d['id']))
+    current_drive = observed[0] if observed else None
     return {
+        "current_drive": current_drive,
+        "observed_drive_count": len(observed),
         "time": now,
         "last_scan": inventory["time"],
         "worker_online": 0 <= now - heartbeat <= 20,

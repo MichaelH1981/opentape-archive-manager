@@ -99,6 +99,10 @@ async function refreshBase() {
   $("#connection-label").textContent = "Mit Node verbunden";
   $("#connection-dot").classList.remove("off");
   for (const c of state.commands) {
+    if (!state.notified.has(c.id) && c.kind === "register-physical" && c.state === "SUCCEEDED") {
+      state.notified.add(c.id);
+      if (Date.now()/1000-c.updated < 20) toast("Band erfolgreich im Bandinventar registriert.");
+    }
     if (!state.notified.has(c.id) && c.state === "SUCCEEDED" && ["plan-source", "bind-plan"].includes(c.kind)) {
       state.notified.add(c.id);
       if (Date.now() / 1000 - c.updated < 20 && c.result?.job_id) {

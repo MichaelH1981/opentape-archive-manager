@@ -2260,3 +2260,20 @@ dialog::backdrop {
 .progress.is-indeterminate span { animation: otam-progress 1.5s ease-in-out infinite alternate; }
 @keyframes otam-progress { from { transform: translateX(0); } to { transform: translateX(180%); } }
 @media (prefers-reduced-motion: reduce) { .progress.is-indeterminate span { animation: none; } }
+
+/* Current medium is a single summary, not an inventory of old observations. */
+.drive-status-list { grid-template-columns: minmax(0,1fr); }
+.current-medium-card { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:32px; align-items:start; }
+.current-medium-main { display:flex; gap:18px; align-items:flex-start; padding:12px 0; }
+.current-medium-icon { padding:16px; border-radius:12px; background:var(--green-light); color:var(--green); }
+.current-medium-icon svg { width:32px; height:32px; }
+.current-medium-main h3 { font-size:25px; overflow-wrap:anywhere; margin:10px 0 14px; }
+.current-medium-details { border-left:1px solid var(--line); padding-left:32px; }
+.current-medium-details .detail-list { margin-top:14px; }
+@media(max-width:700px) {
+ .current-medium-card { grid-template-columns:minmax(0,1fr); gap:18px; }
+ .current-medium-details { border-left:0; border-top:1px solid var(--line); padding:18px 0 0; }
+}
+
+.diagnostic-history { border-top:1px solid var(--line); padding:14px 0; }
+.diagnostic-history summary { color:var(--muted); cursor:pointer; }

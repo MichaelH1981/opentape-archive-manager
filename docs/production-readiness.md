@@ -1404,3 +1404,28 @@ Katalog, Control, Konfiguration und die bisherige virtuelle Umgebung gesichert.
 Import als Dienstkonto erfolgreich; gespeicherte Jobs/Planhashes und
 Archivzustände sowie Konfiguration blieben beim Update unverändert. Keine
 Bandaktionen und kein automatischer Neustart einer fehlgeschlagenen Planung.
+
+### 27.10.2026: aktuelle Bandanzeige und automatische UI-Aktualisierung
+
+Die Übersicht zeigt eine aktuelle Laufwerks-/Bandbeobachtung statt sämtlicher
+historischer Geräteidentitäten. Alte Erkennungen und TapeAlert-Verläufe bleiben
+unter aufklappbaren Diagnosedaten erhalten. Fehlende oder veraltete Erkennung
+wird nicht als aktuell eingelegtes historisches Band ausgegeben. Hardwareseite
+und Bandinventar aktualisieren sich alle fünf Sekunden; Pflegebereiche bleiben
+aufgeklappt und Formulare werden nicht ersetzt. Eine erfolgreiche Registrierung
+wird angezeigt. Das Polling liest vorhandene Statusdaten, löst keine zusätzliche
+Geräteabfrage aus und ändert keine Schreibfreigaben.
+
+Lokal bestanden 312 Softwaretests (ein Skip) sowie JavaScript-Syntaxprüfungen.
+Browserprüfung mit synthetischen Geräten belegte genau eine Übersichtskarte,
+automatischen Bandwechsel/Entnahme, nachgezogene Registrierung und Erhalt der
+aufgeklappten Pflegebereiche. Der mit 0.8.7 kompatible UI-Bundle wurde zusätzlich
+gegen das bisherige API-Format ohne `current_drive` geprüft.
+
+Auf dem Bandserver wurden ausschließlich fünf statische Oberflächendateien auf
+Basis des installierten 0.8.7-Stands gesichert und ersetzt. Keine Dienstneustarts,
+Datenbank-, Konfigurations- oder Bandaktionen. Healthcheck und beide Dienste
+waren danach aktiv; alle fünf per HTTP ausgelieferten Dateien entsprechen ihren
+geprüften SHA-256-Werten. Version und Backend bleiben 0.8.7. Die optionale lokale
+Quellübernahme des Entwicklungsbranches wurde dabei nicht mitinstalliert; die
+neue Backend-Zusammenfassung ist für diese kompatible UI-Korrektur nicht nötig.
