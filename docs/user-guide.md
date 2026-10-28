@@ -201,3 +201,15 @@ Sobald alle verbindlichen TARs lokal erstellt und geprüft sind, entfernt OTAM
 nur die eigenen zusätzlichen Quellkopien. Bei Fehlern oder Prozessabbruch bleiben
 unvollständige Daten erhalten; es gibt keine automatische Wiederholung oder
 Überschreibung. Bestehende Pläne werden nicht automatisch in diesen Modus versetzt.
+
+## CPU und Transferpuffer (vorbereitet für die nächste Version)
+
+Die Übersicht erhält eine Karte **CPU & Transferpuffer**. „CPU Worker“ verwendet
+100 % je CPU-Kern; „CPU gesamt“ bezieht sich auf alle Kerne. Daneben steht der
+I/O-Warteanteil. Die Werte werden alle fünf Sekunden aus wenigen Zählern gesammelt.
+Es gibt keine zusätzlichen Bandabfragen und keine zusätzliche Messhistorie.
+
+Während eines Bandtransfers erscheinen Füllstand und Kapazität des aktuellen
+Host-Puffers, auch in den Jobdetails. Lese- und Schreibpuffer sind unterschiedliche
+Puffer. Fehlende oder veraltete Messwerte sind ausdrücklich gekennzeichnet.
+Die Anzeige verändert die Bandgeschwindigkeit nicht.

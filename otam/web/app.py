@@ -299,6 +299,8 @@ def create_app(config: WebConfig) -> FastAPI:
     @api.get("/node")
     def node():
         active = control.get("active_snapshot")
+        from .telemetry import snapshot as telemetry_snapshot
+        heartbeat = control.get("worker_heartbeat", 0)
         return {
             "id": config.node_id,
             "name": config.name,
@@ -317,7 +319,8 @@ def create_app(config: WebConfig) -> FastAPI:
             },
             "snapshot": active,
             "last_push": control.get("last_fanout", control.get("last_push")),
-            "worker_heartbeat": control.get("worker_heartbeat", 0),
+            "worker_heartbeat": heartbeat,
+            "telemetry": telemetry_snapshot(control, heartbeat) if config.role == "archive" else None,
             "operation_mode": maintenance.mode(config, control),
             "staging_locations": (
                 [

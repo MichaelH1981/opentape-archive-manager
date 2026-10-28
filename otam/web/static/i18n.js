@@ -1,6 +1,22 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+  "CPU & Transferpuffer": "CPU & transfer buffers",
+  "CPU Worker": "Worker CPU",
+  "CPU gesamt": "Total CPU",
+  "I/O-Wartezeit": "I/O wait",
+  "Keine aktuellen CPU-Messwerte": "No current CPU samples",
+  "Noch keine Messung": "No sample yet",
+  "Worker: 100 % entspricht einem CPU-Kern. Gesamt: alle CPU-Kerne zusammen.": "Worker: 100% equals one CPU core. Total: all CPU cores combined.",
+  "Aktualisierung alle fünf Sekunden; keine zusätzlichen Bandabfragen.": "Updated every five seconds; no additional tape queries.",
+  "Pufferwerte erscheinen während eines Bandtransfers.": "Buffer samples appear during tape transfers.",
+  "Lesepuffer": "Read buffer",
+  "Schreibpuffer": "Write buffer",
+  "Letzter Messwert · nicht aktuell": "Last sample · out of date",
+  "Kapazität nicht verfügbar": "Capacity unavailable",
+  "Füllstand nicht verfügbar": "Fill level unavailable",
+  "Puffer zwischen Laufwerk und Prüfung": "Buffer between drive and verification",
+  "Puffer vor dem Laufwerk": "Buffer before the drive",
   "Noch nicht im Bandinventar registriert": "Not yet registered in the media inventory",
   "Bereits im Bandinventar registriert": "Already registered in the media inventory",
   "Band erfolgreich im Bandinventar registriert.": "Tape successfully registered in the media inventory.",

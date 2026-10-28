@@ -26,7 +26,7 @@ from .control import Control
 from .replication import push
 from .targets import enabled_targets
 from . import resources, maintenance, physical_archive, initialization, reset
-from . import diagnostics
+from . import diagnostics, telemetry
 
 COMMANDS = {
     "create-medium",
@@ -647,10 +647,12 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
                     db.execute("UPDATE settings SET value=? WHERE key=?",
                                (json.dumps(value), row["key"]))
         heartbeat_stop = threading.Event()
+        sampler = telemetry.Sampler()
+        sampler.sample()  # Baseline only; no extra database transaction.
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(5):
-                control.set("worker_heartbeat", time.time())
+                telemetry.publish(control, sampler)
 
         heartbeat_thread = threading.Thread(
             target=heartbeat, name="otam-heartbeat", daemon=True

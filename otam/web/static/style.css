@@ -2277,3 +2277,7 @@ dialog::backdrop {
 
 .diagnostic-history { border-top:1px solid var(--line); padding:14px 0; }
 .diagnostic-history summary { color:var(--muted); cursor:pointer; }
+
+.buffer-metrics{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.buffer-metrics .badge{margin-left:8px}
+.resource-panel .panel-body>p:last-child{margin-bottom:0}

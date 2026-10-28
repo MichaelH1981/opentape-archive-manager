@@ -39,13 +39,29 @@ const progress = (p) => {
   const value = Math.max(0, Math.min(100, Number(p) || 0));
   return `<div class="progress${known ? "" : " is-indeterminate"}" role="progressbar" aria-label="${known ? "Fortschritt" : "Gesamtmenge noch unbekannt"}" ${known ? `aria-valuemin="0" aria-valuemax="100" aria-valuenow="${value.toFixed(1)}"` : ""}><span style="width:${known ? value : 35}%"></span></div><div class="subtle-caption">${known ? value.toFixed(1) + " %" : "Laufende Aktivität · Gesamtfortschritt unbekannt"}</div>`;
 };
+function bufferMetrics(data, sampleTime, active = true) {
+  if (!data || !["TAPE_WRITE", "TAPE_READBACK"].includes(data.phase)) return "";
+  const fresh = active && Date.now()/1000-sampleTime >= -5 && Date.now()/1000-sampleTime <= 20;
+  const reading = data.phase === "TAPE_READBACK";
+  const capacity = reading ? data.read_buffer_bytes : data.buffer_bytes;
+  const filled = reading ? data.read_buffered_bytes : null;
+  const fraction = reading ? (capacity > 0 && Number.isFinite(filled) ? filled/capacity : null)
+    : Number.isFinite(data.buffer_fill) ? data.buffer_fill : null;
+  return `<div class="buffer-metrics"><strong>${reading ? "Lesepuffer" : "Schreibpuffer"}</strong>${!fresh ? '<span class="badge neutral">Letzter Messwert · nicht aktuell</span>' : ""}<p>${capacity > 0 ? (filled !== null && Number.isFinite(filled) ? `${bytes(filled)} / ` : "") + bytes(capacity) : "Kapazität nicht verfügbar"}</p>${fraction !== null ? progress(fraction*100) : '<p class="hint">Füllstand nicht verfügbar</p>'}<p class="hint">Messung ${esc(ago(sampleTime))} · ${reading ? "Puffer zwischen Laufwerk und Prüfung" : "Puffer vor dem Laufwerk"}</p></div>`;
+}
+function resourcePanel(sample, transfer) {
+  if (state.node.role !== "archive") return "";
+  const fresh=sample?.fresh && Date.now()/1000-sample.time <= 20;
+  const pct=value=>Number.isFinite(value) ? num(value.toFixed(1))+" %" : "Noch keine Messung";
+  return `<section class="panel resource-panel"><div class="panel-header"><h2>CPU & Transferpuffer</h2></div><div class="panel-body">${!fresh ? '<p class="hint">Keine aktuellen CPU-Messwerte</p>' : ""}<dl class="detail-list"><dt>CPU Worker</dt><dd>${esc(pct(sample?.worker_cpu_percent))}</dd><dt>CPU gesamt</dt><dd>${esc(pct(sample?.host_cpu_percent))}</dd><dt>I/O-Wartezeit</dt><dd>${esc(pct(sample?.host_iowait_percent))}</dd></dl><p class="hint">Worker: 100 % entspricht einem CPU-Kern. Gesamt: alle CPU-Kerne zusammen.</p><p class="hint">${sample ? `Messung ${esc(ago(sample.time))} · ` : ""}Aktualisierung alle fünf Sekunden; keine zusätzlichen Bandabfragen.</p>${transfer ? bufferMetrics(transfer.details,transfer.time) : '<p class="hint">Pufferwerte erscheinen während eines Bandtransfers.</p>'}</div></section>`;
+}
 function jobProgress(p) {
   if (!p) return "";
   if (p.planning)
     return `<div class="job-progress"><strong>${esc(labels[p.phase] || p.phase)}</strong>${progress(p.percent)}<p>${num(p.files)}${p.total_files ? ` / ${num(p.total_files)}` : ""} Dateien · ${bytes(p.bytes)}${p.total_bytes ? ` / ${bytes(p.total_bytes)}` : " erfasst"}</p><p class="hint">${p.phase === "HASHING" ? `${bytes(p.bytes_per_second)}/s · ` : ""}Letzter Stand ${esc(ago(p.updated))}</p><div class="hint mono">${esc(p.path || "")}</div></div>`;
   if (["WAITING_MEDIA","PLANNED","STAGED"].includes(p.job_state))
     return `<div class="job-progress"><p><strong>Plan bereit · wartet auf Bestätigung</strong></p><p>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs dieses Mediums verifiziert</p></div>`;
-  return `<div class="job-progress"><div class="progress-meta"><strong>${esc(labels[p.phase] || p.phase)}</strong><span>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs verifiziert</span></div>${progress(p.percent)}<p class="hint">${p.percent === null ? "" : `${bytes(p.bytes)} / ${bytes(p.total_bytes)} · `}${p.bytes_per_second ? `${bytes(p.bytes_per_second)}/s · ` : ""}Letzter Stand ${esc(ago(p.updated))}${p.phase === "TAPE_READBACK" && p.percent === 100 && p.job_state !== "VERIFIED" ? " · Lesepass beendet; Abschlussprüfungen laufen noch." : ""}</p>${p.total_files ? `<p class="hint">${num(p.files)} / ${num(p.total_files)} Dateien im aktuellen TAR</p>` : ""}${p.path ? `<div class="hint mono">${esc(p.path)}</div>` : ""}</div>`;
+  return `<div class="job-progress"><div class="progress-meta"><strong>${esc(labels[p.phase] || p.phase)}</strong><span>Medium ${num(p.medium_index)} / ${num(p.medium_count)} · ${num(p.archives_verified)} / ${num(p.archives_total)} TARs verifiziert</span></div>${progress(p.percent)}<p class="hint">${p.percent === null ? "" : `${bytes(p.bytes)} / ${bytes(p.total_bytes)} · `}${p.bytes_per_second ? `${bytes(p.bytes_per_second)}/s · ` : ""}Letzter Stand ${esc(ago(p.updated))}${p.phase === "TAPE_READBACK" && p.percent === 100 && p.job_state !== "VERIFIED" ? " · Lesepass beendet; Abschlussprüfungen laufen noch." : ""}</p>${p.total_files ? `<p class="hint">${num(p.files)} / ${num(p.total_files)} Dateien im aktuellen TAR</p>` : ""}${p.path ? `<div class="hint mono">${esc(p.path)}</div>` : ""}${bufferMetrics(p.io,p.io?.sample_time,p.job_state === "RUNNING")}</div>`;
 }
 function modal(title, html) {
   $("#modal-title").textContent = title;
@@ -160,6 +176,7 @@ function selectionBar() {
 }
 
 export {
+  resourcePanel,
   jobProgress,
   paintIcons,
   toast,

@@ -28,9 +28,11 @@ def job_progress(db, ident, plan, state):
     phase=row['phase']
     percent=None if phase=='INVENTORY' or total<=0 else max(0,min(100,100*done/total))
     verified=db.execute("SELECT count(*) FROM archives WHERE job_id=? AND state='VERIFIED'",(ident,)).fetchone()[0]
-    event_name='staging_progress' if phase=='STAGING' else 'validation_progress' if phase=='VALIDATION' else None
-    event=db.execute("SELECT details_json FROM events WHERE job_id=? AND event=? AND json_extract(details_json,'$.archive')=? ORDER BY seq DESC LIMIT 1",(ident,event_name,row['archive_id'])).fetchone()
+    event_name='staging_progress' if phase=='STAGING' else 'validation_progress' if phase=='VALIDATION' else 'io_progress' if phase in ('TAPE_WRITE','TAPE_READBACK') else None
+    event=db.execute("SELECT time,details_json FROM events WHERE job_id=? AND event=? AND json_extract(details_json,'$.archive')=? ORDER BY seq DESC LIMIT 1",(ident,event_name,row['archive_id'])).fetchone() if event_name else None
     extra=json.loads(event['details_json']) if event else {}
+    io = (dict(extra, sample_time=event['time']) if event and event_name == 'io_progress'
+          and extra.get('phase') == phase else None)
     return {**{k:extra[k] for k in ('path','files','total_files','bytes_per_second') if k in extra}, 'phase':phase,'percent':percent,'bytes':done,'total_bytes':total,
             'updated':row['updated'],'archives_verified':verified,'archives_total':len(rows),
-            'medium_index':medium_index,'medium_count':medium_count,'job_state':state}
+            'medium_index':medium_index,'medium_count':medium_count,'job_state':state,'io':io}
