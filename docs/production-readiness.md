@@ -1429,3 +1429,29 @@ waren danach aktiv; alle fünf per HTTP ausgelieferten Dateien entsprechen ihren
 geprüften SHA-256-Werten. Version und Backend bleiben 0.8.7. Die optionale lokale
 Quellübernahme des Entwicklungsbranches wurde dabei nicht mitinstalliert; die
 neue Backend-Zusammenfassung ist für diese kompatible UI-Korrektur nicht nötig.
+
+### 28.10.2026: Transferbindung überlebt einen Wechsel der Linux-Busadresse
+
+Ein ausgeschaltetes und erneut erkanntes Laufwerk hatte dieselbe Seriennummer,
+aber einen anderen sysfs-Buspfad und damit eine neue interne `drive_id`. Die
+Transferauswahl verglich bisher zusätzlich diese flüchtige ID und verweigerte
+korrekte LTO-4-Medien mit einer irreführenden Profilmeldung. Die dauerhafte
+Transferbindung vergleicht nun Laufwerksseriennummer, unterstütztes Profil und
+Mediendichte. `mounted()` fordert weiterhin eine eindeutige, aktuelle Beobachtung
+der registrierten Drive-/MAM-Seriennummern; LinuxTape prüft die aktuell aufgelöste
+Geräteidentität vor Geräteaktionen erneut. Staging-Fingerprint, zulässige Rate,
+Puffer, Schreibschutz und alle Pending-/Tail-Prüfungen bleiben verbindlich.
+
+Lokal bestanden 313 Tests (ein Skip); alle zehn gezielten Bindungstests bestanden
+zusätzlich isoliert als Debian-Dienstkonto. Der neue Regressionstest ändert Bus-ID,
+nst- und sg-Adresse bei gleicher Seriennummer und prüft die unveränderte Übernahme
+von Rate/Puffer sowie die aktuelle Backend-Gerätezuordnung. Negativtests prüfen
+weiterhin andere Seriennummern, Profile, Dichten und Staging-Dateisysteme.
+
+Produktiv wurde zuerst die veraltete Transferauswahl nach striktem Vergleich der
+unveränderten Werte gesichert und erneuert. Anschließend wurde ausschließlich das
+geprüfte Backendmodul als gezielte 0.8.7-Korrektur unter globaler I/O-Sperre und bei
+leerer Queue installiert. Modul und beide SQLite-Datenbanken wurden gesichert;
+Dienstkontoimport, Dienstneustart und Healthcheck sind geprüft. Kein Archivauftrag
+wurde gestartet, kein Band neu initialisiert und kein Archivplan geändert. Die
+optionale Quellübernahme des Entwicklungsbranches bleibt davon unabhängig.

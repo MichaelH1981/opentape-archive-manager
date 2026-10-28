@@ -77,6 +77,17 @@ class PhysicalBindings(TestCase):
         with self.assertRaisesRegex(SafetyError, "nicht schreibbereit"):
             physical.mounted(self.config, self.control, self.media, staging_id="staging-1")
 
+    def test_transfer_selection_survives_bus_path_change_on_same_drive(self):
+        self.inventory(id="new-bus-id", device="/dev/nst3", sg="/dev/sg4")
+        tape = physical.mounted(self.config, self.control, self.media, staging_id="staging-1")
+        self.assertEqual(tape.device.device, "/dev/nst3")
+        self.assertEqual(tape.device.expected["id"], "new-bus-id")
+        self.assertEqual(tape.device.expected["serial"], "DRIVE")
+        self.assertEqual(tape.device.expected["medium_serial"], "MAM")
+        self.assertEqual(tape.buffer_mib, 2368)
+        self.assertEqual(tape.write_rate, 120_000_000)
+        self.assertEqual(self.control.get("transfer_settings:staging-1"), self.settings)
+
     def test_wrong_medium_drive_busy_and_stale_inventory_refuse(self):
         for changes in ({"medium_serial": "OTHER"}, {"serial": "OTHER"}, {"busy": True}):
             with self.subTest(changes=changes):
@@ -88,7 +99,8 @@ class PhysicalBindings(TestCase):
             physical.mounted(self.config, self.control, self.media)
 
     def test_missing_or_changed_transfer_profile_and_storage_refuse(self):
-        for changes in ({"drive_serial": "OTHER"}, {"medium_density_code": 0x44},
+        for changes in ({"drive_serial": "OTHER"}, {"profile_id": "OTHER"},
+                        {"medium_density_code": 0x44},
                         {"write_rate_bytes_per_second": 80_000_000}, {"buffer_bytes": True},
                         {"storage": {**self.storage, "device": "9:9"}}):
             with self.subTest(changes=changes):

@@ -112,7 +112,10 @@ def transfer_settings(config: WebConfig, control: Control, staging_id: str,
     profile = selected_speed_profile({"time": time.time(), "drives": [drive]}, drive["id"])
     if not isinstance(value, dict) or profile is None:
         raise SafetyError("Geprüfte Transferwerte für dieses Laufwerk und Staging speichern")
-    for key in ("drive_id", "drive_serial", "profile_id", "medium_density_code"):
+    # drive_id contains the Linux bus path and can change after reconnecting.
+    # mounted() resolves the registered drive/MAM serials uniquely; retain the
+    # serial, supported media profile and staging checks as the durable binding.
+    for key in ("drive_serial", "profile_id", "medium_density_code"):
         if value.get(key) != profile[key]:
             raise SafetyError("Transferwerte passen nicht zum aktuellen Laufwerks-/Medienprofil")
     rate, buffer = value.get("write_rate_bytes_per_second"), value.get("buffer_bytes")
