@@ -202,9 +202,9 @@ nur die eigenen zusätzlichen Quellkopien. Bei Fehlern oder Prozessabbruch bleib
 unvollständige Daten erhalten; es gibt keine automatische Wiederholung oder
 Überschreibung. Bestehende Pläne werden nicht automatisch in diesen Modus versetzt.
 
-## CPU und Transferpuffer (vorbereitet für die nächste Version)
+## CPU und Transferpuffer (ab 0.8.8)
 
-Die Übersicht erhält eine Karte **CPU & Transferpuffer**. „CPU Worker“ verwendet
+Die Übersicht zeigt eine Karte **CPU & Transferpuffer**. „CPU Worker“ verwendet
 100 % je CPU-Kern; „CPU gesamt“ bezieht sich auf alle Kerne. Daneben steht der
 I/O-Warteanteil. Die Werte werden alle fünf Sekunden aus wenigen Zählern gesammelt.
 Es gibt keine zusätzlichen Bandabfragen und keine zusätzliche Messhistorie.

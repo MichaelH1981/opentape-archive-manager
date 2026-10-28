@@ -1,7 +1,7 @@
-# CPU- und Pufferübersicht – nächste Version
+# CPU- und Pufferübersicht – 0.8.8
 
-Implementiert im Entwicklungsbranch, während des laufenden Archivjobs nicht
-installiert. Die Übersicht zeigt Worker-CPU, gesamte Host-CPU, I/O-Warteanteil
+In Version 0.8.8 enthalten; am 28.10.2026 nach vollständig verifiziertem ersten
+Medium und vor Beginn des zweiten Mediums installiert. Die Übersicht zeigt Worker-CPU, gesamte Host-CPU, I/O-Warteanteil
 und den zum aktuellen TAR gehörenden Lese- bzw. Schreibpuffer. Jobdetails zeigen
 dieselben vorhandenen Transferpufferwerte.
 
@@ -44,5 +44,8 @@ umschaltbare Leseratenregelung.
 Syntax- und Renderprüfungen. Neue Tests prüfen CPU-Normalisierung, unbekannte bzw.
 zurückgesetzte Zähler, fehlende Linux-Dateien, stale Heartbeats, einen gemeinsamen
 Commit und die Zuordnung von Pufferwerten zu TAR/Phase. Browserprüfung mit rein
-synthetischen CPU-/Pufferwerten. Kein Deployment und keine zusätzlichen Servertests
-während der laufenden Bandarbeit.
+synthetischen CPU-/Pufferwerten. Während laufender Bandarbeit kein Deployment und keine zusätzlichen Servertests.
+Im anschließend bestätigten Medienwechsel-Leerlauf bestanden alle 317 Debian-Tests.
+Der tatsächliche Mehrbandplan wurde mit privaten SQLite-Kopien und einem Software-
+adapter geprüft: nur das zweite Kind ausgewählt, Planhash und Verifikationsmodus
+`media` erhalten, elf VERIFIED-Archive des ersten Mediums unverändert.

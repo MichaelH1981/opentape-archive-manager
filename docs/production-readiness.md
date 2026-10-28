@@ -1455,3 +1455,29 @@ leerer Queue installiert. Modul und beide SQLite-Datenbanken wurden gesichert;
 Dienstkontoimport, Dienstneustart und Healthcheck sind geprüft. Kein Archivauftrag
 wurde gestartet, kein Band neu initialisiert und kein Archivplan geändert. Die
 optionale Quellübernahme des Entwicklungsbranches bleibt davon unabhängig.
+
+### 28.10.2026: 0.8.8 im bestätigten Medienwechselfenster installiert
+
+Der aktuelle erste Medien-Kindjob war mit elf VERIFIED-TARs abgeschlossen, der
+Gesamtjob WAITING_MEDIA und der backup-set-Auftrag SUCCEEDED. Queue und dauerhafte
+Pending-/Resetjournale waren leer. 317 Debian-Tests bestanden im separaten Kandidaten
+mit isoliertem TMPDIR. Kompatibilität des tatsächlichen gespeicherten Plans wurde
+gegen private Katalog-/Controlkopien und einen Softwareadapter geprüft: nächste
+Etappe ausschließlich Kind 2, unveränderter Planhash und Modus `media`, alte elf
+Archive unverändert. Dies ist ein Kompatibilitätsnachweis, kein neuer Hardwaretest.
+
+Paket 0.8.8 wurde mit SHA-256
+`8d6c5c7293beaf7a9d6d5667f93f9b9a50001db3cff26a21a4197949276b51a2`
+geprüft; Wheel-Inhalte entsprachen byteweise dem getesteten Kandidaten. Erneute
+Leerlaufprüfung, globale I/O- und Workersperre, Sicherungen beider Datenbanken,
+Konfiguration, bisherigem Paket/Metadaten und Einstiegspunkt vor Installation.
+Offline-Installation ohne Abhängigkeitswechsel mit umask 022, Dienstkontoimport und
+Neustart bestanden. Rückweg auf das unveränderte vorherige Paket ist gesichert.
+
+Nach Neustart: Dienste aktiv, Healthcheck ok, frische CPU-Telemetrie, neue
+Oberflächendateien ausgeliefert. Logische SHA-256-Vergleiche von Jobs, Archiven,
+Dateien, Medien, Staging, Verifikationen, Restores und dauerhaften Bindungen stimmen
+mit dem Stand vor dem Update überein. Band 2 bleibt PLANNED, Gesamtjob WAITING_MEDIA;
+kein Bandauftrag wurde automatisch gestartet. Die optionale lokale Quellübernahme
+ist jetzt ebenfalls im Paket enthalten, bleibt ausdrücklich optional und verändert
+den bestehenden Plan nicht. 0.8.8 enthält keine neue mechanische Leseratenregelung.
