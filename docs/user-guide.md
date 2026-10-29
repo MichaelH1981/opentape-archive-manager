@@ -213,3 +213,15 @@ Während eines Bandtransfers erscheinen Füllstand und Kapazität des aktuellen
 Host-Puffers, auch in den Jobdetails. Lese- und Schreibpuffer sind unterschiedliche
 Puffer. Fehlende oder veraltete Messwerte sind ausdrücklich gekennzeichnet.
 Die Anzeige verändert die Bandgeschwindigkeit nicht.
+
+## CPU-Reserve beim Rücklesen (ab 0.8.9)
+
+Mit aktivem RAM-Vorlesepuffer werden der TAR-Gesamthash und die Datei-/Strukturprüfung
+parallel bearbeitet. Das Band wird weiterhin einmal gelesen; alle Hashprüfungen sind
+Pflicht. Die Worker-CPU-Anzeige kann dadurch über 100 % liegen, weil mehr als ein Kern
+mitarbeitet. Das ist keine Überlastungsanzeige für die gesamte CPU.
+
+Die systemd-Worker-Unit bevorzugt Archivarbeit moderat bei CPU-Konkurrenz. Andere
+Dienste bleiben nutzbar; eine feste Kernausschließlichkeit oder garantierte Bandrate
+entsteht dadurch nicht. Große konkurrierende Last und unzureichende Kühlung können
+weiterhin bremsen. Bestehende Jobs, Verifikationsmodi und Bandinhalte bleiben unverändert.

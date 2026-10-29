@@ -414,7 +414,7 @@ class LinuxTape:
                 except (OSError, SafetyError, ValueError):
                     capacity = 0  # Optional acceleration must not prevent a safe read.
                 if capacity >= 16 * 1024**2:
-                    raw = PrefetchReader(raw, BLOCK, capacity)
+                    raw = PrefetchReader(raw, BLOCK, capacity, hash_archive=True)
                     prefetched = True
             self._reader = raw
             stream = raw if prefetched else io.BufferedReader(raw, buffer_size=BLOCK)

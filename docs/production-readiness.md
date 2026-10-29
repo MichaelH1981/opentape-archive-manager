@@ -1481,3 +1481,30 @@ mit dem Stand vor dem Update überein. Band 2 bleibt PLANNED, Gesamtjob WAITING_
 kein Bandauftrag wurde automatisch gestartet. Die optionale lokale Quellübernahme
 ist jetzt ebenfalls im Paket enthalten, bleibt ausdrücklich optional und verändert
 den bestehenden Plan nicht. 0.8.8 enthält keine neue mechanische Leseratenregelung.
+
+### 29.10.2026: 0.8.9 – parallele Hashprüfung und geringere Konkurrenzlast
+
+Nach Serverstart waren Gesamtjob und Band 2 VERIFIED; Queue, RUNNING/PLANNING-Jobs
+und Pending-/Resetjournale leer. Neuer Pfad: bestehender einzelner Prefetch-Leser
+hasht den gesamten TAR-Strom, Konsument prüft gleichzeitig Struktur und Dateihashes.
+Alle bisherigen End-, Fehler-, Bytezahl- und Receipt-Prüfungen bleiben erforderlich;
+kein geändertes Bandformat und keine zusätzliche Nutzdatenlesung. Joblisten verarbeiten
+nur benötigte Planverknüpfungen statt sämtlicher historischen Inventare in Python.
+Moderat bevorzugte Worker-CPU-Zuteilung über CPUWeight=200; kein Echtzeitbetrieb.
+
+323/323 Debian-Tests bestanden, lokal 323 mit einem Skip. Kurzer RAM-only-A/B-Test
+auf der tatsächlichen CPU: Median 107,20 → 135,28 MB/s; Hauptthread-CPU je identischem
+64-MiB-TAR 0,594 → 0,494 s. Kein physischer oder thermischer Dauernachweis; Details
+in `architecture/parallel-readback-hashing.md`. Ein erster Teststart scheiterte vor
+jeder Messung an fehlenden Schreibrechten im neuen Abnahmeverzeichnis; nach gezielter
+Besitzerkorrektur bestanden Vergleich und Tests. Hauptworker wurde jeweils garantiert
+wieder gestartet. Historische Protokolle bleiben unverändert.
+
+Wheel-SHA-256: `8abbdbc2e97383209c76e7909ea063f799170e052e1752cdc16ff2d1b66c5066`.
+Bytevergleich des Wheels gegen den getesteten Kandidaten, Sicherung des alten Pakets,
+Konfiguration und beider Datenbanken, erneute Leerlaufprüfung und Installation unter
+globaler Sperre bestanden. CPU-Drop-in getrennt rücksicherbar; wirksamer Kernelwert
+200. Nach Neustart beide Dienste aktiv, Health ok, Telemetrie frisch, vollständige
+logische Fingerprints von Jobs, Archiven, Dateien, Medien, Staging, Verifikationen,
+Restores und dauerhaften Bindungen unverändert. Signierter Katalogsync anschließend
+UNCHANGED, Sequenz 1831. Kein zusätzlicher Bandjob gestartet.

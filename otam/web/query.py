@@ -197,12 +197,16 @@ class CatalogView:
             rows = []
             for row in db.execute(
                 """SELECT j.id,j.kind,j.state,j.media_id,j.created,j.updated,j.phase,j.error,
-                          j.plan_json,m.label FROM jobs j LEFT JOIN media m ON m.id=j.media_id
+                          json_extract(j.plan_json,'$.parent_job','$.children') plan_summary,
+                          m.label FROM jobs j LEFT JOIN media m ON m.id=j.media_id
                    ORDER BY j.created DESC LIMIT ?""", (limit,)
             ):
                 item = dict(row)
-                plan = json.loads(item.pop("plan_json") or "null")
-                item["parent_job"] = plan.get("parent_job") if isinstance(plan, dict) else None
+                # Polling needs only linkage and child IDs, never the potentially
+                # huge manifest/file inventory of every historical job in Python.
+                parent, children = json.loads(item.pop("plan_summary") or "[null,null]")
+                plan = {"children": children} if children else None
+                item["parent_job"] = parent
                 item['progress'] = job_progress(db,item['id'],plan,item['state'])
                 rows.append(item)
             return rows

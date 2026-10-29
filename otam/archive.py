@@ -382,13 +382,15 @@ def inspect_stream(stream: BinaryIO, manifest: dict[str, Any] | None = None,
                    payload_handler: PayloadHandler | None = None) -> tuple[dict[str, Any], str, int]:
     """Inspect and hash through filemark before reading the following receipt."""
     import hashlib
-    result = hashlib.sha256()
+    parallel_hash = getattr(stream, 'hashes_archive', False) is True
+    result = None if parallel_hash else hashlib.sha256()
     done = 0
     class HashReader:
         def read(self, size: int = -1) -> bytes:
             nonlocal done
             data = stream.read(size)
-            result.update(data)
+            if result is not None:
+                result.update(data)
             done += len(data)
             if progress:
                 progress(done)
@@ -397,7 +399,13 @@ def inspect_stream(stream: BinaryIO, manifest: dict[str, Any] | None = None,
     found = verify_archive(incoming, manifest, payload_handler)
     while incoming.read(1024 * 1024):
         pass  # Include all TAR end blocks/padding through the actual filemark/EOF.
-    return found, result.hexdigest(), done
+    if parallel_hash:
+        checksum, hashed_bytes = stream.archive_digest()
+        if hashed_bytes != done:
+            raise SafetyError('Archive hash byte count differs from inspected stream')
+    else:
+        checksum = result.hexdigest()
+    return found, checksum, done
 
 
 def verify_stream(stream: BinaryIO, expected_hash: str, expected_bytes: int,

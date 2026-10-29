@@ -6,6 +6,7 @@ import queue
 import threading
 import time
 import operator
+import hashlib
 
 
 class PrefetchReader(io.RawIOBase):
@@ -15,7 +16,7 @@ class PrefetchReader(io.RawIOBase):
     timeout. No descriptor is closed from a different thread, and no seek can
     race a reader left running after the context manager exits.
     """
-    def __init__(self, source: io.RawIOBase, block: int, capacity: int):
+    def __init__(self, source: io.RawIOBase, block: int, capacity: int, *, hash_archive: bool = False):
         super().__init__()
         if block <= 0 or capacity < block:
             raise ValueError("Invalid prefetch capacity")
@@ -34,6 +35,9 @@ class PrefetchReader(io.RawIOBase):
         self.producer_wait_seconds = 0.0
         self.producer_cpu_seconds = 0.0
         self.started = time.monotonic()
+        self.hashes_archive = hash_archive
+        self._archive_hash = hashlib.sha256() if hash_archive else None
+        self._filemark = False
         self.thread = threading.Thread(target=self._produce, name='otam-read-prefetch', daemon=False)
         self.thread.start()
 
@@ -44,9 +48,12 @@ class PrefetchReader(io.RawIOBase):
             while not self.stop.is_set():
                 chunk = read_record() if read_record else self.source.read(self.block)
                 if not chunk:
+                    self._filemark = True
                     break  # Latch first filemark: no subsequent source read.
                 if not isinstance(chunk, bytes) or len(chunk) > self.block:
                     raise ValueError('Source returned an invalid tape record')
+                if self._archive_hash is not None:
+                    self._archive_hash.update(chunk)
                 self.received += len(chunk)
                 self.buffer_peak = max(self.buffer_peak, self.received-self.consumed)
                 while not self.stop.is_set():
@@ -128,12 +135,27 @@ class PrefetchReader(io.RawIOBase):
         elapsed = max(time.monotonic()-self.started, 1e-9)
         device = self.source.metrics() if hasattr(self.source, 'metrics') else {}
         return {**device, 'reader_mode': 'prefetch', 'read_buffer_bytes': self.capacity,
+                'archive_hash_mode': 'producer' if self.hashes_archive else 'consumer',
                 'read_buffered_bytes': max(0,self.received-self.consumed),
                 'read_buffer_peak_bytes': self.buffer_peak,
                 'consumer_wait_seconds': self.consumer_wait_seconds,
                 'producer_wait_seconds': self.producer_wait_seconds,
                 'producer_cpu_seconds': self.producer_cpu_seconds,
                 'reader_bytes_per_second': self.received/elapsed}
+
+    def archive_digest(self):
+        """Publish only after physical EOF and consumption of the exact stream.
+
+        A producer exit, early close or read error is never a completed hash.
+        The finished event synchronizes access to the producer-owned context.
+        """
+        if self.error is not None:
+            raise self.error
+        if (self.closed or self._archive_hash is None or not self.finished.is_set()
+                or not self._filemark or self.stop.is_set()
+                or self.consumed != self.received):
+            raise ValueError('Archive hash requires complete, successful stream consumption')
+        return self._archive_hash.hexdigest(), self.received
 
     def close(self):
         if not self.closed:

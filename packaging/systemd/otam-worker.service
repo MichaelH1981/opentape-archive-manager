@@ -13,6 +13,8 @@ Environment=TMPDIR=/var/lib/otam/tmp
 ExecStart=/opt/otam/venv/bin/otam worker --config /etc/otam/node.json
 Restart=on-failure
 RestartSec=5
+# Prefer archive work under CPU contention; normal scheduling, no CPU pinning/quota.
+CPUWeight=200
 # Graceful stop finishes an active operation; no timed SIGKILL during tape I/O.
 TimeoutStopSec=infinity
 NoNewPrivileges=true
