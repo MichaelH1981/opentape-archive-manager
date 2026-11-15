@@ -79,6 +79,7 @@ class WebConfig:
     physical_initialization: bool = False
     physical_reset: bool = False
     physical_reinitialization: bool = False
+    physical_rotation: bool = False
     setup_token_file: Path | None = None
 
     def validate(self) -> None:
@@ -167,6 +168,9 @@ class WebConfig:
         if (type(self.physical_reinitialization) is not bool
                 or (self.physical_reinitialization and not self.physical_initialization)):
             raise SafetyError('Physische Neuinitialisierung benötigt eine separate administrative Freigabe')
+        if (type(self.physical_rotation) is not bool
+                or (self.physical_rotation and not self.physical_initialization)):
+            raise SafetyError('Physische Rotation benötigt eine separate administrative Freigabe')
         ids = [s.id for s in self.sources]
         if len(set(ids)) != len(ids) or any(
             not s.path.is_absolute() for s in self.sources

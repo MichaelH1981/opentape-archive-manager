@@ -78,6 +78,40 @@ PRAGMA user_version=2;
 """
 
 
+ROTATION_TABLES = {
+    'backup_policies': {'id', 'name', 'options_json', 'created'},
+    'tape_sets': {'id', 'policy_id', 'name', 'created'},
+    'tape_set_members': {'id', 'set_id', 'media_id', 'added', 'removed'},
+    'backup_generations': {'id', 'policy_id', 'set_id', 'state', 'source_job', 'archive_job', 'data_json', 'created', 'completed'},
+    'generation_volumes': {'generation_id', 'media_id'},
+    'recycle_intents': {'id', 'generation_id', 'media_id', 'state', 'review_json', 'created', 'new_media_id'},
+}
+
+MIGRATION_3 = """
+CREATE TABLE backup_policies(id TEXT PRIMARY KEY, name TEXT NOT NULL,
+ options_json TEXT NOT NULL, created REAL NOT NULL);
+CREATE TABLE tape_sets(id TEXT PRIMARY KEY, policy_id TEXT NOT NULL REFERENCES backup_policies(id),
+ name TEXT NOT NULL, created REAL NOT NULL, UNIQUE(policy_id,name));
+CREATE TABLE tape_set_members(id TEXT PRIMARY KEY, set_id TEXT NOT NULL REFERENCES tape_sets(id),
+ media_id TEXT NOT NULL REFERENCES media(id), added REAL NOT NULL, removed REAL);
+CREATE UNIQUE INDEX active_set_member ON tape_set_members(media_id) WHERE removed IS NULL;
+CREATE TABLE backup_generations(id TEXT PRIMARY KEY, policy_id TEXT NOT NULL REFERENCES backup_policies(id),
+ set_id TEXT NOT NULL REFERENCES tape_sets(id), state TEXT NOT NULL,
+ source_job TEXT REFERENCES jobs(id), archive_job TEXT REFERENCES jobs(id),
+ data_json TEXT NOT NULL, created REAL NOT NULL, completed REAL);
+CREATE UNIQUE INDEX active_policy_generation ON backup_generations(policy_id)
+ WHERE state NOT IN ('VERIFIED','FAILED','INTERRUPTED','UNAVAILABLE','CANCELLED');
+CREATE TABLE generation_volumes(generation_id TEXT NOT NULL REFERENCES backup_generations(id),
+ media_id TEXT NOT NULL REFERENCES media(id), PRIMARY KEY(generation_id,media_id));
+CREATE TABLE recycle_intents(id TEXT PRIMARY KEY, generation_id TEXT NOT NULL REFERENCES backup_generations(id),
+ media_id TEXT NOT NULL REFERENCES media(id), state TEXT NOT NULL, review_json TEXT NOT NULL,
+ created REAL NOT NULL, new_media_id TEXT REFERENCES media(id));
+CREATE UNIQUE INDEX uncertain_recycle ON recycle_intents(media_id)
+ WHERE state IN ('CONSUMED','WRITING','INTERRUPTED');
+PRAGMA user_version=3;
+"""
+
+
 class Catalog:
     def __init__(self, path: Path):
         self.path = path.resolve()
@@ -88,13 +122,15 @@ class Catalog:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version > 2:
+        if version > 3:
             self.db.close()
             raise SafetyError("Catalog schema is newer than this application")
         if version == 0:
             self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nCOMMIT;")
         if version < 2:
             self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_2 + "\nCOMMIT;")
+        if version < 3:
+            self.db.executescript("BEGIN IMMEDIATE;\n" + MIGRATION_3 + "\nCOMMIT;")
 
     def close(self) -> None:
         self.db.close()
@@ -184,8 +220,9 @@ class Catalog:
                                  entry["size"], entry["mtime_ns"], entry["type"], entry["sha256"]))
 
     def search(self, query: str = "", checksum: str | None = None) -> list[dict[str, Any]]:
-        sql = """SELECT f.*,a.media_id,a.tape_file,a.state,a.created FROM files f
-            JOIN archives a ON a.id=f.archive_id WHERE instr(f.path,?)>0"""
+        sql = """SELECT f.*,a.media_id,a.tape_file,
+            CASE WHEN m.state='RETIRED' THEN 'UNAVAILABLE' ELSE a.state END state,a.created FROM files f
+            JOIN archives a ON a.id=f.archive_id JOIN media m ON m.id=a.media_id WHERE instr(f.path,?)>0"""
         args: list[Any] = [query]
         if checksum:
             sql += " AND f.sha256=?"
@@ -193,5 +230,5 @@ class Catalog:
         return [dict(row) for row in self.db.execute(sql + " ORDER BY f.path,a.created", args)]
 
     def export(self) -> dict[str, Any]:
-        return {"schema_version": 2, **{table: [dict(r) for r in self.db.execute(f"SELECT * FROM {table}")]
-                for table in ("media", "archives", "files", "jobs", "events", "verifications", "restores", "staged_archives", "staging_artifacts", "storage_benchmarks")}}
+        return {"schema_version": 3, **{table: [dict(r) for r in self.db.execute(f"SELECT * FROM {table}")]
+                for table in ("media", "archives", "files", "jobs", "events", "verifications", "restores", "staged_archives", "staging_artifacts", "storage_benchmarks", *ROTATION_TABLES)}}

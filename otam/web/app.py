@@ -315,6 +315,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 "physical_initialization": config.physical_initialization,
                 "physical_reset": config.physical_reset,
                 "physical_reinitialization": config.physical_reinitialization,
+                "physical_rotation": config.physical_rotation,
                 "physical_maintenance": config.physical_maintenance,
             },
             "snapshot": active,
@@ -562,13 +563,107 @@ def create_app(config: WebConfig) -> FastAPI:
         def commands():
             return {"items": control.commands()}
 
+        @archive.get('/rotation')
+        def rotation_list():
+            from ..rotation import listing
+            c = Catalog(config.catalog)
+            try:
+                restores = []
+                for r in c.db.execute("SELECT id,state,error,report_json FROM jobs WHERE kind='rotation-restore' ORDER BY created DESC"):
+                    value = dict(r); value.update(json.loads(value.pop('report_json') or '{}')); restores.append(value)
+                return {'items': listing(c), 'restores': restores, 'physical_recycling_enabled': config.physical_rotation}
+            finally:
+                c.close()
+
+        @archive.post('/rotation/policies', dependencies=[Depends(require_admin)])
+        def rotation_policy(data: dict[str, Any] = Body()):
+            return save_rotation_policy(data)
+
+        @archive.put('/rotation/policies/{policy_id}', dependencies=[Depends(require_admin)])
+        def rotation_policy_update(policy_id: str, data: dict[str, Any] = Body()):
+            return save_rotation_policy(data, policy_id)
+
+        def save_rotation_policy(data, policy_id=None):
+            from ..rotation import policy
+            from ..storage import io_lock
+            from . import resources
+            effective = resources.effective(config, control)
+            if data.get('source_id') not in {s.id for s in effective.sources}:
+                raise SafetyError('Quelle ist nicht freigegeben')
+            resources.staging_for(effective, control, data.get('staging_id'))
+            with io_lock():
+                c = Catalog(config.catalog)
+                try:
+                    result = policy(c, data, policy_id)
+                    c.event(None, 'rotation_policy_updated', policy_id=result['id'])
+                    return result
+                finally:
+                    c.close()
+
+        @archive.post('/rotation/sets/{set_id}/members', dependencies=[Depends(require_admin)])
+        def rotation_member(set_id: str, data: dict[str, Any] = Body()):
+            from ..rotation import add_member
+            from ..storage import io_lock
+            from .maintenance import mode
+            if set(data) != {'media_id'}:
+                raise SafetyError('Konkrete Medien-ID erforderlich')
+            with io_lock():
+                c = Catalog(config.catalog)
+                try:
+                    result = add_member(c, set_id, data['media_id'], mode(config, control))
+                    c.event(None, 'rotation_member_added', **result)
+                    return result
+                finally:
+                    c.close()
+
+        @archive.post('/rotation/recycle/prepare', dependencies=[Depends(require_admin)])
+        def rotation_recycle_review(data: dict[str, Any] = Body()):
+            from .rotation import review
+            return review(config, control, data)
+
+        @archive.put('/rotation/generations/{generation_id}/protection', dependencies=[Depends(require_admin)])
+        def rotation_protection(generation_id: str, data: dict[str, Any] = Body()):
+            from ..rotation import row, update_generation
+            from ..storage import io_lock
+            if set(data) != {'protected'} or type(data['protected']) is not bool:
+                raise SafetyError('Expliziten Generationsschutz angeben')
+            with io_lock():
+                c = Catalog(config.catalog)
+                try:
+                    g = row(c, 'backup_generations', generation_id)
+                    value = json.loads(g['data_json']); value['protected'] = data['protected']
+                    update_generation(c, generation_id, g['state'], value)
+                    return {'id': generation_id, 'protected': value['protected']}
+                finally:
+                    c.close()
+
+        @archive.post('/rotation/generations/{generation_id}/cancel', dependencies=[Depends(require_admin)])
+        def rotation_cancel(generation_id: str, data: dict[str, Any] = Body()):
+            from ..rotation import row, update_generation
+            from ..storage import io_lock
+            if data != {'confirm': generation_id}:
+                raise SafetyError('Abbruch mit Generations-ID bestätigen')
+            with io_lock():
+                c = Catalog(config.catalog)
+                try:
+                    g = row(c, 'backup_generations', generation_id)
+                    if g['archive_job'] or g['state'] not in ('WAITING_CAPACITY','WAITING_APPROVAL','WAITING_MEDIA'):
+                        raise SafetyError('Nur ungebundene wartende Generation abbrechen; Daten bleiben erhalten')
+                    if c.db.execute("SELECT 1 FROM recycle_intents WHERE generation_id=? AND state IN ('CONSUMED','WRITING','INTERRUPTED')", (generation_id,)).fetchone():
+                        raise SafetyError('Ungeklärte Wiederverwendung benötigt separate Recovery')
+                    update_generation(c, generation_id, 'CANCELLED')
+                    c.event(g['source_job'], 'rotation_cancelled', source_capture_retained=True)
+                    return {'state':'CANCELLED'}
+                finally:
+                    c.close()
+
         @archive.post("/commands", status_code=202)
         def command(
             data: CommandRequest,
             idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
             request: Request,
         ):
-            if data.kind in ("tape-maintenance", "staging-speedtest", "register-physical", "initialize-physical", "reset-physical", "reinitialize-physical"):
+            if data.kind in ("tape-maintenance", "staging-speedtest", "register-physical", "initialize-physical", "reset-physical", "reinitialize-physical", "recycle-rotation"):
                 require_admin(request)
             validate_command(config, control, data.kind, data.payload)
             result = control.enqueue(data.kind, data.payload, idempotency_key)

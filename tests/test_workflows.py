@@ -661,7 +661,7 @@ ArchiveService(catalog, CrashTape(Path(sys.argv[2]))).backup(sys.argv[3], sys.ar
         rows = self.catalog.search("notes.txt")
         self.assertEqual(len(rows), 2)
         self.assertEqual(len(self.catalog.search(checksum=rows[0]["sha256"])), 2)
-        self.assertEqual(self.catalog.export()["schema_version"], 2)
+        self.assertEqual(self.catalog.export()["schema_version"], 3)
         output = io.StringIO()
         with patch("sys.stdout", output):
             self.assertEqual(main(["--db", str(self.catalog.path), "export", "--format", "csv"]), 0)

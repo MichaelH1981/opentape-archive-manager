@@ -40,6 +40,7 @@ import {
   selectionBar,
 } from "./ui.js";
 import { api } from "./api.js";
+import { rotationPage } from './rotation.js';
 async function dashboard() {
   const html=await dashboardBase();
   if (state.node.role !== "archive") return html;
@@ -587,6 +588,7 @@ async function settingsPage() {
   );
 }
 const renderers = {
+  rotation: rotationPage,
   dashboard,
   planning,
   staging: stagingPage,

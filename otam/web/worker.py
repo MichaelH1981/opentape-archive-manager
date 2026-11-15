@@ -29,6 +29,7 @@ from . import resources, maintenance, physical_archive, initialization, reset
 from . import diagnostics, telemetry
 
 COMMANDS = {
+    "plan-rotation", "bind-rotation", "recycle-rotation", "restore-rotation", "cleanup-rotation",
     "create-medium",
     "plan",
     "stage",
@@ -87,6 +88,10 @@ def validate_command(
     if config.role != "archive" or kind not in COMMANDS:
         raise SafetyError("Dieser Node erlaubt keine Archivierungsaufträge")
     config = resources.effective(config, control)
+    if kind in ('plan-rotation', 'bind-rotation', 'recycle-rotation', 'restore-rotation', 'cleanup-rotation'):
+        from . import rotation
+        rotation.validate(config, control, kind, payload)
+        return
     if kind == 'set-verification-mode':
         from . import batch
         batch.validate(config,control,payload)
@@ -328,12 +333,15 @@ def execute(
     scheduled: bool = False,
 ) -> Any:
     if maintenance.mode(config, control) == "physical" and kind in (
-            "register-physical", "backup", "backup-set", "verify", "restore", "recover", "rebuild"):
+            "register-physical", "backup", "backup-set", "verify", "restore", "recover", "rebuild", "restore-rotation"):
         # Only the worker refreshes device inventory. HTTP validation stays cached.
         from ..physical import discover_drives
         control.set("hardware_inventory", {"time": time.time(), "drives": discover_drives()})
     validate_command(config, control, kind, payload)
     config = resources.effective(config, control)
+    if kind in ('plan-rotation', 'bind-rotation', 'recycle-rotation', 'restore-rotation', 'cleanup-rotation'):
+        from . import rotation
+        return rotation.execute(config, control, kind, payload)
     if kind == 'set-verification-mode':
         from . import batch
         return batch.execute(config,control,payload)
@@ -398,6 +406,25 @@ def execute(
             media = payload["media_id"] if kind == "backup-set" else json.loads(row[0])["media_id"]
         else:
             media = payload.get("media_id") or payload.get("media_ids", [None])[0]
+        if kind == 'plan':
+            if any(catalog.db.execute('SELECT 1 FROM tape_set_members WHERE media_id=? AND removed IS NULL', (m,)).fetchone()
+                   for m in payload.get('media_ids', [media])):
+                raise SafetyError('Bandsatzmedien ausschließlich über rollierende Sicherungen planen')
+        if kind in ('backup', 'backup-set') and catalog.db.execute(
+                'SELECT 1 FROM tape_set_members WHERE media_id=? AND removed IS NULL', (media,)).fetchone():
+            owner_job = payload['job_id']
+            owner = catalog.db.execute('SELECT * FROM backup_generations WHERE archive_job=?', (owner_job,)).fetchone()
+            if not owner and kind == 'backup':
+                child = json.loads(catalog.db.execute('SELECT plan_json FROM jobs WHERE id=?', (owner_job,)).fetchone()[0])
+                owner = catalog.db.execute('SELECT * FROM backup_generations WHERE archive_job=?', (child.get('parent_job'),)).fetchone()
+            if not owner:
+                raise SafetyError('Bandsatzmedium hat keinen zugehörigen Generationsplan')
+            from ..rotation import active
+            other = active(catalog, owner['policy_id'])
+            if other and other[0] != owner['id']:
+                raise SafetyError('Eine andere Generation reserviert diese Sicherungsregel')
+            from .rotation import capture
+            capture(config, control, catalog, dict(owner))
         if kind in ("stage", "backup", "backup-set"):
             binding = control.get("job_storage:" + payload["job_id"])
             if binding is None:
@@ -569,6 +596,13 @@ def run_once(config: WebConfig, control: Control) -> bool:
                     },
                 )
         control.complete(command["id"], error=str(error))
+    finally:
+        from ..rotation import reconcile
+        catalog = Catalog(config.catalog)
+        try:
+            reconcile(catalog)
+        finally:
+            catalog.close()
     return True
 
 
@@ -619,6 +653,9 @@ def run_worker(config: WebConfig, *, once: bool = False) -> None:
             catalog = Catalog(config.catalog)
             try:
                 catalog.interrupt_unfinished()
+                with catalog.db:
+                    catalog.db.execute("UPDATE backup_generations SET state='INTERRUPTED' WHERE state IN ('PREPARING','BINDING','RUNNING')")
+                    catalog.db.execute("UPDATE recycle_intents SET state='INTERRUPTED' WHERE state IN ('CONSUMED','WRITING')")
                 control.interrupt_running()
             finally:
                 catalog.close()

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..common import SafetyError, sync_dir
+from ..catalog import ROTATION_TABLES
 from .config import WebConfig
 from .control import Control
 
@@ -120,7 +121,8 @@ def validate_snapshot(path: Path) -> None:
     try:
         db.execute("PRAGMA query_only=ON")
         db.execute("PRAGMA trusted_schema=OFF")
-        if db.execute("PRAGMA user_version").fetchone()[0] != 2:
+        version = db.execute("PRAGMA user_version").fetchone()[0]
+        if version not in (2, 3):
             raise SafetyError("Nicht unterstützte Katalogversion")
         if db.execute(
             "SELECT count(*) FROM sqlite_master WHERE type IN ('trigger','view')"
@@ -130,9 +132,10 @@ def validate_snapshot(path: Path) -> None:
             r[0]
             for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        if tables != set(REQUIRED):
+        required = REQUIRED | (ROTATION_TABLES if version == 3 else {})
+        if tables != set(required):
             raise SafetyError("Snapshot besitzt unerwartete oder fehlende Tabellen")
-        for table, columns in REQUIRED.items():
+        for table, columns in required.items():
             if not columns <= {
                 r[1] for r in db.execute(f'PRAGMA table_info("{table}")')
             }:

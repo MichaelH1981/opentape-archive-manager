@@ -41,6 +41,7 @@ import {
 } from "./ui.js";
 import { api, enqueue, refreshBase } from "./api.js";
 import { renderers, driveStatusPanel, hardwareDiscoveryPanel, diagnosticDetails } from "./views.js";
+import { bindRotation } from './rotation.js';
 let renderId = 0;
 function applyPermissions(root) {
   const role = state.account?.role || "viewer";
@@ -525,6 +526,7 @@ async function editUser(id, resetPassword = false) {
   });
 }
 function bindForms(root = $("#content")) {
+  if (state.page === 'rotation') bindRotation(render);
   const on = (id, handler) => {
     const f = $(id, root);
     if (f)
@@ -1030,7 +1032,7 @@ async function pollUpdates() {
       if (live.isConnected) {live.innerHTML=jobProgress(current.progress);localize(live);}
     }
     if (
-      ["dashboard", "jobs", "staging", "integrity", "sync", "logs", "media"].includes(
+      ["dashboard", "jobs", "staging", "integrity", "sync", "logs", "media", "rotation"].includes(
         state.page,
       ) &&
       !$("#modal").open &&

@@ -1508,3 +1508,59 @@ globaler Sperre bestanden. CPU-Drop-in getrennt rücksicherbar; wirksamer Kernel
 logische Fingerprints von Jobs, Archiven, Dateien, Medien, Staging, Verifikationen,
 Restores und dauerhaften Bindungen unverändert. Signierter Katalogsync anschließend
 UNCHANGED, Sequenz 1831. Kein zusätzlicher Bandjob gestartet.
+
+## 0.9.0 – Bandsatz-/Rotationskandidat, 15./16. November 2026
+
+Implementiert sind konfigurierbare Bandsätze ab einem Satz, Erweiterung vor
+Medienbindung, unabhängige Vollgenerationen, vollständige lokale Quellenaufnahme,
+Aufbewahrung/Generationsschutz, gesonderte Wiederverwendungsreviews mit dauerhaftem
+Intent und neuer Medien-UUID sowie Gesamtrestore und unabhängiges Recovery-Skript.
+Historische Inkarnationen und Prüfungen bleiben erhalten, sind nach möglichem
+Überschreiben aber nicht als verfügbar nutzbar. Reguläre Plan-/Bind-Aufträge dürfen
+Bandsatzreservierungen nicht umgehen; Retired-Inkarnationen werden nicht durch
+Verify/Rebuild/Recover wieder aktiviert. Details und bewusst verbleibende Grenzen:
+`architecture/rotation-09-implementation.md`.
+
+345/345 Debian-Tests des finalen Anwendungskandidaten bestanden; darunter 20
+Rotationsfälle, ein vollständiger LinuxTape-/Worker-/Abnahmeharnesslauf auf inertem
+Dateigerät sowie Recovery ohne OTAM-Datenbank. Zusätzlich 3/3 Debian-Tests des
+separaten Katalog-Updatehelfers mit simuliertem systemctl/pip und Rollback bestanden.
+Die lokale Browserprüfung bestätigt Anmeldung, neue Bandsatzansicht und Erweiterung
+von zwei auf drei Sätze mit synthetischen Daten. Dies sind keine neuen physischen
+Bandnachweise. Ein früherer Gesamtlauf hatte nur eine veraltete Schema-2-Erwartung;
+Originalprotokoll bleibt erhalten, abschließender Lauf ist vollständig bestanden.
+
+Upgradeprobe auf einer privaten SQLite-Backup-Kopie des echten Katalogs:
+Schema 2 → 3, alle bisherigen Tabelleninhalte einschließlich vollständiger
+Zeilenfingerprints unverändert, Fremdschlüssel/Integrität und Snapshotvalidierung
+bestanden. Originalbackup bleibt mit installierter 0.8.9 lesbar. Livekatalog und
+Kontrolldatenbank wurden nicht migriert oder verändert.
+
+Finales Wheel SHA-256:
+`a7ae28fe53d7fb567f964c005bdc9ca65ce7a95a00a189eb30e6d9e19acfda4c`.
+Debian-Paket SHA-256:
+`c0aac5781f3b81e7796ed36bdf5e31a2301f02c306a631d0e76c8c1199d38855`.
+Alle 60 Programm-/Webdateien im Wheel stimmen bytegenau mit dem getesteten
+Kandidaten überein; der eigenständige Recovery-Helfer ist beigepackt. Finaler
+isolierter Wheelimport als Dienstkonto einschließlich Schema bestanden;
+statische Dateien und eigenständiger Recovery-Helfer sind enthalten. Ein zunächst unvollständiges Quell-TAR enthielt die benötigte
+Dokumentation nicht und scheiterte beim Paketbau; neue vollständige Bereitstellung
+und abschließende Paketbauten erfolgreich. Keine Installation dieses Fehlversuchs.
+
+Deployment ausstehend: Bandserver bleibt 0.8.9, eigenständiger Katalogserver
+0.8.6. Dessen bisheriger SSH-Admin darf ausschließlich den Webdienst steuern;
+Programmdateien sind root-eigen. Der Katalog muss vor dem ersten Schema-3-Push
+aktualisiert werden. Geprüftes Wheel und ein SHA-256-prüfender Updatehelfer mit
+privatem Venv-/Konfigurations-/SQLite-Backup und Programm-Rollback sind bereitgestellt;
+Ausführung benötigt einen tatsächlich berechtigten Administrator. Keine Erweiterung
+von SSH-/sudo-Rechten vorgenommen. Erst nach Katalogupdate, erneuter Leerlaufprüfung,
+Livebackup und Dienstkonto-/Health-/Synchronisationsprüfung darf das Bandserverupdate
+folgen. `physical_rotation` bleibt bis zur kleinen echten Recyclingabnahme false.
+Keine produktive Kassette wurde für diese Entwicklung verändert.
+
+Staging-Audit: rund 152,65 GB belegt. Davon 150,32 GB die im VERIFIED-Bericht des
+Großtests eindeutig referenzierte Restore-Ausgabe (zwei synthetische 70-GiB-Dateien
+und README), weitere rund 2,15 GB zwei eigene alte Performanceversuche. Keine
+aktiven Archivjobs/Queueaufträge bei der Prüfung. Aufgrund der früher ausdrücklich
+verlangten Aufbewahrung der Restore-Ausgabe noch nichts gelöscht; neue konkrete
+Freigabe angefordert. Übrige kleinere Job-/Restore-Verzeichnisse bleiben erhalten.

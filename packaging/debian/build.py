@@ -15,6 +15,8 @@ with tempfile.TemporaryDirectory(prefix='otam-deb-') as tmp:
     (bin/'otam').write_text('#!/usr/bin/python3\nfrom otam.cli import main\nraise SystemExit(main())\n');(bin/'otam').chmod(0o755)
     doc=root/'usr/share/doc/opentape-archive-manager';doc.mkdir(parents=True)
     for source,dest in [(repo/'LICENSE',doc/'copyright'),(repo/'README.md',doc/'README.md')]:shutil.copy2(source,dest)
+    (doc/'recovery').mkdir()
+    shutil.copy2(repo/'tools/restore_rotation.py',doc/'recovery/restore_rotation.py')
     shutil.copytree(repo/'docs',doc/'docs',ignore=shutil.ignore_patterns('hardware','*.sqlite','__pycache__'))
     (doc/'docs/hardware').mkdir()
     shutil.copy2(repo/'docs/hardware/README.md',doc/'docs/hardware/README.md')

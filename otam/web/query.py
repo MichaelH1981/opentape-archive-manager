@@ -69,14 +69,14 @@ class CatalogView:
 
             return {
                 "available": True,
-                "media_count": number("SELECT count(*) FROM media"),
-                "file_count": number("SELECT count(*) FROM files"),
-                "archive_count": number("SELECT count(*) FROM archives"),
+                "media_count": number("SELECT count(*) FROM media WHERE state!='RETIRED'"),
+                "file_count": number("SELECT count(*) FROM files f JOIN archives a ON a.id=f.archive_id JOIN media m ON m.id=a.media_id WHERE m.state!='RETIRED'"),
+                "archive_count": number("SELECT count(*) FROM archives a JOIN media m ON m.id=a.media_id WHERE m.state!='RETIRED'"),
                 "verified_count": number(
-                    "SELECT count(*) FROM archives WHERE state='VERIFIED'"
+                    "SELECT count(*) FROM archives a JOIN media m ON m.id=a.media_id WHERE a.state='VERIFIED' AND m.state NOT IN ('RETIRED','SUSPECT')"
                 ),
                 "verified_bytes": number(
-                    "SELECT sum(bytes) FROM archives WHERE state='VERIFIED'"
+                    "SELECT sum(bytes) FROM archives a JOIN media m ON m.id=a.media_id WHERE a.state='VERIFIED' AND m.state NOT IN ('RETIRED','SUSPECT')"
                 ),
                 "running_jobs": number(
                     "SELECT count(*) FROM jobs WHERE state IN ('RUNNING','PLANNING')"
@@ -84,7 +84,7 @@ class CatalogView:
                 "recent": [
                     dict(r)
                     for r in db.execute(
-                        "SELECT a.id,a.state,a.bytes,a.created,m.label FROM archives a JOIN media m ON m.id=a.media_id ORDER BY a.created DESC LIMIT 5"
+                        "SELECT a.id,CASE WHEN m.state='RETIRED' THEN 'UNAVAILABLE' ELSE a.state END state,a.bytes,a.created,m.label FROM archives a JOIN media m ON m.id=a.media_id ORDER BY a.created DESC LIMIT 5"
                     )
                 ],
                 "jobs": [
@@ -119,7 +119,9 @@ class CatalogView:
                 "items": [
                     dict(r)
                     for r in db.execute(
-                        """SELECT a.id,a.media_id,a.job_id,a.tape_file,a.state,a.bytes,a.sha256,a.created,m.label,
+                        """SELECT a.id,a.media_id,a.job_id,a.tape_file,
+                        CASE WHEN m.state='RETIRED' THEN 'UNAVAILABLE' ELSE a.state END state,
+                        a.state verification_state,m.state media_state,a.bytes,a.sha256,a.created,m.label,
                         (SELECT count(*) FROM files f WHERE f.archive_id=a.id) file_count FROM archives a
                         JOIN media m ON m.id=a.media_id ORDER BY a.created DESC,a.id LIMIT ? OFFSET ?""",
                         (limit, offset),
@@ -145,6 +147,8 @@ class CatalogView:
         offset: int = 0,
     ) -> dict[str, Any]:
         clauses = ["instr(lower(f.path),lower(?))>0"]
+        if not media_id and not archive_id:
+            clauses.append("m.state!='RETIRED'")
         params: list[Any] = [q]
         for expression, value in [
             ("f.sha256=?", checksum),
@@ -167,7 +171,7 @@ class CatalogView:
                 params.append(value)
         if duplicates:
             clauses.append(
-                "EXISTS(SELECT 1 FROM files c WHERE c.sha256=f.sha256 AND c.size=f.size AND (c.archive_id<>f.archive_id OR c.path<>f.path))"
+                "EXISTS(SELECT 1 FROM files c JOIN archives ca ON ca.id=c.archive_id JOIN media cm ON cm.id=ca.media_id WHERE cm.state!='RETIRED' AND c.sha256=f.sha256 AND c.size=f.size AND (c.archive_id<>f.archive_id OR c.path<>f.path))"
             )
         base = (
             " FROM files f JOIN archives a ON a.id=f.archive_id JOIN media m ON m.id=a.media_id WHERE "
@@ -178,8 +182,10 @@ class CatalogView:
                 return {"items": [], "total": 0, "limit": limit, "offset": offset}
             total = db.execute("SELECT count(*)" + base, params).fetchone()[0]
             sql = (
-                """SELECT f.*,a.media_id,a.tape_file,a.state,a.created,m.label,
-                (SELECT count(*) FROM files c WHERE c.sha256=f.sha256 AND c.size=f.size) copies"""
+                """SELECT f.*,a.media_id,a.tape_file,
+                CASE WHEN m.state='RETIRED' THEN 'UNAVAILABLE' ELSE a.state END state,
+                a.state verification_state,m.state media_state,a.created,m.label,
+                (SELECT count(*) FROM files c JOIN archives ca ON ca.id=c.archive_id JOIN media cm ON cm.id=ca.media_id WHERE cm.state!='RETIRED' AND c.sha256=f.sha256 AND c.size=f.size) copies"""
                 + base
                 + " ORDER BY f.path,a.created DESC,f.archive_id LIMIT ? OFFSET ?"
             )

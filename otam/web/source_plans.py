@@ -84,6 +84,15 @@ def validate(config,control,kind,payload):
         raise SafetyError('Physischer Mehrbandbetrieb ist nicht freigegeben')
     c=Catalog(config.catalog)
     try:
+        generation=c.db.execute('SELECT state,data_json FROM backup_generations WHERE source_job=?',(payload['job_id'],)).fetchone()
+        if generation:
+            if generation['state']!='BINDING' or json.loads(generation['data_json']).get('media_ids')!=ids:
+                raise SafetyError('Rotationsquellenplan ausschließlich über den geprüften Bandsatz binden')
+        elif any(c.db.execute('SELECT 1 FROM tape_set_members WHERE media_id=? AND removed IS NULL',(m,)).fetchone() for m in ids):
+            raise SafetyError('Bandsatzmedien ausschließlich über rollierende Sicherungen verwenden')
+    finally:c.close()
+    c=Catalog(config.catalog)
+    try:
         state,draft=load(c,payload['job_id'])
         if state!='WAITING_MEDIA' or draft['sha256']!=payload['source_plan_hash']:
             raise SafetyError('Quellenplan bereits gebunden, verändert oder nicht bereit')
@@ -250,7 +259,8 @@ def execute(config,control,kind,payload):
         for child in plan.get('children',[]):control.set('job_storage:'+child['job_id'],binding)
         result={'state':'PLANNED','job_id':plan['job_id'],'source_job_id':payload['job_id'],'sha256':plan['sha256']}
         c.finish(payload['job_id'],'BOUND',report=result)
-        if draft.get('source_capture'):
+        retain_capture = c.db.execute('SELECT 1 FROM backup_generations WHERE source_job=?', (payload['job_id'],)).fetchone()
+        if draft.get('source_capture') and not retain_capture:
             try:
                 source_capture.cleanup(staging,payload['job_id'],draft['source_capture'])
                 c.event(payload['job_id'],'source_capture_cleaned',final_tar_job=plan['job_id'])

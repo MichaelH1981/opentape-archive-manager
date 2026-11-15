@@ -51,6 +51,11 @@ const ago = (n) => {
         : date(n);
 };
 const labels = {
+  WAITING_CAPACITY: 'Zusätzliche Kapazität erforderlich',
+  WAITING_APPROVAL: 'Wiederverwendung bestätigen',
+  UNAVAILABLE: 'Nicht mehr verfügbar',
+  CANCELLED: 'Abgebrochen',
+  BINDING: 'Schreibplan wird erstellt',
   VERIFIED: "Verifiziert",
   PREPARING: "Testdaten vorbereiten",
   ERASING: "Löschen",
@@ -102,6 +107,12 @@ const badge = (s) =>
   `<span class="badge ${["VERIFIED", "SUCCEEDED", "READY", "COMPLETE"].includes(s) ? "good" : ["RUNNING", "PLANNING", "WRITING", "IN_USE"].includes(s) ? "running" : ["FAILED", "INTERRUPTED", "INCOMPLETE", "SUSPECT"].includes(s) ? "bad" : ["PLANNED", "STAGED", "QUEUED", "WAITING_MEDIA", "MEDIA_SELECTION"].includes(s) ? "blue" : "neutral"}">${esc(labels[s] || s || "Unbekannt")}</span>`;
 const kindLabel = (k) =>
   ({
+    'plan-rotation': 'Rollierende Vollsicherung vorbereiten',
+    'bind-rotation': 'Bandsatz und Schreibplan verbinden',
+    'recycle-rotation': 'Rotationskassette wiederverwenden',
+    'restore-rotation': 'Bandsatz wiederherstellen',
+    'rotation-restore': 'Bandsatz wiederherstellen',
+    'cleanup-rotation': 'Lokale Quellenaufnahme bereinigen',
     archive: "Archivierung",
     "archive-set": "Mehrbandarchivierung",
     plan: "Archiv planen",
@@ -127,6 +138,7 @@ const kindLabel = (k) =>
     "create-medium": "Testmedium erstellen",
   })[k] || k;
 const titles = {
+  rotation: 'Rollierende Sicherungen',
   dashboard: "Übersicht",
   planning: "Planung",
   staging: "Staging",

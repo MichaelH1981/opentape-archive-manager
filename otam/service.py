@@ -126,6 +126,8 @@ class ArchiveService:
         row = self.catalog.db.execute("SELECT * FROM media WHERE id=?", (expected,)).fetchone()
         if header["media_id"] != expected or row is None or json.loads(row["header_json"]) != header:
             raise SafetyError("Media identity is unknown or differs from catalog")
+        if row['state'] == 'RETIRED':
+            raise SafetyError('Retired media incarnation is unavailable; inspect its recycling journal')
         return dict(row)
 
     def _failed_used(self, job: str, media: str) -> int:
@@ -192,9 +194,11 @@ class ArchiveService:
         try:
             expected = expected if expected is not None else inventory(root, selected, metadata_only=True, excluded=excluded)
             preflight = plan_archives(estimate_entries(expected), media, target)
+            from .rotation import attach_recovery
+            recovery_bytes = attach_recovery(self.catalog, source_job, preflight)
             if any(len(encode(m)) > MAX_META for m in preflight):
                 raise SafetyError("Manifest exceeds limit; reduce archive target size")
-            if sum(estimate(m['files']) + 10240 for m in preflight) > available:
+            if sum(estimate(m['files']) + 10240 + recovery_bytes for m in preflight) > available:
                 raise SafetyError("Plan exceeds native capacity; select additional media before hashing")
             from .capture import prepare_combined, progress_recorder
             progress = progress_recorder(self.catalog, job)
@@ -206,9 +210,10 @@ class ArchiveService:
             else:
                 entries = inventory(root, selected, expected=expected, excluded=excluded, progress=progress)
                 manifests = plan_archives(entries, media, target)
+                attach_recovery(self.catalog, source_job, manifests)
             if any(len(encode(m)) > MAX_META for m in manifests):
                 raise SafetyError("Manifest exceeds limit; reduce archive target size")
-            required = sum(estimate(m["files"]) + 10240 for m in manifests)
+            required = sum(estimate(m["files"]) + 10240 + recovery_bytes for m in manifests)
             if required > available:
                 raise SafetyError("Plan exceeds native capacity; use another medium or smaller selection")
             plan = {"media_id": media, "source": str(origin or root), "archives": manifests,
@@ -638,6 +643,9 @@ class ArchiveService:
             header = self.tape.header()
             if header["media_id"] != media:
                 raise SafetyError("Wrong medium inserted")
+            old = self.catalog.db.execute('SELECT state FROM media WHERE id=?', (media,)).fetchone()
+            if old and old[0] == 'RETIRED':
+                raise SafetyError('Retired media incarnation cannot be revived by rebuilding')
             self.catalog.register(header, self.tape.used())
             job = self.catalog.job("rebuild", media)
             try:

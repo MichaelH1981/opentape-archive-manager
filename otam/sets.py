@@ -37,6 +37,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
     with io_lock():
         expected = expected if expected is not None else inventory(root, selected, metadata_only=True, excluded=excluded)
         manifests = plan_archives(estimate_entries(expected), media_tapes[0][0], target)
+        from .rotation import attach_recovery
+        recovery_bytes = attach_recovery(catalog, source_job, manifests)
         if any(len(encode(m)) > MAX_META for m in manifests):
             raise SafetyError("Manifest exceeds limit; reduce archive target size")
         available: dict[str, int] = {}
@@ -69,7 +71,7 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                 available[media] = record["capacity"] - tape.used()
         assignments: dict[str, list[dict[str, Any]]] = {media: [] for media, _ in media_tapes}
         remaining = available.copy()
-        sizes = [estimate(manifest["files"]) + 10240 for manifest in manifests]
+        sizes = [estimate(manifest["files"]) + 10240 + recovery_bytes for manifest in manifests]
         allocation = allocate(sizes, [available[media] for media, _ in media_tapes])
         for manifest, required, index in zip(manifests, sizes, allocation):
             media = media_tapes[index][0]

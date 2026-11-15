@@ -225,3 +225,37 @@ Die systemd-Worker-Unit bevorzugt Archivarbeit moderat bei CPU-Konkurrenz. Ander
 Dienste bleiben nutzbar; eine feste Kernausschließlichkeit oder garantierte Bandrate
 entsteht dadurch nicht. Große konkurrierende Last und unzureichende Kühlung können
 weiterhin bremsen. Bestehende Jobs, Verifikationsmodi und Bandinhalte bleiben unverändert.
+
+## Rollierende Vollsicherungen (0.9)
+
+Unter **Rollierende Sicherungen** legst du eine Regel mit Quelle, Staging,
+gewünschter Bandsatzanzahl und Aufbewahrung an. Ein Satz darf mehrere Kassetten
+enthalten. Ordne ausschließlich dafür vorgesehene registrierte Rotationsmedien zu.
+Weitere Kassetten kannst du vor dem endgültigen Schreibplan hinzufügen.
+
+Ein Satz erlaubt den Betrieb mit externen Kopien und vollständiger lokaler
+Quellenaufnahme; während seiner Erneuerung bleibt kein vollständiger alter
+Bandstand. Zwei Sätze können einen vorherigen Stand erhalten, drei entsprechend
+zwei. Die gewünschte Anzahl erhaltener Bandstände muss kleiner als die Satzanzahl
+sein und wird bewusst eingestellt. Alte fremde Archivjobs werden durch Zuordnen
+zu einem Satz nicht zum Überschreiben freigegeben.
+
+Bereite einen konsistenten, während der Übernahme unveränderlichen Quellenstand
+vor. Bei Borg beispielsweise eine korrekt abgesicherte Repository-Kopie oder einen
+geeigneten Snapshot. OTAM sperrt Borg in diesem Umfang noch nicht selbst.
+**Neue Vollsicherung auf diesem Satz vorbereiten** erstellt zunächst die vollständige
+lokale Kopie. Anschließend prüfst du die Kapazität und erstellst den Schreibplan.
+Wenn Wiederverwendung notwendig und freigegeben ist, muss jede betroffene Kassette
+zuvor ausdrücklich bestätigt werden. Die neue physische Wiederverwendung ist bis
+zur gesonderten Abnahme administrativ gesperrt (`physical_rotation`, standardmäßig
+false). Einlegen allein erteilt keine Löschfreigabe.
+
+Der Archivplan führt durch das Schreiben und Prüfen der einzelnen Medien. Erst
+wenn alle Teile erfolgreich abgeschlossen sind, ist die Generation VERIFIED.
+Die Quellenaufnahme bleibt erhalten; nach Erfolg kannst du sie gezielt bereinigen.
+Fehler oder unterbrochene Writes brauchen Prüfung statt eines Force-Schalters.
+
+**Gesamten Stand wiederherstellen** fordert die tatsächlich zu dieser Generation
+gehörenden Medien an und prüft den vollständigen Dateibestand vor der Veröffentlichung
+im neuen Ziel. Zur unabhängigen Recovery und zu den Grenzen siehe
+[Implementierungsbeschreibung](architecture/rotation-09-implementation.md).

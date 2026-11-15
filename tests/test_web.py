@@ -74,6 +74,32 @@ class AccountMigration(unittest.TestCase):
 
 @unittest.skipUnless(WEB_AVAILABLE, "Optional [web] dependencies not installed")
 class WebAcceptance(unittest.TestCase):
+    def test_rotation_policy_api_permissions_csrf_growth_and_member_registration(self):
+        data = dict(name='Repository', source_id='source-1', staging_id='default-staging',
+                    set_count=1, keep_during_update=0, retain_days=0,
+                    target=75000000000, excluded_paths=[])
+        path = '/api/v1/rotation/policies'
+        self.assertEqual(self.client.post(path,json=data).status_code,403)
+        headers={'X-CSRF-Token':self.csrf}
+        response=self.client.post(path,json=data,headers=headers)
+        self.assertEqual(response.status_code,200,response.text)
+        key=response.json()['id']
+        state=self.client.get('/api/v1/rotation').json()
+        self.assertEqual(len(state['items'][0]['sets']),1)
+        changed=self.client.put(path+'/'+key,json={**data,'set_count':3},headers=headers)
+        self.assertEqual(changed.status_code,200,changed.text)
+        state=self.client.get('/api/v1/rotation').json()
+        self.assertEqual(len(state['items'][0]['sets']),3)
+        with self.control.connect() as db:db.execute("UPDATE users SET role='operator'")
+        self.assertEqual(self.client.post(path,json=data,headers=headers).status_code,403)
+        self.assertEqual(self.client.post('/api/v1/commands',json={'kind':'recycle-rotation','payload':{}},
+                                         headers={**headers,'Idempotency-Key':'operator-recycle-refused'}).status_code,403)
+
+    def test_rotation_queue_requires_consistent_source_confirmation(self):
+        response=self.client.post('/api/v1/commands',json={'kind':'plan-rotation','payload':{}},
+                                  headers={'X-CSRF-Token':self.csrf,'Idempotency-Key':'invalid-rotation-plan'})
+        self.assertEqual(response.status_code,409)
+
     def test_reinitialization_prepare_requires_admin_csrf_and_only_queues_a_sealed_grant(self):
         from fastapi.testclient import TestClient
         from otam.web.app import create_app

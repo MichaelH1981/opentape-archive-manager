@@ -305,7 +305,7 @@ class Staging(unittest.TestCase):
         db.close()
         upgraded = Catalog(path)
         try:
-            self.assertEqual(upgraded.db.execute('PRAGMA user_version').fetchone()[0], 2)
+            self.assertEqual(upgraded.db.execute('PRAGMA user_version').fetchone()[0], 3)
             self.assertEqual(upgraded.db.execute('SELECT label FROM media').fetchone()[0], 'keep')
             self.assertEqual(upgraded.export()['staged_archives'], [])
         finally:
