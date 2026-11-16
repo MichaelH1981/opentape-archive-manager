@@ -1564,3 +1564,43 @@ und README), weitere rund 2,15 GB zwei eigene alte Performanceversuche. Keine
 aktiven Archivjobs/Queueaufträge bei der Prüfung. Aufgrund der früher ausdrücklich
 verlangten Aufbewahrung der Restore-Ausgabe noch nichts gelöscht; neue konkrete
 Freigabe angefordert. Übrige kleinere Job-/Restore-Verzeichnisse bleiben erhalten.
+
+### Installation und ausdrückliche Aktivierung am 16. November 2026
+
+Der Benutzer hat den vorbereiteten Katalog-Updater ausgeführt. Anschließend
+Katalogserver 0.9.0 und aktiver Webdienst bestätigt. Bandserverupdate im erneut
+bestätigten Leerlauf durchgeführt: Worker/Web kontrolliert gestoppt, gemeinsame
+Worker-/I/O-Sperren gehalten, Programm, beide SQLite-Datenbanken und Konfiguration
+privat gesichert. Finales geprüftes Wheel installiert; Dienstkontoimport,
+Schema-3-Migration und vollständige Fingerprints aller bisherigen Tabellen
+unverändert bestätigt. Konfiguration während dieses Updates unverändert;
+Web/Worker/Tunnel danach aktiv, Health ok.
+
+Auf die nachfolgende ausdrückliche Nutzeranweisung „lass uns mit der
+wiederverwendung live gehen. ich teste es mit dem ersten backup satz vom i9“
+wurde ausschließlich `physical_rotation` aktiviert und die nachweislich
+untätigen Dienste neu geladen. Die vorherige Konfiguration ist getrennt gesichert.
+Dies ist eine bewusste Betreiberaktivierung des softwaregeprüften Pfads, KEINE
+nachträgliche Behauptung einer bestandenen realen Recyclingabnahme. Diese steht
+weiterhin aus und soll durch den ersten i9-Satz praktisch erprobt werden.
+Kein Bandauftrag/Write wurde durch das Update oder die Aktivierung gestartet.
+Kassettenreviews, neue Medien-UUID, Schutzfristen und Sperren bleiben unverändert.
+Die fünf aktuell katalogisierten Medien sind Dauerarchive (`permanent`); sie
+werden nicht automatisch in wiederverwendbare Rotationsmedien umgewandelt.
+
+Reguläre Queue-Synchronisation des neuen Katalogs erfolgreich: Auftrag SUCCEEDED,
+Katalogziel SUCCEEDED, Sequenz 2816, `peer_updated=true`. Damit ist Schema 3 am
+aktualisierten eigenständigen Katalog angekommen. Beide Server laufen 0.9.0.
+
+Der Benutzer hat die Löschung der identifizierten alten Restore- und
+Performance-Testdaten ausdrücklich freigegeben. Nach erneuter Verifikation des
+VERIFIED-Großtestberichts, der exakten drei Restore-Dateien/Größen sowie der
+Simulator-/Performance-Verzeichnisse wurden ausschließlich diese drei zuvor
+benannten Verzeichnisse entfernt. Keine produktiven Quellen, Bandinhalte oder
+historischen Berichte geändert. Tatsächlich freigeworden: 152.471.699.456 Byte;
+verbleibende Staging-Belegung rund 183 MB, verfügbar 1.867.626.319.872 Byte.
+Die älteren kleineren Job-/Restore-Verzeichnisse bleiben erhalten.
+
+Private Update-/Lösch- und Aktivierungsberichte einschließlich unveränderter
+Tabellenfingerprints sind lokal ignoriert mit SHA256SUMS gesichert. Programm- und
+Datenbankbackups bleiben ausschließlich auf dem Server unter den Updateberichten.
