@@ -572,7 +572,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 restores = []
                 for r in c.db.execute("SELECT id,state,error,report_json FROM jobs WHERE kind='rotation-restore' ORDER BY created DESC"):
                     value = dict(r); value.update(json.loads(value.pop('report_json') or '{}')); restores.append(value)
-                return {'items': listing(c), 'restores': restores, 'physical_recycling_enabled': config.physical_rotation}
+                return {'items': listing(c), 'deleted_items': listing(c, deleted=True), 'restores': restores, 'physical_recycling_enabled': config.physical_rotation}
             finally:
                 c.close()
 
@@ -583,6 +583,38 @@ def create_app(config: WebConfig) -> FastAPI:
         @archive.put('/rotation/policies/{policy_id}', dependencies=[Depends(require_admin)])
         def rotation_policy_update(policy_id: str, data: dict[str, Any] = Body()):
             return save_rotation_policy(data, policy_id)
+
+        @archive.delete('/rotation/policies/{policy_id}', dependencies=[Depends(require_admin)])
+        def rotation_policy_delete(policy_id: str, data: dict[str, Any] = Body()):
+            return change_rotation_policy(policy_id, data)
+
+        @archive.post('/rotation/policies/{policy_id}/restore', dependencies=[Depends(require_admin)])
+        def rotation_policy_restore(policy_id: str, data: dict[str, Any] = Body()):
+            return change_rotation_policy(policy_id, data, restore=True)
+
+        def change_rotation_policy(policy_id, data, restore=False):
+            from ..rotation import delete_policy
+            from ..storage import io_lock
+            if data != {'confirm': policy_id}:
+                raise SafetyError('Regel-ID zur Bestätigung erforderlich')
+            with io_lock():
+                with control.connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    if db.execute("SELECT 1 FROM commands WHERE state IN ('QUEUED','RUNNING')").fetchone():
+                        raise SafetyError('Wartende oder laufende Aufträge zuerst abschließen')
+                    c = Catalog(config.catalog)
+                    try:
+                        if restore:
+                            from ..rotation import row
+                            from . import resources
+                            options = json.loads(row(c, 'backup_policies', policy_id)['options_json'])
+                            effective = resources.effective(config, control)
+                            if options['source_id'] not in {s.id for s in effective.sources}:
+                                raise SafetyError('Quelle der gelöschten Regel ist nicht mehr registriert')
+                            resources.staging_for(effective, control, options['staging_id'])
+                        return delete_policy(c, policy_id, data['confirm'], restore=restore)
+                    finally:
+                        c.close()
 
         def save_rotation_policy(data, policy_id=None):
             from ..rotation import policy

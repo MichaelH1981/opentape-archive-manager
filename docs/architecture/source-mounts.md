@@ -45,9 +45,11 @@ weder diese Rechte noch läuft der Archivworker als root. Für Borg ist ein
 konsistenter, lesbarer Repository-Stand beziehungsweise eine passende NAS-Leseidentität
 bereitzustellen; index-/hints-Dateien werden nicht ungeprüft ausgeschlossen.
 
-SMB nutzt eine eigene NAS-Leseidentität, Version 3.1.1, 3.0 oder ausdrücklich 2.1;
-SMB1 ist ausgeschlossen. Der Browser zeigt Passwortfelder nur über HTTPS oder
-localhost/SSH-Tunnel, das Backend prüft den Transport ebenfalls. Passwörter
+SMB nutzt eine eigene NAS-Leseidentität, Version 3.1.1, 3.0 oder ausdrücklich 2.1/2.0;
+SMB1 ist ausgeschlossen. Die Felder sind auch über LAN-HTTP sichtbar, dort aber deaktiviert und mit
+einem Hinweis auf HTTPS oder localhost/SSH-Tunnel versehen. Das Backend prüft den
+Transport ebenfalls. Der lokale Link verwendet Port 8766 und benötigt einen
+entsprechend eingerichteten Tunnel auf dem Benutzercomputer. Passwörter
 erscheinen nicht in Kommandozeilen, Control-Queue, Statusantworten oder dauerhaften
 Konfigurationsdateien. Ein root-exklusives temporäres Credentialsfile unter `/run`
 wird nach Erfolg/Fehler entfernt. NAS-Zugriff bleibt von den Rechten des gewählten
@@ -95,3 +97,9 @@ Bootverwaltung sind nicht Bestandteil dieses ersten Umfangs.
 - [Kernel: ext4 – ro allein kann Journalreplay ausführen](https://docs.kernel.org/admin-guide/ext4.html)
 - [Btrfs: Mountoptionen und nologreplay](https://btrfs.readthedocs.io/en/stable/btrfs-man5.html)
 - [systemd: Mountnamespace und Propagation](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
+
+Für ältere QNAP-Geräte mit QTS 4.3.3 kann ausdrücklich SMB 2.0 gewählt werden.
+Kein automatischer Protokollwechsel und kein SMB1. Ob SMBv2 auf dem NAS aktiviert
+ist und ob das Lesekonto alle Repository-Dateien öffnen darf, muss separat geprüft
+werden. Die OTAM-Konfiguration verändert keine NAS-Protokolle oder Quellrechte.
+[QNAP: SMBv2 unter QTS 4.3.3](https://www.qnap.com/en/how-to/faq/article/how-to-enable-smbv2-for-qts-426-433-or-434).

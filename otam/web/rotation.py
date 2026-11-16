@@ -67,7 +67,7 @@ def plan(config, control, payload):
     try:
         with c.db:
             c.db.execute('BEGIN IMMEDIATE')
-            p = model.row(c, 'backup_policies', payload['policy_id'])
+            p = model.require_policy(c, payload['policy_id'])
             s = model.row(c, 'tape_sets', payload['set_id'])
             if s['policy_id'] != p['id'] or model.active(c, p['id']):
                 raise SafetyError('Falscher Bandsatz oder bereits aktive Generation')

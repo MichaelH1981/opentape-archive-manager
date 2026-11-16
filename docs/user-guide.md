@@ -283,3 +283,29 @@ Unter **Hardware → Aktuelles Band & Laufwerksstatus** sowie im **Bandinventar*
 bestehenden Initialisierungsdialog. Erst die gesonderte Schreibbestätigung reiht
 etwas in die Queue ein. Für Bandsätze als Medienklasse **Rotierende Sicherung**
 wählen. Bereits bekannte geschützte Kassetten bleiben gesperrt.
+
+
+### Sicherungsregeln löschen und SMB-Zugang (0.9.1.1)
+
+Administratoren können eine inaktive rollierende Sicherungsregel mit „Regel löschen“
+aus der aktiven Übersicht entfernen. „Gelöschte Regeln und Historie anzeigen“ macht
+sie wieder sichtbar; dort ist „Regel wiederherstellen“ möglich. Generationen,
+Bandarchive, Schutzfristen, Quellen-/Stagingdateien und Medienzuordnungen werden
+nicht gelöscht oder zum Überschreiben freigegeben. Aktive oder wartende Aufträge
+und ungeklärte Wiederverwendung sperren den Vorgang. Gelöschte Regeln können keine
+neue Vorbereitung, Medienzuordnung oder Wiederverwendung starten. Restores aus
+bestehenden Generationen bleiben möglich.
+
+SMB zeigt Benutzer-/Passwortfelder auch über LAN-HTTP, sperrt sie dort aber gegen
+ungeschützte Übertragung. HTTPS oder ein lokaler SSH-Tunnel ist erforderlich.
+Beispiel für einen lokal gebundenen Tunnel auf macOS/Linux:
+
+```sh
+ssh -N -L 127.0.0.1:8766:192.168.1.26:8765 michael@192.168.1.26
+```
+
+Adressen an den eigenen Bandserver anpassen. Anschließend
+`http://127.0.0.1:8766/#planning` öffnen und im Mountdialog SMB wählen. Es wird keine
+Anmeldung zwischen unterschiedlichen Browseradressen übernommen. Für ein älteres
+NAS kann ausdrücklich SMB 2.0 gewählt werden; SMB1 bleibt ausgeschlossen. Das
+NAS-Passwort wird nicht dauerhaft gespeichert.

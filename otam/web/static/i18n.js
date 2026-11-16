@@ -1,6 +1,16 @@
 // UI copy belongs here. Dynamic archive paths and identifiers use data-no-i18n
 // or monospace elements so they remain byte-for-byte unchanged.
 const en = {
+"Regel löschen":"Delete policy",
+"Regel wiederherstellen":"Restore policy",
+"Regel gelöscht. Historie, Schutzfristen und Medienzuordnungen bleiben erhalten. Keine neuen Sicherungen oder Wiederverwendung über diese Regel.":"Policy deleted. History, retention and media assignments are preserved. This policy cannot start new backups or recycling.",
+"Die Felder sind über unverschlüsseltes LAN-HTTP gesperrt. Öffne den geschützten lokalen SSH-Zugang oder HTTPS und wähle dort erneut SMB.":"These fields are disabled over unencrypted LAN HTTP. Open the protected local SSH access or HTTPS and select SMB again.",
+"Lokalen SSH-Zugang öffnen (Port 8766)":"Open local SSH access (port 8766)",
+"Der lokale Zugang benötigt einen eingerichteten SSH-Tunnel auf diesem Computer.":"Local access requires an SSH tunnel configured on this computer.",
+"Bei älteren NAS kann eine ausdrücklich gewählte SMB-Version nötig sein. Kein automatischer Rückfall auf SMB1.":"Older NAS devices may require an explicitly selected SMB version. There is no automatic fallback to SMB1.",
+"2.0 (älteres NAS)":"2.0 (older NAS)",
+"Sicherungsregel löschen? Vorhandene Sicherungen, Dateien, Schutzfristen und Medienzuordnungen bleiben erhalten. Die Regel kann unter gelöschten Regeln wiederhergestellt werden.":"Delete backup policy? Existing backups, files, retention and media assignments are preserved. The policy can be restored under deleted policies.",
+
   "Quellen verwalten": "Manage sources",
   "NFS / SMB / USB einbinden": "Mount NFS / SMB / USB sources",
   "Quellen einbinden": "Mount sources",
@@ -611,6 +621,7 @@ const en = {
 };
 
 const patterns = [
+  [/^Gelöschte Regeln und Historie anzeigen \((\d+)\)$/,"Show deleted policies and history ($1)"],
   [/^(\d+) Archive vollständig geprüft$/, "$1 archives fully verified"],
   [/^(\d+) Archive im Katalog$/, "$1 archives in catalog"],
   [/^(\d+) Archive$/, "$1 archives"],

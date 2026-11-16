@@ -88,6 +88,25 @@ class WebAcceptance(unittest.TestCase):
         self.assertEqual(self.client.get('/api/v1/source-mounts').status_code,403)
         self.assertEqual(self.client.post('/api/v1/source-mounts',json=data,headers=headers).status_code,403)
 
+    def test_policy_delete_api_auth_confirmation_queue_and_history(self):
+        headers={'X-CSRF-Token':self.csrf}
+        data=dict(name='Delete me',source_id='source-1',staging_id='default-staging',set_count=1,keep_during_update=0,retain_days=0,target=75000000000,excluded_paths=[])
+        key=self.client.post('/api/v1/rotation/policies',json=data,headers=headers).json()['id']
+        path='/api/v1/rotation/policies/'+key
+        self.assertEqual(self.client.request('DELETE',path,json={'confirm':key}).status_code,403)
+        self.assertEqual(self.client.request('DELETE',path,json={'confirm':'wrong'},headers=headers).status_code,409)
+        queued=self.control.enqueue('sync',{},'policy-delete-queued-sync')
+        self.assertEqual(self.client.request('DELETE',path,json={'confirm':key},headers=headers).status_code,409)
+        with self.control.connect() as db:db.execute("UPDATE commands SET state='SUCCEEDED' WHERE id=?",(queued['id'],))
+        response=self.client.request('DELETE',path,json={'confirm':key},headers=headers)
+        self.assertEqual(response.status_code,200,response.text)
+        result=self.client.get('/api/v1/rotation').json()
+        self.assertEqual(result['items'],[]);self.assertEqual(result['deleted_items'][0]['id'],key)
+        self.assertEqual(self.client.post(path+'/restore',json={'confirm':key},headers=headers).status_code,200)
+        with self.control.connect() as db:db.execute("UPDATE users SET role='operator'")
+        self.assertEqual(self.client.request('DELETE',path,json={'confirm':key},headers=headers).status_code,403)
+        self.assertEqual(self.client.post(path+'/restore',json={'confirm':key},headers=headers).status_code,403)
+
     def test_source_removal_keeps_files_and_protects_rotation_policy(self):
         headers={'X-CSRF-Token':self.csrf}
         data=dict(name='Protected source',source_id='source-1',staging_id='default-staging',set_count=1,

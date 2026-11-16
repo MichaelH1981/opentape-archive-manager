@@ -244,7 +244,7 @@ def remove(config: WebConfig, control: Control, ident: str) -> None:
         with closing(sqlite3.connect(config.catalog)) as catalog:
             if resource['kind']=='source' and catalog.execute("PRAGMA user_version").fetchone()[0]>=3:
                 for name,options in catalog.execute('SELECT name,options_json FROM backup_policies'):
-                    if json.loads(options).get('source_id')==ident:
+                    if not json.loads(options).get('deleted_at') and json.loads(options).get('source_id')==ident:
                         raise SafetyError('Quelle wird von Sicherungsregel „'+name+'“ verwendet; zuerst dort eine andere Quelle wählen')
             for job_id, kind, plan, state in catalog.execute(
                 "SELECT id,kind,plan_json,state FROM jobs WHERE kind IN ('archive','source-plan')"

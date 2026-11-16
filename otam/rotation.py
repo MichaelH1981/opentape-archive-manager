@@ -36,6 +36,43 @@ def active(c, policy):
                         "('VERIFIED','FAILED','INTERRUPTED','UNAVAILABLE','CANCELLED')", (policy,)).fetchone()
 
 
+def require_policy(c, key):
+    p = row(c, 'backup_policies', key)
+    if json.loads(p['options_json']).get('deleted_at'):
+        raise SafetyError('Sicherungsregel ist gelöscht; zuerst ausdrücklich wiederherstellen')
+    return p
+
+
+def delete_policy(c, key, confirmation, restore=False):
+    """Remove a rule from use; preserve all generations, protection and media bindings."""
+    if confirmation != key:
+        raise SafetyError('Regel-ID zur Bestätigung erforderlich')
+    with c.db:
+        c.db.execute('BEGIN IMMEDIATE')
+        p = row(c, 'backup_policies', key)
+        options = json.loads(p['options_json'])
+        if active(c, key):
+            raise SafetyError('Regel während einer aktiven Generation gesperrt')
+        if c.db.execute("SELECT 1 FROM recycle_intents i JOIN backup_generations g ON g.id=i.generation_id "
+                        "WHERE g.policy_id=? AND i.state IN ('CONSUMED','WRITING','INTERRUPTED')", (key,)).fetchone():
+            raise SafetyError('Ungeklärte Wiederverwendung sperrt das Löschen oder Wiederherstellen der Regel')
+        if c.db.execute("SELECT 1 FROM jobs j JOIN backup_generations g ON j.id=g.source_job OR j.id=g.archive_job "
+                        "WHERE g.policy_id=? AND j.state IN ('RUNNING','PLANNING','PLANNED','STAGED','WAITING_MEDIA')", (key,)).fetchone():
+            raise SafetyError('Zugehöriger Quellen- oder Archivauftrag ist noch aktiv')
+        if restore:
+            options.pop('deleted_at', None)
+        elif not options.get('deleted_at'):
+            options['deleted_at'] = time.time()
+        c.db.execute('UPDATE backup_policies SET options_json=? WHERE id=?', (encode(options).decode(), key))
+        if not restore:
+            c.db.execute("UPDATE recycle_intents SET state='CANCELLED' WHERE state='PREPARED' AND generation_id IN "
+                         "(SELECT id FROM backup_generations WHERE policy_id=?)", (key,))
+        c.db.execute('INSERT INTO events(job_id,time,level,event,details_json) VALUES(NULL,?,?,?,?)',
+                     (time.time(), 'INFO', 'rotation_policy_restored' if restore else 'rotation_policy_deleted',
+                      encode({'policy_id':key,'history_preserved':True,'media_bindings_preserved':True}).decode()))
+    return {'id':key,'state':'ACTIVE' if restore else 'DELETED','history_preserved':True}
+
+
 def policy(c, data, policy_id=None):
     allowed = {'name', 'source_id', 'staging_id', 'set_count', 'keep_during_update', 'retain_days',
                'target', 'excluded_paths'}
@@ -60,7 +97,7 @@ def policy(c, data, policy_id=None):
     with c.db:
         c.db.execute('BEGIN IMMEDIATE')
         if policy_id:
-            row(c, 'backup_policies', key)
+            require_policy(c, key)
             if active(c, key):
                 raise SafetyError('Regel während einer aktiven Generation gesperrt')
             count = c.db.execute('SELECT count(*) FROM tape_sets WHERE policy_id=?', (key,)).fetchone()[0]
@@ -87,6 +124,7 @@ def add_member(c, set_id, media_id, backend):
     with c.db:
         c.db.execute('BEGIN IMMEDIATE')
         s = row(c, 'tape_sets', set_id)
+        require_policy(c, s['policy_id'])
         m = row(c, 'media', media_id)
         h = json.loads(m['header_json'])
         if m['class'] != 'rotation' or m['state'] not in ('READY', 'IN_USE') or h.get('backend') != backend:
@@ -135,7 +173,7 @@ def recycle_eligibility(c, generation_id, media_id):
     g = row(c, 'backup_generations', generation_id)
     if g['state'] not in ('WAITING_APPROVAL', 'WAITING_MEDIA', 'WAITING_CAPACITY') or g['archive_job']:
         raise SafetyError('Wiederverwendung nur vor der endgültigen Medienbindung')
-    p = row(c, 'backup_policies', g['policy_id'])
+    p = require_policy(c, g['policy_id'])
     opts = json.loads(p['options_json'])
     m = row(c, 'media', media_id)
     if (m['class'] != 'rotation' or m['state'] not in ('READY', 'IN_USE', 'ARCHIVED')
@@ -220,10 +258,13 @@ def reconcile(c):
             update_generation(c, g['id'], state)
 
 
-def listing(c):
+def listing(c, deleted=False):
     result = []
     for p in c.db.execute('SELECT * FROM backup_policies ORDER BY created'):
         item = dict(p); item['options'] = json.loads(item.pop('options_json'))
+        item['deleted'] = bool(item['options'].get('deleted_at'))
+        if item['deleted'] != deleted:
+            continue
         item['sets'] = []
         for s in c.db.execute('SELECT * FROM tape_sets WHERE policy_id=? ORDER BY created', (p['id'],)):
             value = dict(s); value['members'] = members(c, s['id'])

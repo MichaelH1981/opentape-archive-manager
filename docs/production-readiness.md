@@ -1642,3 +1642,43 @@ Wheel-SHA256: `8a884db40ff8391f805cf4032858022020fa64c65597a6e428e70c8463df5326`
 Debian-Paket-SHA256: `f843364e9f717b42b324e3ae300b85e91a168b0333f2afe9d7e19d34c6b98228`.
 Rohberichte und Logs ausschließlich im lokal ignorierten Hardwaredossier mit
 SHA256SUMS; keine DB-Sicherungen, Konfigurationen oder Rohdaten veröffentlicht.
+
+
+## 0.9.1.1 – SMB-Bedienung und Sicherungsregeln löschen (16.11.2026)
+
+Auf ausdrücklichen Nutzerwunsch als Hotfix 0.9.1.1 statt 0.9.2 benannt und auf dem
+Bandserver installiert. 367/367 Debian-Tests und 38 gezielte macOS-Tests bestanden;
+JavaScript-Syntax geprüft. Der Backendstand bestand zuvor auch unter dem nur
+internen Entwicklungsnamen 0.9.2; diese Version wurde nie installiert.
+
+SMB-Zugangsfelder bleiben über LAN-HTTP sichtbar, aber deaktiviert, mit Erklärung
+und Link zum lokalen SSH-Zugang. Über HTTPS/localhost sind Benutzer, Passwort,
+Domäne und Version nutzbar. Ein lokal gebundener SSH-Tunnel auf Port 8766 wurde am
+Benutzercomputer eingerichtet und per Healthcheck geprüft. Für ältere NAS ist
+SMB 2.0 ausdrücklich wählbar; kein SMB1 und kein automatisches Herabsetzen.
+Felder und Zugriffsschutz in isolierter Browser-Vorschau geprüft. Ein blockierter
+Vorschautab unterbrach die abschließende Klickprüfung des neuen Regel-Löschdialogs;
+der abschließende Dialog verwendet eine reguläre HTML-Bestätigung. Kein realer
+SMB-Mount behauptet: Das NAS-Passwort muss der Benutzer selbst im geschützten
+Dialog eingeben; Lesbarkeit der root:0600-Borg-Dateien danach separat prüfen.
+
+Regeln können administrativ mit Bestätigung gelöscht und unter gelöschten Regeln
+wiederhergestellt werden. Tombstone im vorhandenen Options-JSON, keine neue
+Schema-Migration. Generationen, Archive, Dateieinträge, Schutzfristen, Medien und
+Bandsatzzuordnungen bleiben erhalten. Aktive Generationen/zugehörige Pläne,
+wartende/laufende Queue und ungeklärte Wiederverwendung verhindern die Änderung.
+Gelöschte Regeln sperren neue Planung, Medienzuordnung und Recycling; vorhandene
+VERIFIED-Generationen bleiben restaurierbar. API-Rollen/CSRF/Bestätigung,
+Transaktionsrollback, Idempotenz und vollständiger Simulator-Restore nach Löschen
+sind geprüft. Zusätzlich wurde die bestehende i9-Regel ausschließlich auf einer
+privaten SQLite-Backupkopie gelöscht und wiederhergestellt: alle Archiv-, Datei-,
+Medien-, Generations- und Zuordnungszeilen unverändert, ursprüngliche Optionen
+identisch wiederhergestellt. Die Live-Regel wurde nicht gelöscht.
+
+Installation mit Versions-/Konfigurations-/SQLite-Sicherung und Rückweg, sämtlichen
+Katalogzeilen und Nodekonfiguration unverändert. Keine Quellenrechte geändert,
+keine Bandaktion. Private Test-/Update-/Kopienachweise nur lokal im ignorierten
+Dossier mit SHA256SUMS. Wheel-SHA256:
+`86fcd5b26e3ceb5b4a4570e66ee50b9689c46ee970ca067b680be9f874fa62a0`;
+Debian-SHA256:
+`28652bcf0d0487b53939bb0ec77ee7871825ab260001d57a92cdccafb18ba2f7`.

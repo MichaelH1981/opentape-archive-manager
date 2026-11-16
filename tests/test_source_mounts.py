@@ -69,6 +69,11 @@ class SourceMounts(TestCase):
             m.execute_mount(None,dict(kind='usb',uuid='safe-1234'),self.key,self.owner)
         self.assertIn('ro,nosuid,nodev,noexec,noload',c.call_args_list[0].args[0])
 
+    def test_legacy_smb2_is_explicit_and_smb1_remains_rejected(self):
+        data=dict(kind='smb',server='192.168.1.120',share='backup',username='reader',password='private',domain='',version='2.0')
+        m.validate(data,self.networks)
+        with self.assertRaises(SafetyError):m.validate({**data,'version':'1.0'},self.networks)
+
     def test_smb_secret_is_transient_and_not_a_process_argument(self):
         with tempfile.TemporaryDirectory(dir=self.root) as folder:
             secretroot=Path(folder)

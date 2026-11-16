@@ -82,7 +82,7 @@ def validate(data, networks):
             raise SafetyError('Absoluten NFS-Export ohne Pfadumgehung angeben')
     else:
         if not re.fullmatch(r'[A-Za-z0-9_. -]{1,100}',data['share']) or data['share'] in ('.','..'):raise SafetyError('Einfachen SMB-Freigabenamen angeben')
-        if not data['username'] or data['version'] not in ('3.1.1','3.0','2.1'):raise SafetyError('SMB-Benutzer und unterstützte SMB-Version erforderlich')
+        if not data['username'] or data['version'] not in ('3.1.1','3.0','2.1','2.0'):raise SafetyError('SMB-Benutzer und unterstützte SMB-Version erforderlich')
 
 
 def policy():

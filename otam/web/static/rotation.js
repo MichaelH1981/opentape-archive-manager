@@ -4,8 +4,9 @@ import { api, enqueue } from './api.js';
 import { modal, closeModal, heading, note, toast } from './ui.js';
 
 let current = [];
+let showDeleted = false;
 export async function rotationPage() {
-  const result = await api('/rotation'); current = result.items;
+  const result = await api('/rotation'); current = showDeleted ? [...result.items,...(result.deleted_items || [])] : result.items;
   const admin = state.account?.role === 'admin';
   const operator = state.account?.role !== 'viewer';
   const used = new Set(current.flatMap(p=>p.sets.flatMap(s=>s.members.map(m=>m.id))));
@@ -13,17 +14,19 @@ export async function rotationPage() {
   const options = choices.map(m=>`<option value="${esc(m.id)}">${esc(m.label)} · ${bytes(m.capacity)}</option>`).join('');
   return heading('Rollierende Sicherungen.', 'Unabhängige Vollgenerationen auf erweiterbaren Bandsätzen.',
     admin ? '<button class="button primary" id="rotation-new">Sicherungsregel anlegen</button>' : '') +
+    `<label><input type="checkbox" id="rotation-show-deleted" ${showDeleted?'checked':''}> Gelöschte Regeln und Historie anzeigen (${(result.deleted_items || []).length})</label>` +
     note('Vorbereitung benötigt einen konsistenten, unveränderlichen Quellenstand. Für Borg vorher eine gesperrte Kopie oder einen geeigneten Snapshot bereitstellen. OTAM erstellt hier keinen automatischen Borg-Snapshot.', 'info') +
     (!result.physical_recycling_enabled && state.node.operation_mode === 'physical' ? note('Physische Wiederverwendung ist bis zur gesonderten Hardwareabnahme gesperrt. Neue freie Rotationsmedien können für Vollsicherungen verwendet werden.', 'warning') : '') +
-    current.map(p=>`<section class="panel" style="margin-top:20px"><div class="panel-header"><div><h2>${esc(p.name)}</h2><p>${p.options.set_count} Bandsätze · ${p.options.keep_during_update} Bandstände während Erneuerung erhalten · ${p.options.retain_days} Tage Mindestaufbewahrung</p></div>${admin?`<button class="button" data-rotation-edit="${esc(p.id)}">Regel bearbeiten / Sätze ergänzen</button>`:''}</div>
+    current.map(p=>`<section class="panel" style="margin-top:20px"><div class="panel-header"><div><h2>${esc(p.name)}</h2><p>${p.options.set_count} Bandsätze · ${p.options.keep_during_update} Bandstände während Erneuerung erhalten · ${p.options.retain_days} Tage Mindestaufbewahrung</p></div>${admin?`<div class="button-row">${p.deleted?`<button class="button" data-rotation-restore-policy="${esc(p.id)}">Regel wiederherstellen</button>`:`<button class="button" data-rotation-edit="${esc(p.id)}">Regel bearbeiten / Sätze ergänzen</button><button class="button" data-rotation-delete="${esc(p.id)}">Regel löschen</button>`}</div>`:''}</div>
+    ${p.deleted?`<div class="panel-body">${note('Regel gelöscht. Historie, Schutzfristen und Medienzuordnungen bleiben erhalten. Keine neuen Sicherungen oder Wiederverwendung über diese Regel.','info')}</div>`:''}
     ${p.options.keep_during_update===0 ? `<div class="panel-body">${note('Beim Wiederverwenden kann zeitweise kein vollständiger Bandstand verbleiben. Die vollständige lokale Quellenaufnahme bleibt bis zum erfolgreichen Abschluss erhalten.', 'warning')}</div>`:''}
     <div class="panel-body">${p.sets.map(s=>`<article style="margin-bottom:24px"><h3>${esc(s.name)} · ${bytes(s.capacity)}</h3><p>${s.members.map(m=>`${esc(m.label)} · ${esc(m.serial || short(m.id))} · ${esc(m.state)}`).join('<br>') || 'Noch keine Kassetten zugeordnet.'}</p>
-    ${admin ? `<form class="rotation-member" data-set="${esc(s.id)}"><label>Weitere registrierte Rotationskassette<select name="media_id" required><option value="">Kassette auswählen</option>${options}</select></label><button class="button" ${!options?'disabled':''}>Kassette hinzufügen</button></form>`:''}
-    ${operator?`<button class="button primary" data-rotation-plan="${esc(p.id)}" data-set="${esc(s.id)}">Neue Vollsicherung auf diesem Satz vorbereiten</button>`:''}</article>`).join('')}
+    ${admin && !p.deleted ? `<form class="rotation-member" data-set="${esc(s.id)}"><label>Weitere registrierte Rotationskassette<select name="media_id" required><option value="">Kassette auswählen</option>${options}</select></label><button class="button" ${!options?'disabled':''}>Kassette hinzufügen</button></form>`:''}
+    ${operator && !p.deleted?`<button class="button primary" data-rotation-plan="${esc(p.id)}" data-set="${esc(s.id)}">Neue Vollsicherung auf diesem Satz vorbereiten</button>`:''}</article>`).join('')}
     <h3>Sicherungsgenerationen</h3>${p.generations.map(g=>`<article style="border-top:1px solid var(--border);padding:16px 0"><strong>${esc(short(g.id))}</strong> · ${date(g.created)} · ${badge(g.state)}
     <p>${esc(g.data.reason || g.data.error || '')} ${g.data.required_bytes ? `· Bedarf ${bytes(g.data.required_bytes)} / Satz ${bytes(g.data.available_bytes)}`:''}</p>
     ${operator && !g.archive_job && ['WAITING_CAPACITY','WAITING_APPROVAL','WAITING_MEDIA'].includes(g.state)?`<button class="button" data-rotation-bind="${esc(g.id)}">Kapazität prüfen / Schreibplan erstellen</button>`:''}
-    ${admin && result.physical_recycling_enabled || admin && state.node.operation_mode==='simulator' ? (g.data.recycle_media || []).filter(()=>!g.archive_job && g.state==='WAITING_APPROVAL').map(m=>`<button class="button" data-rotation-recycle="${esc(g.id)}" data-medium="${esc(m)}">Wiederverwendung ${esc(short(m))} prüfen</button>`).join(''):''}
+    ${!p.deleted && admin && (result.physical_recycling_enabled || state.node.operation_mode==='simulator') ? (g.data.recycle_media || []).filter(()=>!g.archive_job && g.state==='WAITING_APPROVAL').map(m=>`<button class="button" data-rotation-recycle="${esc(g.id)}" data-medium="${esc(m)}">Wiederverwendung ${esc(short(m))} prüfen</button>`).join(''):''}
     ${g.archive_job ? `<button class="button" data-job="${esc(g.archive_job)}">Archivplan / Bandwechsel</button>`:''}
     ${operator && g.state==='VERIFIED'?`<button class="button" data-rotation-restore="${esc(g.id)}">Gesamten Stand wiederherstellen</button>`:''}
     ${operator && g.state==='VERIFIED' && g.data.source_capture_retained?`<button class="button" data-rotation-clean="${esc(g.id)}">Lokale Quellenaufnahme bereinigen</button>`:''}
@@ -54,6 +57,19 @@ export function bindRotation(refresh) {
     });
   };
   handle($('#rotation-new'),()=>edit());
+  $('#rotation-show-deleted')?.addEventListener('change',async e=>{showDeleted=e.target.checked;await refresh();});
+  $$('[data-rotation-delete]').forEach(el=>handle(el,()=>{
+    const policy=current.find(p=>p.id===el.dataset.rotationDelete);
+    modal('Regel löschen',`<h3>${esc(policy.name)}</h3>${note('Sicherungsregel löschen? Vorhandene Sicherungen, Dateien, Schutzfristen und Medienzuordnungen bleiben erhalten. Die Regel kann unter gelöschten Regeln wiederhergestellt werden.','info')}<div class="button-row"><button class="button" id="cancel-policy-delete">Abbrechen</button><button class="button primary" id="confirm-policy-delete">Regel löschen</button></div>`);
+    $('#cancel-policy-delete').addEventListener('click',closeModal);
+    $('#confirm-policy-delete').addEventListener('click',async e=>{
+      e.target.disabled=true;
+      try{await api('/rotation/policies/'+policy.id,{method:'DELETE',body:JSON.stringify({confirm:policy.id})});closeModal();await refresh();}
+      catch(error){e.target.disabled=false;toast(error.message,true);}
+    });
+  }));
+  $$('[data-rotation-restore-policy]').forEach(el=>handle(el,()=>api('/rotation/policies/'+el.dataset.rotationRestorePolicy+'/restore',{method:'POST',body:JSON.stringify({confirm:el.dataset.rotationRestorePolicy})})));
+
   $$('[data-rotation-edit]').forEach(el=>handle(el,()=>edit(current.find(p=>p.id===el.dataset.rotationEdit))));
   $$('.rotation-member').forEach(form=>form.addEventListener('submit',async e=>{e.preventDefault();try{await api('/rotation/sets/'+form.dataset.set+'/members',{method:'POST',body:JSON.stringify({media_id:new FormData(form).get('media_id')})});await refresh();}catch(err){toast(err.message,'error');}}));
   $$('[data-rotation-plan]').forEach(el=>handle(el,async()=>{

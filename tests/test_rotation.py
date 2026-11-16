@@ -60,6 +60,60 @@ class Rotation(TestCase):
         grant=rotation.review(self.config,self.control,dict(generation_id=g,media_id=m))
         return execute(self.config,self.control,'recycle-rotation',dict(approval_id=grant['id'],confirmation=grant['confirmation'],destructive_confirmed=True))
 
+    def test_deleted_policy_preserves_verified_data_bindings_and_restore(self):
+        self.create_policy();self.add();self.add()
+        g=self.prepare();self.complete(self.bind(g))
+        c=Catalog(self.config.catalog)
+        try:
+            before={t:[tuple(r) for r in c.db.execute('SELECT * FROM '+t)] for t in ('archives','files','media','tape_set_members','backup_generations','generation_volumes')}
+            model.delete_policy(c,self.policy,self.policy)
+            self.assertEqual(model.listing(c),[])
+            self.assertEqual(model.listing(c,deleted=True)[0]['generations'][0]['state'],'VERIFIED')
+            for t,rows in before.items():self.assertEqual([tuple(r) for r in c.db.execute('SELECT * FROM '+t)],rows)
+            with self.assertRaises(SafetyError):model.policy(c,self.options,self.policy)
+            with self.assertRaises(SafetyError):model.add_member(c,self.sets[0],self.medium('extra'),'simulator')
+        finally:c.close()
+        with self.assertRaises(SafetyError):self.prepare()
+        first=execute(self.config,self.control,'restore-rotation',dict(generation_id=g,target_name='deleted-policy-restore'))
+        last=execute(self.config,self.control,'restore-rotation',dict(restore_job=first['restore_job']))
+        self.assertEqual(last['state'],'VERIFIED')
+        self.assertEqual((self.config.restore_root/'deleted-policy-restore/one').read_bytes(),(self.root/'source/one').read_bytes())
+        c=Catalog(self.config.catalog)
+        try:
+            model.delete_policy(c,self.policy,self.policy,restore=True)
+            self.assertEqual(len(model.listing(c)),1)
+            self.assertNotIn('deleted_at',model.listing(c)[0]['options'])
+        finally:c.close()
+
+    def test_policy_delete_guards_active_generation_and_uncertain_recycle(self):
+        self.create_policy();m=self.add()
+        c=Catalog(self.config.catalog)
+        try:
+            with self.assertRaises(SafetyError):model.delete_policy(c,self.policy,'wrong')
+            g=model.ident()
+            with c.db:c.db.execute('INSERT INTO backup_generations VALUES(?,?,?,?,NULL,NULL,?,?,NULL)',(g,self.policy,self.sets[0],'PREPARING','{}',1))
+            with self.assertRaises(SafetyError):model.delete_policy(c,self.policy,self.policy)
+            model.update_generation(c,g,'FAILED')
+            for state in ('CONSUMED','WRITING','INTERRUPTED'):
+                with c.db:
+                    c.db.execute('DELETE FROM recycle_intents')
+                    c.db.execute('INSERT INTO recycle_intents VALUES(?,?,?,?,?,?,NULL)',(model.ident(),g,m,state,'{}',1))
+                with self.assertRaises(SafetyError):model.delete_policy(c,self.policy,self.policy)
+            self.assertNotIn('deleted_at',json.loads(model.row(c,'backup_policies',self.policy)['options_json']))
+        finally:c.close()
+
+    def test_policy_delete_is_atomic_and_idempotent(self):
+        self.create_policy();c=Catalog(self.config.catalog)
+        try:
+            with c.db:c.db.execute("CREATE TRIGGER reject_policy_event BEFORE INSERT ON events WHEN NEW.event='rotation_policy_deleted' BEGIN SELECT RAISE(ABORT,'test rollback'); END")
+            with self.assertRaises(sqlite3.IntegrityError):model.delete_policy(c,self.policy,self.policy)
+            self.assertNotIn('deleted_at',json.loads(model.row(c,'backup_policies',self.policy)['options_json']))
+            with c.db:c.db.execute('DROP TRIGGER reject_policy_event')
+            model.delete_policy(c,self.policy,self.policy);options=model.row(c,'backup_policies',self.policy)['options_json']
+            model.delete_policy(c,self.policy,self.policy)
+            self.assertEqual(model.row(c,'backup_policies',self.policy)['options_json'],options)
+        finally:c.close()
+
     def test_capacity_then_extend_restore_whole_set_and_keep_capture(self):
         self.create_policy(); self.add()
         g=self.prepare()
