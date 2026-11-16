@@ -1,0 +1,20 @@
+[Unit]
+Description=Validate and execute read-only OTAM source mounts
+After=local-fs.target network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TMPDIR=/var/lib/otam/tmp
+ExecStart=/opt/otam/venv/bin/python -m otam.web.source_mounts --config /etc/otam/node.json
+TimeoutStartSec=120
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER CAP_NET_BIND_SERVICE
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+# Deliberately no PrivateTmp/PrivateDevices/ProtectSystem/ProtectHome:
+# these create a private mount namespace, hiding source mounts from the host.
+# The web and tape worker retain all their existing sandbox restrictions.

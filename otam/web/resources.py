@@ -242,11 +242,19 @@ def remove(config: WebConfig, control: Control, ident: str) -> None:
                 "Vor Entfernen alle wartenden und laufenden Aufträge abschließen"
             )
         with closing(sqlite3.connect(config.catalog)) as catalog:
-            for plan, state in catalog.execute(
-                "SELECT plan_json,state FROM jobs WHERE kind IN ('archive','source-plan')"
+            if resource['kind']=='source' and catalog.execute("PRAGMA user_version").fetchone()[0]>=3:
+                for name,options in catalog.execute('SELECT name,options_json FROM backup_policies'):
+                    if json.loads(options).get('source_id')==ident:
+                        raise SafetyError('Quelle wird von Sicherungsregel „'+name+'“ verwendet; zuerst dort eine andere Quelle wählen')
+            for job_id, kind, plan, state in catalog.execute(
+                "SELECT id,kind,plan_json,state FROM jobs WHERE kind IN ('archive','source-plan')"
             ):
                 if state not in ("VERIFIED", "CANCELLED", "BOUND") and plan:
                     parsed = json.loads(plan)
+                    if (kind=='source-plan' and state in ('FAILED','INTERRUPTED')
+                            and not parsed.get('source_capture')
+                            and not catalog.execute('SELECT 1 FROM staged_archives WHERE job_id=?',(job_id,)).fetchone()):
+                        continue
                     if (
                         resource["kind"] == "source"
                         and parsed["source"] == resource["path"]

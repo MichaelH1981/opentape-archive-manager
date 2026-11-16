@@ -74,6 +74,30 @@ class AccountMigration(unittest.TestCase):
 
 @unittest.skipUnless(WEB_AVAILABLE, "Optional [web] dependencies not installed")
 class WebAcceptance(unittest.TestCase):
+    def test_source_mount_api_requires_admin_csrf_and_secure_smb_transport(self):
+        data={'kind':'nfs','server':'192.168.1.120','export':'/backup'}
+        self.assertEqual(self.client.post('/api/v1/source-mounts',json=data).status_code,403)
+        headers={'X-CSRF-Token':self.csrf}
+        with patch('otam.web.source_mounts.request',return_value={'id':'test','state':'REQUESTED'}) as request:
+            response=self.client.post('/api/v1/source-mounts',json=data,headers=headers)
+            self.assertEqual(response.status_code,202,response.text)
+            request.reset_mock()
+            response=self.client.post('/api/v1/source-mounts',json={**data,'kind':'smb'},headers=headers)
+            self.assertEqual(response.status_code,409,response.text);request.assert_not_called()
+        with self.control.connect() as db:db.execute("UPDATE users SET role='operator'")
+        self.assertEqual(self.client.get('/api/v1/source-mounts').status_code,403)
+        self.assertEqual(self.client.post('/api/v1/source-mounts',json=data,headers=headers).status_code,403)
+
+    def test_source_removal_keeps_files_and_protects_rotation_policy(self):
+        headers={'X-CSRF-Token':self.csrf}
+        data=dict(name='Protected source',source_id='source-1',staging_id='default-staging',set_count=1,
+                  keep_during_update=0,retain_days=0,target=75000000000,excluded_paths=[])
+        response=self.client.post('/api/v1/rotation/policies',json=data,headers=headers)
+        self.assertEqual(response.status_code,200,response.text)
+        response=self.client.request('DELETE','/api/v1/storage-resources/source-1',json={},headers=headers)
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertIn('Sicherungsregel',response.text);self.assertTrue((self.source/'photo.jpg').exists())
+
     def test_rotation_policy_api_permissions_csrf_growth_and_member_registration(self):
         data = dict(name='Repository', source_id='source-1', staging_id='default-staging',
                     set_count=1, keep_during_update=0, retain_days=0,

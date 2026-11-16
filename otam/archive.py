@@ -81,6 +81,10 @@ def source_fd(root: Path, name: str) -> int:
             os.close(result)
             raise SafetyError("Only regular source files are supported")
         return result
+    except PermissionError as error:
+        raise PermissionError(error.errno,
+            'Leseberechtigung für das OTAM-Dienstkonto fehlt; NAS-/Dateirechte prüfen oder eine lesbare konsistente Quellenkopie verwenden',
+            str(root / name)) from error
     finally:
         os.close(fd)
 

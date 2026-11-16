@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for explicit OTAM administrator source mount requests
+
+[Path]
+PathExistsGlob=/var/lib/otam/state/source-mount-requests/*.json
+Unit=otam-source-mounts.service
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=10
+
+[Install]
+WantedBy=multi-user.target

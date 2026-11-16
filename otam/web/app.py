@@ -316,6 +316,7 @@ def create_app(config: WebConfig) -> FastAPI:
                 "physical_reset": config.physical_reset,
                 "physical_reinitialization": config.physical_reinitialization,
                 "physical_rotation": config.physical_rotation,
+                "source_mounting": config.source_mounting,
                 "physical_maintenance": config.physical_maintenance,
             },
             "snapshot": active,
@@ -761,6 +762,21 @@ def create_app(config: WebConfig) -> FastAPI:
         @archive.get("/storage-resources")
         def storage_resources():
             return {"items": resources.overview(config, control)}
+
+        @archive.get('/source-mounts', dependencies=[Depends(require_admin)])
+        def source_mount_list(usb: bool = True):
+            from .source_mounts import listing
+            return listing(config, include_usb=usb)
+
+        @archive.post('/source-mounts', dependencies=[Depends(require_admin)], status_code=202)
+        def source_mount_request(request: Request, data: dict[str, Any] = Body()):
+            from .source_mounts import request as mount_request
+            if data.get('kind')=='smb' and request.url.scheme!='https':
+                local=request.url.hostname in ('localhost','127.0.0.1','::1')
+                peer=request.client.host if request.client else ''
+                if not local or peer not in ('127.0.0.1','::1',config.host):
+                    raise SafetyError('SMB-Zugangsdaten benötigen HTTPS oder einen lokalen SSH-Tunnel')
+            return mount_request(config, control, data, require_admin(request)['user_id'])
 
         @archive.put("/storage-resources/{ident}", dependencies=[Depends(require_admin)])
         def save_resource(ident: str, data: dict[str, Any] = Body()):

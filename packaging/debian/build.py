@@ -22,6 +22,9 @@ with tempfile.TemporaryDirectory(prefix='otam-deb-') as tmp:
     shutil.copy2(repo/'docs/hardware/README.md',doc/'docs/hardware/README.md')
     shutil.copytree(repo/'packaging/udev',doc/'examples/udev')
     shutil.copytree(repo/'packaging/systemd',doc/'examples/systemd')
+    mount_example=doc/'examples/systemd/otam-source-mounts.service'
+    mount_example.write_text(mount_example.read_text().replace('/opt/otam/venv/bin/python','/usr/bin/python3'))
+    shutil.copy2(repo/'packaging/source-mounts.example.json',doc/'examples/source-mounts.example.json')
     units=root/'usr/lib/systemd/system';units.mkdir(parents=True)
     for name in ('otam-web.service','otam-worker.service'):
         s=(repo/'packaging/systemd'/name).read_text().replace('/opt/otam/venv/bin/otam','/usr/bin/otam')
@@ -34,7 +37,7 @@ Priority: optional
 Architecture: all
 Maintainer: OTAM contributors <otam@users.noreply.github.com>
 Depends: python3 (>= 3.11), python3-fastapi (>= 0.115), python3-uvicorn, python3-httpx, adduser, init-system-helpers
-Suggests: mt-st, mbuffer, sg3-utils, lsscsi
+Suggests: mt-st, mbuffer, sg3-utils, lsscsi, nfs-common, cifs-utils
 Homepage: https://github.com/MichaelH1981/opentape-archive-manager
 Description: Local tape archive manager with verified PAX archives
  Web UI, durable worker, SHA-256 verification, persistent local staging and

@@ -259,3 +259,27 @@ Fehler oder unterbrochene Writes brauchen Prüfung statt eines Force-Schalters.
 gehörenden Medien an und prüft den vollständigen Dateibestand vor der Veröffentlichung
 im neuen Ziel. Zur unabhängigen Recovery und zu den Grenzen siehe
 [Implementierungsbeschreibung](architecture/rotation-09-implementation.md).
+
+## Quellen verwalten und einbinden (0.9.1)
+
+Unter **Planung → Quellen verwalten** kannst du eine Quelle abmelden. Das entfernt
+nur den Eintrag aus der Auswahl; Quelldateien und Bandarchive bleiben erhalten.
+Eine Quelle, die noch in einer Rotationsregel verwendet wird, musst du zuerst dort
+ersetzen. Laufende oder noch benötigte Archivpläne bleiben geschützt.
+
+**NFS / SMB / USB einbinden** öffnet die lesende Mountverwaltung. Für NFS NAS-Adresse
+und Export, für SMB zusätzlich ein NAS-Lesekonto und für USB eine angebotene freie
+Dateisystem-UUID auswählen. Nach erfolgreichem Einbinden kannst du **Als Quelle
+registrieren** wählen und gegebenenfalls ein Unterverzeichnis auswählen.
+SMB-Passwörter nur über HTTPS oder die lokale SSH-Tunneladresse eingeben; sie werden
+nicht dauerhaft gespeichert. Nach Neustart sind diese Mounts erneut einzubinden.
+System-, Staging- und bereits anderweitig eingebundene USB-Datenträger werden nicht
+verändert. Einbinden behebt keine fehlenden NAS-Dateirechte; besonders Borg-Dateien
+mit root/0600 benötigen einen lesbaren konsistenten Stand oder ein berechtigtes
+NAS-Konto. Die vollständige Pfadangabe erscheint bei Leserechtefehlern.
+
+Unter **Hardware → Aktuelles Band & Laufwerksstatus** sowie im **Bandinventar**
+öffnet **Neues Band für OTAM vorbereiten** die Laufwerksauswahl und danach den
+bestehenden Initialisierungsdialog. Erst die gesonderte Schreibbestätigung reiht
+etwas in die Queue ein. Für Bandsätze als Medienklasse **Rotierende Sicherung**
+wählen. Bereits bekannte geschützte Kassetten bleiben gesperrt.

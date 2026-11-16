@@ -1604,3 +1604,41 @@ Die älteren kleineren Job-/Restore-Verzeichnisse bleiben erhalten.
 Private Update-/Lösch- und Aktivierungsberichte einschließlich unveränderter
 Tabellenfingerprints sind lokal ignoriert mit SHA256SUMS gesichert. Programm- und
 Datenbankbackups bleiben ausschließlich auf dem Server unter den Updateberichten.
+
+
+## 0.9.1 – Quellenverwaltung und lesende Mounts (16.11.2026)
+
+Auf dem Bandserver installiert; Katalogschema 3 und sämtliche Katalogzeilen beim
+Update unverändert. Web/Worker/Tunnel aktiv, Healthcheck erfolgreich und reguläre
+Katalogsynchronisierung anschließend SUCCEEDED/UNCHANGED (Sequenz 2820).
+362/362 Debian-Softwaretests, 14 gezielte macOS-Tests und JavaScript-Syntaxprüfung
+bestanden. Der erste Gesamtlauf scheiterte ausschließlich an der fehlenden
+JSON-Länge einer neuen DELETE-Testanfrage; Sicherheitsmiddleware unverändert,
+Test korrigiert, vollständiger Lauf danach erfolgreich. Beide Logs lokal erhalten.
+
+- Neue Vorbereitungsbuttons an der Laufwerksübersicht und im Bandinventar öffnen
+  die bestehende explizite Initialisierungsfreigabe; sie schreiben selbst kein Band.
+- Unter Planung können Administratoren Quellen abmelden, ohne Quelldateien oder
+  Bandarchive zu löschen. Aktive Pläne, Staging und Rotationsregeln bleiben geschützt.
+- Separat aktivierter Root-Mounthelfer unterstützt eingeschränkte lesende NFS-/SMB-
+  und freie USB-Dateisysteme. Web/Worker behalten ihre bisherigen Sandboxes.
+  Root-Policy erlaubt im lokalen Betrieb nur den konkret konfigurierten NAS-Host.
+  Die reale NFS-Anfrage über den geschützten Dateibridge ist bestanden:
+  ro/nosuid/nodev/noexec, Sichtbarkeit in Web- und Worker-Mountnamespace und lesender
+  Zugriff als Dienstkonto bestätigt. Bestehende Mounts unverändert, keine Bandaktion.
+- SMB und USB sind softwaregeprüft, nicht physisch abgenommen: keine Zugangsdaten
+  beziehungsweise kein unbenutzter USB-Datenträger vorhanden. SMB-Passworteingabe
+  verlangt HTTPS oder lokalen SSH-Tunnel; kein dauerhaft gespeichertes Passwort.
+  Automatisches Wiedereinbinden nach Neustart und Aushängen sind nicht Teil dieses Umfangs.
+
+Der fehlgeschlagene Borg-Quellenplan wurde **nicht automatisch erneut gestartet**.
+NAS-Dateien hints/index gehören root und haben Modus 0600; das OTAM-Dienstkonto
+kann sie auch über einen lesenden NFS-Mount nicht öffnen. Die Fehlermeldung nennt
+nun den vollständigen Pfad. Benötigt wird eine geeignete NAS-Leseidentität/ACL oder
+eine konsistente lesbare Repository-Kopie. Keine Borg-Metadaten übersprungen und
+keine produktiven Quellenrechte geändert.
+
+Wheel-SHA256: `8a884db40ff8391f805cf4032858022020fa64c65597a6e428e70c8463df5326`.
+Debian-Paket-SHA256: `f843364e9f717b42b324e3ae300b85e91a168b0333f2afe9d7e19d34c6b98228`.
+Rohberichte und Logs ausschließlich im lokal ignorierten Hardwaredossier mit
+SHA256SUMS; keine DB-Sicherungen, Konfigurationen oder Rohdaten veröffentlicht.

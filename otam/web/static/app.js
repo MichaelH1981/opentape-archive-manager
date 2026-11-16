@@ -42,6 +42,7 @@ import {
 import { api, enqueue, refreshBase } from "./api.js";
 import { renderers, driveStatusPanel, hardwareDiscoveryPanel, diagnosticDetails } from "./views.js";
 import { bindRotation } from './rotation.js';
+import { sourceMountDialog } from './source_mounts.js';
 let renderId = 0;
 function applyPermissions(root) {
   const role = state.account?.role || "viewer";
@@ -264,7 +265,7 @@ function downloadSelection() {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-async function resourceDialog(kind) {
+async function resourceDialog(kind, initialPath = '') {
   let current = "";
   modal(
     kind === "source" ? "Quelle hinzufügen" : "Staging hinzufügen",
@@ -308,7 +309,12 @@ async function resourceDialog(kind) {
       button.disabled = false;
     }
   });
-  await browsePath("");
+  await browsePath(initialPath);
+}
+async function manageSourcesDialog() {
+  const r=await api('/storage-resources');
+  modal('Quellen verwalten',note('Abmelden entfernt nur die Quelle aus OTAM. Dateien und Bandarchive bleiben erhalten.','info')+
+    r.items.filter(x=>x.kind==='source').map(s=>`<section class="panel"><div class="panel-body"><strong>${esc(s.label)}</strong><p class="mono">${esc(s.path)}</p><button class="button" data-remove-resource="${esc(s.id)}">Quelle abmelden</button></div></section>`).join(''));
 }
 async function sourceSelectionDialog() {
   const form = $("#plan-form");
@@ -351,6 +357,23 @@ async function sourceSelectionDialog() {
   }
   $("#source-picker-save").addEventListener("click", save);
   await browse();
+}
+async function prepareTapeDialog() {
+  const r = await api('/hardware');
+  const fresh = Date.now()/1000-r.discovery.time >= 0 && Date.now()/1000-r.discovery.time <= 120;
+  const busy = r.status.busy;
+  modal('Neues Band für OTAM vorbereiten',
+    note('Laufwerk und eingelegte Kassette auswählen. Dieser Schritt schreibt noch nichts; danach folgen Medienklasse, Prüfung und ausdrückliche Bestätigung.', 'info') +
+    (!r.physical_initialization_enabled ? note('Physische Initialisierung ist administrativ gesperrt.', 'warning') : '') +
+    (!fresh ? note('Die Laufwerkserkennung ist veraltet. Unter Hardware Status & Diagnose aktualisieren.', 'warning') : '') +
+    (busy ? note('Laufwerk oder Worker ist beschäftigt. Vorbereitung erst nach Abschluss des laufenden Vorgangs möglich.', 'warning') : '') +
+    (r.discovery.drives.length ? r.discovery.drives.map(d=>{
+      const action = r.media_actions?.[d.id]?.initialization || {enabled:false, reason:'Status & Diagnose aktualisieren'};
+      const ready = r.mode==='physical' && fresh && !busy && !d.busy && d.ready && d.serial && d.medium_serial && !d.status?.write_protected;
+      return `<section class="panel"><div class="panel-body"><h3>${esc([d.vendor,d.model].filter(Boolean).join(' ') || d.device)}</h3><dl class="detail-list"><dt>Laufwerk</dt><dd class="mono">${esc(d.serial || 'Nicht identifiziert')}</dd><dt>Eingelegtes Band</dt><dd class="mono">${esc(d.medium_serial || 'Kein identifiziertes Medium')}</dd></dl>${!action.enabled ? note(action.reason,'warning') : ''}<button class="button primary" data-initialize-physical="${esc(d.id)}" data-drive-serial="${esc(d.serial || '')}" data-medium-serial="${esc(d.medium_serial || '')}" ${ready && r.physical_initialization_enabled && action.enabled ? '' : 'disabled'}>Dieses Band vorbereiten</button></div></section>`;
+    }).join('') : note('Kein Bandlaufwerk erkannt. Band einlegen und unter Hardware Status & Diagnose aktualisieren.', 'warning')) +
+    `<p><a href="#hardware" id="prepare-tape-hardware">Zu Hardware & Diagnose</a></p>`);
+  $('#prepare-tape-hardware').addEventListener('click', closeModal);
 }
 async function initializationDialog(button, resetting = false, reinitializing = false) {
   const identity = { drive_id: reinitializing ? button.dataset.reinitializePhysical : resetting ? button.dataset.resetPhysical : button.dataset.initializePhysical,
@@ -727,7 +750,16 @@ document.addEventListener("click", async (e) => {
   );
   if (!b) return;
   try {
-    if (b.dataset.registerPhysical) {
+    if (b.id === 'manage-sources') {
+      await manageSourcesDialog();
+    }
+    else if (b.id === 'source-mounts') {
+      await sourceMountDialog(path=>resourceDialog('source',path));
+    }
+    else if (b.hasAttribute('data-prepare-tape')) {
+      await prepareTapeDialog();
+    }
+    else if (b.dataset.registerPhysical) {
       await enqueue("register-physical", { drive_id: b.dataset.registerPhysical,
         drive_serial: b.dataset.driveSerial, medium_serial: b.dataset.mediumSerial });
       toast("Medienregistrierung eingeplant.");

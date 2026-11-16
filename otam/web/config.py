@@ -80,9 +80,12 @@ class WebConfig:
     physical_reset: bool = False
     physical_reinitialization: bool = False
     physical_rotation: bool = False
+    source_mounting: bool = False
     setup_token_file: Path | None = None
 
     def validate(self) -> None:
+        if type(self.source_mounting) is not bool or (self.source_mounting and self.role!='archive'):
+            raise SafetyError('Quellen-Mountverwaltung benötigt einen administrativ freigegebenen Archivnode')
         uuid.UUID(self.node_id)
         if self.role not in {"archive", "catalog"}:
             raise SafetyError("Unbekannte Node-Rolle")
