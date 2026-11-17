@@ -1727,3 +1727,15 @@ Bestätigung, aktive Generationen und unbekannte Dateien. JavaScript-Syntax gepr
 Noch nicht installiert. Das aktualisierte 0.9.2-Wheel ersetzt den vorherigen
 Vorbereitungskandidaten; SHA256:
 `847b2c668c9ca4d90d2c38492b2406f5e7809114cfe8056a80489a735c5b1b82`.
+
+### 0.9.2 Installationsabschluss
+
+Installation des abschließend geprüften Wheels im bestätigten Leerlauf erfolgreich
+abgeschlossen. Vorherige Programmumgebung, Nodekonfiguration und beide SQLite-
+Datenbanken gesichert. Dienstkontoimport, Web-/Worker-Dienste, Health und neue
+UI-Dateien geprüft. Medien-, Archiv-, Datei-, Generations-, Staging- und
+Zuordnungsdaten sowie versiegelte Pläne vor/nach Installation identisch;
+Nodekonfiguration unverändert. Reguläre Katalogsynchronisation erfolgreich.
+Keine Bandaktion und kein neuer Sicherungsauftrag durch das Update. Private
+Update-/Rückwegberichte und Sicherungen bleiben außerhalb des veröffentlichten
+Repositories. Dieser Abschluss ersetzt die vorstehenden Vorbereitungsstatus.
