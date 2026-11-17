@@ -1709,3 +1709,21 @@ Leerlauf-/Backupcheck installieren. Neue gepackte Quellenpläne sind kein
 Downgradeformat für 0.9.1.1. Grenzen und Rückweg siehe
 [Architektur](architecture/packed-source-capture-092.md).
 Wheel-SHA256: `03cb85b1ca3414b93238bc98838e1407fdd09d2fc361d2c76adb41ce9b300d5e`.
+
+### 0.9.2 Ergänzung: automatische und manuelle Stagingbereinigung
+
+Der reguläre Worker bereinigt nach Abschluss und Reconcile vollständig verfügbare
+VERIFIED-Generationen automatisch, einschließlich alter Rohkopien. Teilabschlüsse
+über mehrere Medien bleiben geschützt. Bereinigungsfehler werden protokolliert und
+ändern den verifizierten Bandabschluss nicht. Der manuelle Admin-Knopf unter
+Staging verwendet eine Vorschau mit Auswahlhash und bestätigten Queueauftrag.
+Globale I/O-Sperre, Eigentums-/Identitätsprüfungen und bestehende VERIFIED-Gates
+bleiben verpflichtend; keine pauschale Löschung unbekannter Dateien oder Journale.
+
+378 Tests insgesamt: 377 bestanden, ein plattformbedingter Skip, auch gegen das
+neu gebaute Wheel. Zusätzliche Tests prüfen den echten Workerabschluss über zwei
+Medien, Erhalt bis zum letzten Medium, automatische Bereinigung, manuelle
+Bestätigung, aktive Generationen und unbekannte Dateien. JavaScript-Syntax geprüft.
+Noch nicht installiert. Das aktualisierte 0.9.2-Wheel ersetzt den vorherigen
+Vorbereitungskandidaten; SHA256:
+`847b2c668c9ca4d90d2c38492b2406f5e7809114cfe8056a80489a735c5b1b82`.

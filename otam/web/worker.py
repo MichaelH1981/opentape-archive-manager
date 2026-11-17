@@ -29,6 +29,7 @@ from . import resources, maintenance, physical_archive, initialization, reset
 from . import diagnostics, telemetry
 
 COMMANDS = {
+    "cleanup-staging",
     "plan-rotation", "bind-rotation", "recycle-rotation", "restore-rotation", "cleanup-rotation",
     "create-medium",
     "plan",
@@ -88,6 +89,11 @@ def validate_command(
     if config.role != "archive" or kind not in COMMANDS:
         raise SafetyError("Dieser Node erlaubt keine Archivierungsaufträge")
     config = resources.effective(config, control)
+    if kind == 'cleanup-staging':
+        if set(payload)!={'staging_id','preview_hash'} or not isinstance(payload['preview_hash'],str):
+            raise SafetyError('Staging und bestätigte Bereinigungsvorschau erforderlich')
+        resources.staging_for(config,control,payload['staging_id'])
+        return
     if kind in ('plan-rotation', 'bind-rotation', 'recycle-rotation', 'restore-rotation', 'cleanup-rotation'):
         from . import rotation
         rotation.validate(config, control, kind, payload)
@@ -339,6 +345,9 @@ def execute(
         control.set("hardware_inventory", {"time": time.time(), "drives": discover_drives()})
     validate_command(config, control, kind, payload)
     config = resources.effective(config, control)
+    if kind == 'cleanup-staging':
+        from . import staging_cleanup
+        return staging_cleanup.execute(config,control,payload)
     if kind in ('plan-rotation', 'bind-rotation', 'recycle-rotation', 'restore-rotation', 'cleanup-rotation'):
         from . import rotation
         return rotation.execute(config, control, kind, payload)
@@ -603,6 +612,9 @@ def run_once(config: WebConfig, control: Control) -> bool:
             reconcile(catalog)
         finally:
             catalog.close()
+        if command['kind'] in ('backup','backup-set'):
+            from .staging_cleanup import automatic
+            automatic(resources.effective(config,control),control)
     return True
 
 

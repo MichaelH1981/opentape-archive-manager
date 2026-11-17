@@ -369,10 +369,11 @@ def restore(config, control, payload):
         c.close()
 
 
-def cleanup(config, control, payload):
+def cleanup(config, control, payload, *, _locked=False):
+    from contextlib import nullcontext
     c = Catalog(config.catalog)
     try:
-        with io_lock():
+        with nullcontext() if _locked else io_lock():
             g = model.row(c, 'backup_generations', payload['generation_id'])
             if g['state'] != 'VERIFIED' or g['id'] not in {x['id'] for x in model.available_generations(c, g['policy_id'])}:
                 raise SafetyError('Quellenaufnahme nur nach vollständig verfügbarem Bandabschluss bereinigen')

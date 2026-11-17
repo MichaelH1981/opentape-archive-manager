@@ -447,6 +447,12 @@ def create_app(config: WebConfig) -> FastAPI:
             result["storage"] = resources.staging_capacity(locations)
         return result
 
+    @api.get('/staging/cleanup-preview', dependencies=[Depends(require_admin)])
+    def staging_cleanup_preview(staging_id: str):
+        from .staging_cleanup import preview
+        if config.role != 'archive':raise SafetyError('Archivnode erforderlich')
+        return preview(resources.effective(config,control),control,staging_id)
+
     @api.get("/events")
     def events(
         job_id: str = "",
@@ -696,7 +702,7 @@ def create_app(config: WebConfig) -> FastAPI:
             idempotency_key: Annotated[str, Header(min_length=8, max_length=128)],
             request: Request,
         ):
-            if data.kind in ("tape-maintenance", "staging-speedtest", "register-physical", "initialize-physical", "reset-physical", "reinitialize-physical", "recycle-rotation"):
+            if data.kind in ("cleanup-staging", "tape-maintenance", "staging-speedtest", "register-physical", "initialize-physical", "reset-physical", "reinitialize-physical", "recycle-rotation"):
                 require_admin(request)
             validate_command(config, control, data.kind, data.payload)
             result = control.enqueue(data.kind, data.payload, idempotency_key)

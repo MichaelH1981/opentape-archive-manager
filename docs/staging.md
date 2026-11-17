@@ -69,6 +69,6 @@ bereits während des Quellenlesens und hashens. Es wird nur die vollständige
 TAR-Menge plus kleiner Metadatenplatz benötigt, keine zusätzliche Rohkopie.
 Die spätere Medienzuordnung ergänzt reservierte TAR-Metadaten ohne Payloadkopie
 und prüft die fertigen TARs erneut lokal. Rollierende Generationen behalten diese
-lokalen TARs bis zur expliziten Bereinigung nach vollständigem VERIFIED-Abschluss.
+lokalen TARs bis zum vollständigen VERIFIED-Abschluss; der Worker bereinigt sie danach automatisch.
 Alte Quellenkopien und laufende Pläne behalten ihren bisherigen Ablauf.
 Siehe [Architektur und Sicherheitsgrenzen](architecture/packed-source-capture-092.md).

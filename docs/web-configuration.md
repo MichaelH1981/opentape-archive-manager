@@ -337,3 +337,16 @@ Dialog nennt den einfachen TAR-Platzbedarf und die spätere Medienbindung.
 Bindung und abschließende lokale Prüfung benötigen keinen zweiten Payloadplatz.
 Bestehende Quellenkopien und Archivpläne behalten ihren bisherigen Ablauf.
 [Details und Fehlerbehandlung](architecture/packed-source-capture-092.md).
+
+### Staging bereinigen (0.9.2)
+
+Administratoren finden unter Staging je Speicher den Knopf „Staging-Laufwerk
+manuell leeren“. Die Vorschau nennt abgeschlossene Generationen, Archive und den
+geschätzten Umfang. Nach Bestätigung läuft `cleanup-staging` über die Workerqueue
+mit globaler I/O-Sperre; eine veränderte Auswahl verlangt eine neue Vorschau.
+Es handelt sich nicht um eine Formatierung oder pauschale Verzeichnislöschung.
+Unbekannte Dateien, aktive/unvollständige Jobs und Sicherheitsjournale bleiben
+erhalten. Rollierende Quellenaufnahmen werden nach vollständigem verfügbaren
+VERIFIED-Abschluss automatisch bereinigt. Fehler werden als
+`automatic_cleanup_deferred` protokolliert; der verifizierte Bandabschluss bleibt
+erhalten.

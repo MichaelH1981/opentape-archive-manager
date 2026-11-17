@@ -592,6 +592,16 @@ function bindForms(root = $("#content")) {
     await enqueue("plan-source", request);
     location.hash = "jobs";
   });
+  $$("[data-clean-staging]").forEach(button=>button.addEventListener("click",async()=>{
+    button.disabled=true;
+    try {
+      const p=await api('/staging/cleanup-preview?staging_id='+encodeURIComponent(button.dataset.cleanStaging));
+      if (!p.generations.length && !p.archives.length) { toast('Keine freigegebenen Staging-Daten vorhanden.'); return; }
+      if (!confirm(`${p.generations.length} abgeschlossene Generationen und ${p.archives.length} Archive bereinigen? Geschätzt ${bytes(p.estimated_bytes)}. Aktive und unbekannte Dateien bleiben erhalten.`)) return;
+      await enqueue('cleanup-staging',{staging_id:p.staging_id,preview_hash:p.preview_hash});
+      await render();
+    } catch(error) { toast(error.message,true); } finally { button.disabled=false; }
+  }));
   on("#speedtest-form", async (d) => {
     await enqueue("staging-speedtest", {
       staging_id: d.get("staging_id"),

@@ -54,7 +54,8 @@ fortsetzbarer Plan oder VERIFIED präsentiert.
 Bei rollierenden Generationen liegt die vollständige lokale Quellenaufnahme
 nach der Bindung in den endgültigen TARs. Diese bleiben auch nach einzelnen
 verifizierten Archiven erhalten, bis die ganze Generation verfügbar VERIFIED
-ist und die bestehende explizite Quellenbereinigung aufgerufen wird. Die kleinen
+ist. Der reguläre Worker bereinigt dann automatisch nach erfolgreichem Abschluss;
+ein manueller Adminauftrag mit Vorschau kann eine verschobene Bereinigung nachholen. Die kleinen
 Owner-/Bindungsjournale bleiben als Nachweis erhalten. Bei normalen Archivjobs
 gilt weiterhin die reguläre Bereinigung nach VERIFIED. Staging ist in beiden
 Fällen keine unabhängige Sicherung.
