@@ -280,13 +280,17 @@ def plan_archives(entries: list[dict[str, Any]], media: str, target: int) -> lis
 def create_archive(path: Path, root: Path, manifest: dict[str, Any],
                    progress: Callable[[int], None] | None = None, *, validate: bool = True,
                    single_pass: bool = False, expected: list[dict[str, Any]] | None = None,
-                   activity: Callable[[dict[str, Any]], None] | None = None) -> None:
+                   activity: Callable[[dict[str, Any]], None] | None = None,
+                   manifest_capacity: int | None = None) -> None:
     expected_map = {e["path"]: e for e in (expected or [])}
     with tarfile.open(path, "w", format=tarfile.PAX_FORMAT, copybufsize=1024 * 1024) as tar:
         manifest_bytes = encode(manifest)
         if len(manifest_bytes) > MAX_META:
             raise SafetyError("Manifest exceeds metadata limit; reduce target archive size")
-        add_bytes(tar, MANIFEST, manifest_bytes)
+        capacity = len(manifest_bytes) if manifest_capacity is None else manifest_capacity
+        if not len(manifest_bytes) <= capacity <= MAX_META:
+            raise SafetyError("Invalid reserved manifest capacity")
+        add_bytes(tar, MANIFEST, manifest_bytes.ljust(capacity, b' '))
         done = 0
         class ProgressReader:
             def __init__(self, stream: BinaryIO):
@@ -329,13 +333,13 @@ def create_archive(path: Path, root: Path, manifest: dict[str, Any],
                     raise SafetyError("Source checksum changed during TAR creation: " + entry['path'])
     if single_pass:
         final = encode(manifest)
-        if len(final) != len(manifest_bytes):
+        if len(final) != len(manifest_bytes) or len(final) > capacity:
             raise SafetyError("Final manifest size changed")
         # Private, unpublished TAR only: fixed-width hashes replace placeholders.
         # The mandatory independent full inspection below certifies final bytes.
         with path.open('r+b') as stream:
             stream.seek(512)
-            stream.write(final)
+            stream.write(final.ljust(capacity, b' '))
             stream.flush()
             os.fsync(stream.fileno())
     if validate:

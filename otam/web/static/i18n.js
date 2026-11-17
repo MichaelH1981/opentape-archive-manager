@@ -105,6 +105,8 @@ const en = {
   "Letzte Erkennung": "Last detection",
 
   "Optional: Quellen vor der Medienauswahl lokal übernehmen": "Optional: copy sources locally before choosing media",
+  "Erstellt lokal geprüfte TARs direkt aus der Quelle mit SHA-256. Benötigt Platz für die TARs, keine zusätzliche Rohkopie. Zielmedien werden später zugeordnet; anschließend werden die endgültigen TARs lokal geprüft.": "Creates locally verified TARs directly from the source with SHA-256. Requires space for the TARs without an additional raw copy. Target media are assigned later, followed by local validation of the final TARs.",
+  "Die Quellen liegen in lokal geprüften TARs vor. Bei der Medienzuordnung werden Metadaten ergänzt und die endgültigen TARs geprüft; die Nutzdaten werden nicht nochmals kopiert.": "Sources are held in locally verified TARs. Media assignment finalizes metadata and verifies the final TARs without copying the payload again.",
   "Erstellt eine lokale Quellkopie mit SHA-256. Das NAS wird bei der späteren TAR-Erstellung nicht erneut gelesen. Benötigt zusätzlichen Platz für Quellkopie und TARs; keine fertigen Bandarchive.": "Creates a local source copy with SHA-256. Later TAR creation does not read the NAS again. Requires additional space for the copy and TARs; these are not finished tape archives.",
   "Quellen lokal übernehmen (optional)": "Copy sources locally (optional)",
   "Die Quellen sind lokal übernommen und gehasht. Zielmedien können jetzt zugeordnet werden; die TARs entstehen aus der lokalen Kopie.": "Sources have been copied locally and hashed. Target media can now be assigned; TARs will be built from the local copy.",

@@ -23,7 +23,11 @@ def capture(config, control, c, g):
         raise SafetyError('Rollierende Sicherung benötigt eine vollständige Quellenaufnahme')
     binding = control.get('job_storage:' + g['source_job'])
     staging = resources.staging_for(config, control, binding['staging_id'])
-    source_capture.validate(staging, g['source_job'], draft['source_capture'])
+    if json.loads(g['data_json']).get('source_capture_storage') == 'packed-bound-v1':
+        from ..packed_capture import validate_bound
+        validate_bound(c, staging, g)
+    else:
+        source_capture.validate(staging, g['source_job'], draft['source_capture'])
     return draft
 
 
@@ -132,6 +136,8 @@ def bind(config, control, payload):
         with c.db:
             for medium in data['media_ids']:
                 c.db.execute('INSERT INTO generation_volumes VALUES(?,?)', (key, medium))
+        if draft['source_capture'].get('format') == 'otam-packed-source-v1':
+            data['source_capture_storage'] = 'packed-bound-v1'
         model.update_generation(c, key, 'WAITING_MEDIA', data, archive_job=result['job_id'])
         return {'generation_id': key, **result}
     finally:
@@ -373,6 +379,21 @@ def cleanup(config, control, payload):
             data = json.loads(g['data_json'])
             if not data.get('source_capture_retained'):
                 return {'state': 'UNCHANGED'}
+            if data.get('source_capture_storage') == 'packed-bound-v1':
+                from ..staging import StagingStore
+                binding = control.get('job_storage:' + g['source_job'])
+                staging = resources.staging_for(config, control, binding['staging_id'])
+                store = StagingStore(c, staging)
+                for job in c.db.execute("SELECT id,plan_json FROM jobs WHERE json_extract(plan_json,'$.packed_source_job')=?", (g['source_job'],)).fetchall():
+                    for manifest in json.loads(job['plan_json'])['archives']:
+                        if store.row(job['id'], manifest['archive_id'])['phase'] == 'STAGING_CLEANUP':
+                            continue
+                        store.assert_ready_identity(job['id'], manifest)
+                        store.cleanup(job['id'], manifest['archive_id'], release_generation=True)
+                data['source_capture_retained'] = False
+                model.update_generation(c, g['id'], g['state'], data)
+                c.event(g['source_job'], 'rotation_source_cleaned', generation_id=g['id'], storage='packed TARs')
+                return {'state': 'SUCCEEDED'}
             draft = capture(config, control, c, g)
             binding = control.get('job_storage:' + g['source_job'])
             staging = resources.staging_for(config, control, binding['staging_id'])

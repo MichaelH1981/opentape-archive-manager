@@ -84,7 +84,9 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
             entries = inventory(root, selected, expected=expected, excluded=excluded,
                                 progress=progress_recorder(catalog,source_job) if source_job else None)
         else:
-            inventory(root, selected, metadata_only=True, expected=expected, excluded=excluded)
+            from .packed_capture import load as packed_source
+            if not packed_source(catalog, source_job):
+                inventory(root, selected, metadata_only=True, expected=expected, excluded=excluded)
             entries = estimate_entries(expected)
         hashes = {e['path']: e for e in entries}
         for group in assignments.values():
@@ -95,7 +97,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
         child_plans = []
         if staging is not None:
             from .staging import StagingStore
-            StagingStore(catalog,staging).require_space(sum(sizes))
+            from .packed_capture import load as packed_source
+            StagingStore(catalog,staging).require_space(1024*1024 if packed_source(catalog,source_job) else sum(sizes))
         for media, _ in media_tapes:
             group = assignments[media]
             if not group:
@@ -113,6 +116,8 @@ def plan_set(catalog: Catalog, source: Path, media_tapes: list[tuple[str, Tape |
                      "parent_job": parent_id}
             if staging is not None:
                 child["source_capture"] = "single-pass-v1"
+                if packed_source(catalog, source_job):
+                    child['packed_source_job'] = source_job
             if selected is not None:
                 child["selected_paths"] = sorted(set(selected))
             if excluded is not None:

@@ -1,5 +1,13 @@
 # Optionale Quellenübernahme ohne Medienbindung
 
+Ab 0.9.2 erzeugen neue Übernahmen direkt lokal geprüfte TARs ohne zusätzliche
+Rohkopie. Medien werden später zugeordnet. Details zu Platzbedarf, Bindung,
+Fehlerbehandlung und Kompatibilität: [Direkte TAR-Übernahme](packed-source-capture-092.md).
+
+Die folgende Beschreibung dokumentiert das weiterhin unterstützte Legacyformat
+`otam-source-capture-v1` aus Versionen bis einschließlich 0.9.1.1.
+
+
 Der reguläre Ablauf bleibt unverändert. `stage-source` ist ein separater
 Queue-Auftrag mit genau `job_id` und `source_plan_hash`. Die Weboberfläche bietet
 ihn im Quellenplan in einem ausdrücklich optionalen, zunächst geschlossenen

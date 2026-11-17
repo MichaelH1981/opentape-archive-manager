@@ -22,6 +22,9 @@ def location(staging, job):
 
 
 def validate(staging, job, capture):
+    if capture.get('format') == 'otam-packed-source-v1':
+        from .packed_capture import validate as validate_packed
+        return validate_packed(staging, job, capture)
     parent=location(staging,job)
     if parent.is_symlink() or parent.resolve().parent!=staging.resolve():
         raise SafetyError('Unsichere lokale Quellenkopie')
@@ -87,6 +90,10 @@ def prepare(catalog, job, draft, staging):
 
 def cleanup(staging, job, capture):
     """Remove only owned source copies after all final TARs have been published."""
+    if capture.get('format') == 'otam-packed-source-v1':
+        # Payload inodes now belong to final staged archives. Keep the small
+        # durable binding intents as evidence; never remove them implicitly.
+        return
     root,entries=validate(staging,job,capture)
     parent=root.parent
     if {p.name for p in parent.iterdir()}!={'owner.json','data'}:

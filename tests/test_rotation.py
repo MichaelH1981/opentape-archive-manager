@@ -202,12 +202,38 @@ class Rotation(TestCase):
             self.assertNotEqual(draft.get('backup_mode'),'additive')
         finally:c.close()
 
+    def test_legacy_generation_plan_and_hash_survive_new_code(self):
+        self.create_policy();self.add();self.add()
+        with patch('otam.packed_capture.prepare',side_effect=source_capture.prepare):
+            g=self.prepare()
+        bound=self.bind(g)
+        c=Catalog(self.config.catalog)
+        try:before=c.db.execute('select plan_json from jobs where id=?',(bound['job_id'],)).fetchone()[0]
+        finally:c.close()
+        self.complete(bound)
+        c=Catalog(self.config.catalog)
+        try:
+            self.assertEqual(c.db.execute('select plan_json from jobs where id=?',(bound['job_id'],)).fetchone()[0],before)
+            self.assertEqual(model.row(c,'backup_generations',g)['state'],'VERIFIED')
+        finally:c.close()
+
+    def test_packed_generation_retains_all_tars_until_explicit_verified_cleanup(self):
+        self.create_policy();self.add();self.add();g=self.prepare();bound=self.bind(g)
+        before=list(self.config.staging.rglob('ready.tar'));self.assertTrue(before)
+        with self.assertRaises(SafetyError):
+            execute(self.config,self.control,'cleanup-rotation',dict(generation_id=g))
+        self.complete(bound)
+        self.assertTrue(all(p.exists() for p in before))
+        self.assertEqual(execute(self.config,self.control,'cleanup-rotation',dict(generation_id=g))['state'],'SUCCEEDED')
+        self.assertTrue(all(not p.exists() for p in before))
+        self.assertEqual(execute(self.config,self.control,'cleanup-rotation',dict(generation_id=g))['state'],'UNCHANGED')
+
     def test_capture_changed_blocks_destructive_review(self):
         self.create_policy();one=self.add();self.add();g=self.prepare();self.complete(self.bind(g));ng=self.prepare();self.bind(ng)
         c=Catalog(self.config.catalog)
         try:
             generation=model.row(c,'backup_generations',ng)
-            path=source_capture.location(self.config.staging,generation['source_job'])/'data/one'
+            path=next(source_capture.location(self.config.staging,generation['source_job']).glob('*.tar'))
             path.chmod(0o600);path.write_bytes(b'invalid')
             with self.assertRaises(SafetyError):self.recycled(ng,one)
         finally:c.close()
@@ -312,7 +338,7 @@ class Rotation(TestCase):
             stack.enter_context(patch.object(LinuxTape,'_driver_mode'))
             for name in ('otam.physical.discover_drives','otam.web.physical_archive.discover_drives','otam.web.rotation.discover_drives'):
                 stack.enter_context(patch(name,return_value=[drive]))
-            for name in ('otam.storage.require_local','otam.staging.require_local','otam.source_capture.require_local',
+            for name in ('otam.storage.require_local','otam.staging.require_local','otam.source_capture.require_local','otam.packed_capture.require_local',
                          'otam.web.resources.require_local','otam.web.physical_archive.require_local'):
                 stack.enter_context(patch(name,return_value=storage))
             stack.enter_context(patch('otam.service.require_qualification'))

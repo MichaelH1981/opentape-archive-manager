@@ -203,7 +203,9 @@ class ArchiveService:
             from .capture import prepare_combined, progress_recorder
             progress = progress_recorder(self.catalog, job)
             if staging is not None:
-                inventory(root, selected, metadata_only=True, expected=expected, excluded=excluded, progress=progress)
+                from .packed_capture import load as packed_source
+                if not packed_source(self.catalog, source_job):
+                    inventory(root, selected, metadata_only=True, expected=expected, excluded=excluded, progress=progress)
                 manifests = preflight
                 prepare_combined(self.catalog, job, root, manifests, expected, staging, source_job=source_job)
                 entries = [e for m in manifests for e in m['files']]
@@ -222,6 +224,8 @@ class ArchiveService:
                     "expected_tape_files": expected_tape_files}
             if staging is not None:
                 plan["source_capture"] = "single-pass-v1"
+                if packed_source(self.catalog, source_job):
+                    plan['packed_source_job'] = source_job
             if selected is not None:
                 plan["selected_paths"] = sorted(set(selected))
             if excluded is not None:

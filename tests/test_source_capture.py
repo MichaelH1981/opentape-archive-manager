@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import tarfile
 from unittest import TestCase
 from unittest.mock import patch
 from tests import test_source_plans
@@ -38,19 +39,22 @@ class SourceCapture(TestCase):
             _,draft=source_plans.load(c,preview['job_id'])
             self.assertEqual(len(draft['source_capture']['entries']),2)
             root,_=source_capture.validate(self.config.staging,preview['job_id'],draft['source_capture'])
-            self.assertEqual((root/'one').read_bytes(),b'one'*10000)
+            self.assertEqual(draft['source_capture']['format'],'otam-packed-source-v1')
+            with tarfile.open(next(root.glob('*.tar'))) as tar:
+                name=next(e['path'] for e in draft['source_capture']['entries'] if e['path'] in [m.name[5:] for m in tar.getmembers() if m.name.startswith('data/')])
+                self.assertEqual(tar.extractfile('data/'+name).read(),(name*10000).encode())
         finally:c.close()
         shutil.rmtree(self.root/'source')
         first=self.medium('first');second=self.medium('second')
         bound=self.bind(result,[first,second])
-        self.assertFalse(source_capture.location(self.config.staging,preview['job_id']).exists())
+        self.assertFalse(list(source_capture.location(self.config.staging,preview['job_id']).glob('*.tar')))
         execute(self.config,self.control,'backup-set',{'job_id':bound['job_id'],'plan_hash':bound['sha256'],'confirm':bound['job_id'],'media_id':first})
         finished=execute(self.config,self.control,'backup-set',{'job_id':bound['job_id'],'plan_hash':bound['sha256'],'confirm':bound['job_id'],'media_id':second})
         self.assertEqual(finished['state'],'VERIFIED')
 
     def test_space_failure_has_no_source_copy_or_media_requirement(self):
         preview=self.preview()
-        with patch('otam.source_capture.require_local',return_value={'free':1}):
+        with patch('otam.packed_capture.require_local',return_value={'free':1}):
             with self.assertRaisesRegex(SafetyError,'Platz'):self.capture(preview)
         self.assertFalse(list(self.config.staging.glob('otam-source-*')))
         self.bind(preview,[self.medium('first'),self.medium('second')])
@@ -58,7 +62,7 @@ class SourceCapture(TestCase):
     def test_no_overwrite_and_cached_identity_changes_refused(self):
         preview=self.preview();result=self.capture(preview)
         self.assertTrue(self.capture(result)['source_captured'])
-        path=self.config.staging/('otam-source-'+preview['job_id'])/'data/one'
+        path=next(source_capture.location(self.config.staging,preview['job_id']).glob('*.tar'))
         path.chmod(0o600);path.write_bytes(b'corrupted')
         with self.assertRaises(SafetyError):self.capture(result)
 

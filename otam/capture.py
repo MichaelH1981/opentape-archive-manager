@@ -23,6 +23,30 @@ def progress_recorder(catalog, job):
 def prepare_combined(catalog, job, root, manifests, expected, spool, *, source_job=None):
     """Never publish a plan with placeholder hashes; interrupted files stay owned."""
     spool=spool.resolve()
+    from . import packed_capture
+    packed = packed_capture.load(catalog, source_job)
+    if packed:
+        store = StagingStore(catalog, spool)
+        store.require_space(1024 * 1024)  # Metadata only; payload inodes are moved.
+        if catalog.path.is_relative_to(spool):
+            raise SafetyError('Staging must not contain the catalog')
+        if catalog.db.execute('SELECT 1 FROM jobs WHERE id=?', (job,)).fetchone() is None:
+            now = time.time()
+            with catalog.db:
+                catalog.db.execute("INSERT INTO jobs(id,kind,state,media_id,created,updated,phase) VALUES(?,'archive','PLANNING',?,?,?,'INVENTORY')",
+                                   (job, manifests[0]['media_id'], now, now))
+        if source_job:catalog.event(source_job, 'planning_child', child_job=job)
+        with catalog.db:
+            for m in manifests:
+                catalog.db.execute("INSERT INTO staged_archives(job_id,archive_id,phase,state,total_bytes,updated) VALUES(?,?,'INVENTORY','COMPLETE',?,?)",
+                                   (job,m['archive_id'],sum(e['size'] for e in m['files']),time.time()))
+        try:
+            for m in manifests:
+                packed_capture.adopt(store, job, m, source_job, packed)
+        except BaseException as error:
+            catalog.finish(job, 'INTERRUPTED', str(error))
+            raise
+        return
     if spool.is_relative_to(root) or root.is_relative_to(spool):
         # An explicitly owned, sealed source snapshot is the only exception.
         from .source_capture import validate as validate_capture

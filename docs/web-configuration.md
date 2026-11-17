@@ -328,3 +328,12 @@ nur an Loopback. Anmeldedaten und Einrichtungsschlüssel gehören nicht in Issue
 Git, Katalogsnapshots oder Diagnoseanhänge. Bei einem verlorenen lokalen
 Zustandskatalog nicht wahllos ein neues Administratorkonto initialisieren: zuerst
 Konfiguration, Control-Backup und bestehende Zustandsdaten untersuchen.
+
+## Quellenübernahme ab 0.9.2
+
+Die optionale Übernahme vor der Medienwahl sowie neue rollierende Generationen
+schreiben bereits lokal geprüfte TARs statt einer zusätzlichen Rohkopie. Der
+Dialog nennt den einfachen TAR-Platzbedarf und die spätere Medienbindung.
+Bindung und abschließende lokale Prüfung benötigen keinen zweiten Payloadplatz.
+Bestehende Quellenkopien und Archivpläne behalten ihren bisherigen Ablauf.
+[Details und Fehlerbehandlung](architecture/packed-source-capture-092.md).

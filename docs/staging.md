@@ -61,3 +61,14 @@ Qualifikation nur bei mindestens 30 Minuten, mindestens 10 GiB echter Eingabedat
 Sync-QD1-Direct-I/O prüft bewusst einen konservativen sequenziellen Leser. Vorhandene Diagnose zeigte starke SSD-Einbrüche bis 29 MiB/s und bessere QD8-Werte. Das Puffermodell berechnet die **zusammenhängende** Entnahme und lässt anhaltende Defizite nicht durch einen kurzen Durchschnitt oder stillen Cache-/Queue-Wechsel „bestehen“. Ein Puffer überbrückt kurze Einbrüche, kein dauerhaftes Quell- oder Plattendefizit. Wiederholung unter realistischer konkurrierender Systemlast, mit typischen TAR-Größen und in den tatsächlich genutzten Plattenbereichen gehört zur Betriebsabnahme; eine 12-GiB-Datei im äußeren Bereich beweist keine 120 MB/s bis 1,6 TB Belegung.
 
 Inzwischen wurde der vollständige 30-Minuten-Test auf der lokalen Server-SSD durchgeführt: [lokale Diagnose und Hardware-Abnahme](hardware/README.md). Durchschnitt 254,73 MB/s, Minimum 26,15 MB/s, qualified=false. **Keine Produktionsfreigabe**; ein hoher Durchschnitt ersetzt die geforderte stabile Rate nicht. Es wurde kein produktiver Bandjob durchgeführt.
+
+## Direkte Übernahme vor der Medienauswahl (0.9.2)
+
+Die optionale Quellenübernahme sowie neue rollierende Generationen erstellen TARs
+bereits während des Quellenlesens und hashens. Es wird nur die vollständige
+TAR-Menge plus kleiner Metadatenplatz benötigt, keine zusätzliche Rohkopie.
+Die spätere Medienzuordnung ergänzt reservierte TAR-Metadaten ohne Payloadkopie
+und prüft die fertigen TARs erneut lokal. Rollierende Generationen behalten diese
+lokalen TARs bis zur expliziten Bereinigung nach vollständigem VERIFIED-Abschluss.
+Alte Quellenkopien und laufende Pläne behalten ihren bisherigen Ablauf.
+Siehe [Architektur und Sicherheitsgrenzen](architecture/packed-source-capture-092.md).

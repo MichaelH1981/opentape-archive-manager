@@ -1682,3 +1682,30 @@ Dossier mit SHA256SUMS. Wheel-SHA256:
 `86fcd5b26e3ceb5b4a4570e66ee50b9689c46ee970ca067b680be9f874fa62a0`;
 Debian-SHA256:
 `28652bcf0d0487b53939bb0ec77ee7871825ab260001d57a92cdccafb18ba2f7`.
+
+## 0.9.2 vorbereitet — direkte TAR-Quellenübernahme
+
+Neue optionale Quellenübernahmen und rollierende Generationen erstellen beim
+Lesen bereits lokale PAX-TARs mit SHA-256. Keine zusätzliche Rohkopie; der
+Platzbedarf entspricht der konservativen TAR-Schätzung. Die spätere Medienbindung
+verwendet dieselben Payload-Inodes, finalisiert ausschließlich reservierte lokale
+Manifestbytes und prüft die endgültigen TARs vollständig vor Plan-/READY-Freigabe.
+Rollierende Generationen behalten alle lokalen TARs bis zur expliziten Bereinigung
+nach vollständig verfügbarem VERIFIED-Abschluss. Bindungsabbrüche bleiben mit
+Intent/Partial gesperrt. Keine automatische Wiederholung oder Quellenrückfall.
+
+375 Tests bestanden, ein plattformbedingter Skip (376 insgesamt), sowohl gegen
+den Quellstand als auch gegen das extrahierte gebaute Wheel. Abschließende gezielte
+Prüfung: 40 Tests bestanden. JavaScript-Syntax und Wheel-RECORD-Hashes geprüft.
+Nachweise: nur ein Nutzdatenread der Originalquelle, Bedarf unter Rohkopie+TAR,
+späte Ein-/Mehrmedienbindung ohne Originalquelle, gleiche Inodes vor/nach Bindung,
+Backup/Restore, Erhalt/Bereinigung der vollständigen rollierenden Quellenaufnahme,
+Legacy-Rohkopien und bestehende Generationspläne mit unverändertem Planhash,
+Manipulation und gescheiterte Bindung ohne veröffentlichten Plan oder Bandarchive.
+
+Keine Schemaänderung, keine Live-Installation, keine Änderung laufender Jobs und
+keine reale Bandaktion für diese Vorbereitung. Erst nach Jobabschluss und erneutem
+Leerlauf-/Backupcheck installieren. Neue gepackte Quellenpläne sind kein
+Downgradeformat für 0.9.1.1. Grenzen und Rückweg siehe
+[Architektur](architecture/packed-source-capture-092.md).
+Wheel-SHA256: `03cb85b1ca3414b93238bc98838e1407fdd09d2fc361d2c76adb41ce9b300d5e`.

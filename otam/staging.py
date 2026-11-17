@@ -301,10 +301,24 @@ class StagingStore:
         self.track(job, archive, path)
         return path
 
-    def cleanup(self, job: str, archive: str) -> None:
+    def cleanup(self, job: str, archive: str, *, release_generation: bool = False) -> None:
         row = self.catalog.db.execute("SELECT state FROM archives WHERE id=? AND job_id=?", (archive, job)).fetchone()
         if row is None or row["state"] != "VERIFIED":
             raise SafetyError("Staging cleanup requires a fully read-back VERIFIED archive")
+        plan_row = self.catalog.db.execute('SELECT plan_json FROM jobs WHERE id=?', (job,)).fetchone()
+        plan = json.loads(plan_row[0]) if plan_row and plan_row[0] else {}
+        if plan.get('packed_source_job'):
+            generation = self.catalog.db.execute('SELECT id,state FROM backup_generations WHERE source_job=?',
+                                                (plan['packed_source_job'],)).fetchone()
+            if generation:
+                if not release_generation:
+                    self.catalog.event(job, 'staging_cleanup_deferred', archive=archive,
+                                       reason='Packed rotation capture retained until explicit generation cleanup')
+                    return
+                from .rotation import available_generations
+                policy = self.catalog.db.execute('SELECT policy_id FROM backup_generations WHERE id=?', (generation['id'],)).fetchone()[0]
+                if generation['state'] != 'VERIFIED' or generation['id'] not in {g['id'] for g in available_generations(self.catalog, policy)}:
+                    raise SafetyError('Packed generation cleanup requires complete available verification')
         directory = self.directory(job, archive)
         self.phase(job, archive, "STAGING_CLEANUP")
         artifacts = self.catalog.db.execute("SELECT * FROM staging_artifacts WHERE job_id=? AND archive_id=?", (job, archive)).fetchall()

@@ -186,7 +186,9 @@ def _prepare(config,control,kind,payload):
                     return {'state':'WAITING_MEDIA','job_id':payload['job_id'],'sha256':draft['sha256'],'source_captured':True}
                 with c.db:c.db.execute("UPDATE jobs SET state='RUNNING',phase='STAGING' WHERE id=?",(payload['job_id'],))
                 try:
-                    draft['source_capture']=source_capture.prepare(c,payload['job_id'],draft,staging)
+                    from ..packed_capture import prepare as prepare_packed
+                    draft['source_capture']=prepare_packed(c,payload['job_id'],draft,staging)
+                    draft['hashes_calculated']=True
                     draft.pop('sha256',None);draft['sha256']=hashlib.sha256(encode(draft)).hexdigest()
                     with c.db:c.db.execute("UPDATE jobs SET state='WAITING_MEDIA',phase='MEDIA_SELECTION',plan_json=?,updated=? WHERE id=?",(encode(draft).decode(),time.time(),payload['job_id']))
                     c.event(payload['job_id'],'source_capture_ready',bytes=draft['source_capture']['bytes'])
@@ -240,10 +242,11 @@ def execute(config,control,kind,payload):
             draft={**draft,'source_entries':expected,'selected_paths':None,'capture_paths':None,'excluded_paths':None}
         from ..storage import require_local
         free=require_local(staging)['free']
-        combined=free >= draft['required_estimate']
+        packed=draft.get('source_capture',{}).get('format')=='otam-packed-source-v1'
+        combined=free >= (1024*1024 if packed else draft['required_estimate'])
         c.event(payload['job_id'],'combined_capture_policy',selected=combined,
-                required_bytes=draft['required_estimate'],free_bytes=free,
-                reason='enough local staging' if combined else 'legacy path; insufficient space for all TARs')
+                required_bytes=1024*1024 if packed else draft['required_estimate'],free_bytes=free,
+                reason='reuse prepared TAR inodes' if packed else 'enough local staging' if combined else 'legacy path; insufficient space for all TARs')
         if draft.get('source_capture') and not combined:
             raise SafetyError('Für die TAR-Erstellung aus der lokalen Quellkopie fehlt Staging-Platz')
         if not combined:staging=None
@@ -263,12 +266,12 @@ def execute(config,control,kind,payload):
         if draft.get('source_capture') and not retain_capture:
             try:
                 source_capture.cleanup(staging,payload['job_id'],draft['source_capture'])
-                c.event(payload['job_id'],'source_capture_cleaned',final_tar_job=plan['job_id'])
+                c.event(payload['job_id'],'packed_capture_consumed' if packed else 'source_capture_cleaned',final_tar_job=plan['job_id'])
             except Exception as error:
                 c.event(payload['job_id'],'source_capture_cleanup_deferred',level='WARNING',error=str(error))
         return result
     except Exception as error:
-        c.finish(payload['job_id'],'INTERRUPTED' if plan is not None else 'WAITING_MEDIA',str(error),
+        c.finish(payload['job_id'],'INTERRUPTED' if plan is not None or draft.get('source_capture',{}).get('format')=='otam-packed-source-v1' else 'WAITING_MEDIA',str(error),
                  report={'job_id':plan['job_id']} if plan is not None else None)
         raise
     finally:c.close()
